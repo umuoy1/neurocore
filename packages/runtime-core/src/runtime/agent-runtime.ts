@@ -112,7 +112,7 @@ export class AgentRuntime {
     return session;
   }
 
-  public async runOnce(profile: AgentProfile, sessionId: string, input: UserInput) {
+  public async runOnce(profile: AgentProfile, sessionId: string, input: UserInput): Promise<AgentRunResult> {
     const session = this.sessions.get(sessionId);
     if (!session) {
       throw new Error(`Unknown session: ${sessionId}`);
@@ -794,9 +794,14 @@ function observationToInput(observation?: Observation): UserInput {
     throw new Error("Cannot continue without an observation to feed into the next cycle.");
   }
 
+  const payloadText = serializeObservationPayload(observation);
+  const content = payloadText
+    ? `Tool observation: ${observation.summary}\nTool payload (JSON): ${payloadText}`
+    : `Tool observation: ${observation.summary}`;
+
   return {
     input_id: `inp_${observation.observation_id}`,
-    content: `Tool observation: ${observation.summary}`,
+    content,
     created_at: observation.created_at,
     metadata: {
       sourceObservationId: observation.observation_id,
@@ -809,6 +814,22 @@ function observationToInput(observation?: Observation): UserInput {
       sourceActionId: observation.source_action_id
     }
   };
+}
+
+function serializeObservationPayload(observation: Observation): string | undefined {
+  if (!observation.structured_payload) {
+    return undefined;
+  }
+
+  try {
+    const raw = JSON.stringify(observation.structured_payload);
+    if (!raw) {
+      return undefined;
+    }
+    return raw.length > 6000 ? `${raw.slice(0, 6000)}...[truncated]` : raw;
+  } catch {
+    return undefined;
+  }
 }
 
 function derivePendingInput(

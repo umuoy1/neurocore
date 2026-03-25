@@ -3,8 +3,8 @@ import type {
   Goal,
   ModuleContext,
   Proposal,
-  SideEffectLevel,
-  Reasoner
+  Reasoner,
+  SideEffectLevel
 } from "@neurocore/protocol";
 import type { OpenAICompatibleConfig } from "../config/openai-compatible-config.js";
 import { debugLog } from "../debug.js";
@@ -247,7 +247,7 @@ export class OpenAICompatibleReasoner implements Reasoner {
         body: JSON.stringify({
           model: this.config.model,
           temperature: 0.2,
-          max_tokens: 512,
+          max_tokens: 1024*100,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt }
@@ -284,7 +284,7 @@ export class OpenAICompatibleReasoner implements Reasoner {
         model: this.config.model,
         latencyMs,
         contentChars: content.length,
-        contentPreview: content.slice(0, 200)
+        contentPreview: content
       });
       return parseJsonResponse<T>(content);
     } catch (error) {
