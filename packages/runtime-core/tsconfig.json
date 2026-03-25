@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "references": [
+    { "path": "../protocol" },
+    { "path": "../memory-core" },
+    { "path": "../policy-core" }
+  ],
+  "include": ["src/**/*.ts"]
+}
+

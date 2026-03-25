@@ -1,0 +1,13 @@
+service: payments-api
+environment: production
+database:
+  pool:
+    min: 20
+    max: 400
+    acquireTimeoutMs: 1200
+featureFlags:
+  enableAdaptiveRateLimiter: true
+  enablePoolPreWarm: false
+notes:
+  - rc4 introduced a more aggressive pool ceiling for burst traffic
+  - changes should be reviewed with the database owner before wide rollout

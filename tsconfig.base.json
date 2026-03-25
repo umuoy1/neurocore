@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "incremental": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@neurocore/protocol": ["packages/protocol/src/index.ts"],
+      "@neurocore/runtime-core": ["packages/runtime-core/src/index.ts"],
+      "@neurocore/runtime-server": ["packages/runtime-server/src/index.ts"],
+      "@neurocore/sdk-core": ["packages/sdk-core/src/index.ts"],
+      "@neurocore/sdk-node": ["packages/sdk-node/src/index.ts"],
+      "@neurocore/eval-core": ["packages/eval-core/src/index.ts"],
+      "@neurocore/policy-core": ["packages/policy-core/src/index.ts"],
+      "@neurocore/memory-core": ["packages/memory-core/src/index.ts"]
+    }
+  }
+}

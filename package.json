@@ -1,0 +1,26 @@
+{
+  "name": "neurocore",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "demo:session": "npm run build && node examples/demo-session.mjs",
+    "demo:high-risk": "npm run build && node examples/demo-high-risk-change.mjs",
+    "demo:incident": "npm run build && node examples/demo-incident-diagnosis.mjs",
+    "demo:cli": "npm run build && node examples/demo-cli.mjs",
+    "demo:replay": "npm run build && node examples/demo-replay.mjs",
+    "demo:eval": "npm run build && node examples/demo-eval.mjs",
+    "demo:checkpoint": "npm run build && node examples/demo-checkpoint.mjs",
+    "demo:tool-retry": "npm run build && node examples/demo-tool-retry.mjs",
+    "demo:runtime-server": "npm run build && node examples/demo-runtime-server.mjs",
+    "demo:runtime-parity": "npm run build && node examples/demo-runtime-parity.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "typescript": "^5.8.2"
+  }
+}

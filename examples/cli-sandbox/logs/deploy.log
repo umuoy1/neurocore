@@ -1,0 +1,4 @@
+2026-03-25T09:02:11Z INFO deploy service=payments-api version=2026.03.25-rc3 author=anna risk=medium
+2026-03-25T09:31:44Z INFO deploy service=payments-api version=2026.03.25-rc4 author=liwei risk=high changes=rate-limiter,db-pool-config
+2026-03-25T09:43:02Z WARN alert service=payments-api p95=1840ms error_rate=3.8% saturation=high
+2026-03-25T09:47:30Z INFO deploy service=ledger-writer version=2026.03.25-rc2 author=anna risk=low
