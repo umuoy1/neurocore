@@ -3,6 +3,7 @@ export * from "./cycle/cycle-engine.js";
 export * from "./execution/tool-gateway.js";
 export * from "./goal/goal-manager.js";
 export * from "./meta/meta-controller.js";
+export * from "./persistence/file-runtime-state-store.js";
 export * from "./replay/replay-runner.js";
 export * from "./runtime/agent-runtime.js";
 export * from "./session/session-manager.js";

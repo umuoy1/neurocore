@@ -551,3 +551,26 @@ export interface SessionCheckpoint {
   pending_input?: UserInput;
   created_at: Timestamp;
 }
+
+export interface PendingApprovalContextSnapshot {
+  approval_id: string;
+  cycle_id: string;
+  input: UserInput;
+  proposals: Proposal[];
+  candidate_actions: CandidateAction[];
+  predictions: Prediction[];
+  workspace: WorkspaceSnapshot;
+  selected_action: CandidateAction;
+  started_at: Timestamp;
+}
+
+export interface RuntimeSessionSnapshot {
+  session: AgentSession;
+  goals: Goal[];
+  working_memory: WorkingMemoryRecord[];
+  episodes: Episode[];
+  trace_records: CycleTraceRecord[];
+  approvals: ApprovalRequest[];
+  pending_approvals: PendingApprovalContextSnapshot[];
+  checkpoints: SessionCheckpoint[];
+}

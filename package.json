@@ -17,7 +17,8 @@
     "demo:checkpoint": "npm run build && node examples/demo-checkpoint.mjs",
     "demo:tool-retry": "npm run build && node examples/demo-tool-retry.mjs",
     "demo:runtime-server": "npm run build && node examples/demo-runtime-server.mjs",
-    "demo:runtime-parity": "npm run build && node examples/demo-runtime-parity.mjs"
+    "demo:runtime-parity": "npm run build && node examples/demo-runtime-parity.mjs",
+    "demo:runtime-recovery": "npm run build && node examples/demo-runtime-recovery.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",

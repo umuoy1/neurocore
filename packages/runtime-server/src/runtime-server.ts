@@ -281,11 +281,29 @@ export class NeuroRuntimeServer {
   }
 
   private requireSession(sessionId: string): ManagedSession {
-    const session = this.sessions.get(sessionId);
+    const session = this.sessions.get(sessionId) ?? this.connectPersistedSession(sessionId);
     if (!session) {
       throw new HttpError(404, "session_not_found", `Unknown session: ${sessionId}`);
     }
     return session;
+  }
+
+  private connectPersistedSession(sessionId: string): ManagedSession | undefined {
+    for (const [agentId, agent] of this.agents.entries()) {
+      try {
+        const handle = agent.connectSession(sessionId);
+        const record: ManagedSession = {
+          agent_id: agentId,
+          handle
+        };
+        this.sessions.set(sessionId, record);
+        return record;
+      } catch {
+        continue;
+      }
+    }
+
+    return undefined;
   }
 
   private requireApproval(approvalId: string): ApprovalRequest {

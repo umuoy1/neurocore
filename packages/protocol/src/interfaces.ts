@@ -17,6 +17,7 @@ import type {
   Prediction,
   PredictionError,
   Proposal,
+  RuntimeSessionSnapshot,
   ToolExecutionPolicy,
   WorkspaceSnapshot
 } from "./types.js";
@@ -112,4 +113,11 @@ export interface CheckpointStore {
   save(snapshot: SessionCheckpoint): void;
   get(checkpointId: string): SessionCheckpoint | undefined;
   list(sessionId: string): SessionCheckpoint[];
+}
+
+export interface RuntimeStateStore {
+  getSession(sessionId: string): RuntimeSessionSnapshot | undefined;
+  listSessions(): RuntimeSessionSnapshot[];
+  saveSession(snapshot: RuntimeSessionSnapshot): void;
+  deleteSession?(sessionId: string): void;
 }

@@ -3,7 +3,9 @@ import type {
   CreateSessionCommand,
   MemoryProvider,
   Reasoner,
+  RuntimeStateStore,
   SessionCheckpoint,
+  UserInput,
   Tool
 } from "@neurocore/protocol";
 import { AgentRuntime } from "@neurocore/runtime-core";
@@ -23,6 +25,7 @@ export class AgentBuilder {
   private reasoner?: Reasoner;
   private readonly memoryProviders: MemoryProvider[] = [];
   private readonly tools: Tool[] = [];
+  private runtimeStateStoreFactory?: () => RuntimeStateStore;
 
   public constructor(options: DefineAgentOptions) {
     this.profile = {
@@ -94,6 +97,11 @@ export class AgentBuilder {
     return this;
   }
 
+  public useRuntimeStateStore(factory: () => RuntimeStateStore): this {
+    this.runtimeStateStoreFactory = factory;
+    return this;
+  }
+
   public createSession(command: CreateSessionCommand): AgentSessionHandle {
     const runtime = this.createRuntime();
     const session = runtime.createSession(this.profile, command);
@@ -111,6 +119,16 @@ export class AgentBuilder {
     );
   }
 
+  public connectSession(sessionId: string, initialInput?: UserInput): AgentSessionHandle {
+    const runtime = this.createRuntime();
+    const session = runtime.getSession(sessionId);
+    if (!session) {
+      throw new Error(`Unknown session: ${sessionId}`);
+    }
+
+    return new AgentSessionHandle(runtime, this.profile, session.session_id, initialInput);
+  }
+
   public getProfile(): AgentProfile {
     return this.profile;
   }
@@ -122,7 +140,8 @@ export class AgentBuilder {
 
     const runtime = new AgentRuntime({
       reasoner: this.reasoner,
-      memoryProviders: this.memoryProviders
+      memoryProviders: this.memoryProviders,
+      stateStore: this.runtimeStateStoreFactory?.()
     });
     for (const tool of this.tools) {
       runtime.tools.register(tool);
