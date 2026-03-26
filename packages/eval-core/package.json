@@ -1,7 +1,16 @@
 {
-  "name": "@neurocore/eval-core",
+  "name": "@neurocore-ai/eval-core",
   "version": "0.1.0",
   "type": "module",
+  "description": "Evaluation framework for replay, comparison and testing of NeuroCore agents",
+  "keywords": ["agent", "runtime", "ai", "llm", "eval", "testing"],
+  "license": "MIT",
+  "author": "neurocore",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/umuoy1/neurocore.git",
+    "directory": "packages/eval-core"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -10,8 +19,12 @@
       "default": "./dist/index.js"
     }
   },
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "@neurocore/protocol": "file:../protocol",
-    "@neurocore/sdk-core": "file:../sdk-core"
+    "@neurocore-ai/protocol": "^0.1.0",
+    "@neurocore-ai/sdk-core": "^0.1.0"
   }
 }

@@ -1,7 +1,16 @@
 {
-  "name": "@neurocore/protocol",
+  "name": "@neurocore-ai/protocol",
   "version": "0.1.0",
   "type": "module",
+  "description": "Core protocol types, interfaces, commands and events for NeuroCore agent runtime",
+  "keywords": ["agent", "runtime", "ai", "llm", "protocol", "typescript"],
+  "license": "MIT",
+  "author": "neurocore",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/umuoy1/neurocore.git",
+    "directory": "packages/protocol"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -9,6 +18,9 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
+  },
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
   }
 }
-

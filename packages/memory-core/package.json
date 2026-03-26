@@ -1,7 +1,16 @@
 {
-  "name": "@neurocore/memory-core",
+  "name": "@neurocore-ai/memory-core",
   "version": "0.1.0",
   "type": "module",
+  "description": "Memory providers (working, episodic, semantic) for NeuroCore agent runtime",
+  "keywords": ["agent", "runtime", "ai", "llm", "memory"],
+  "license": "MIT",
+  "author": "neurocore",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/umuoy1/neurocore.git",
+    "directory": "packages/memory-core"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -10,7 +19,11 @@
       "default": "./dist/index.js"
     }
   },
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "@neurocore/protocol": "file:../protocol"
+    "@neurocore-ai/protocol": "^0.1.0"
   }
 }

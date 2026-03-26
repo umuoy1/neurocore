@@ -1,7 +1,16 @@
 {
-  "name": "@neurocore/runtime-core",
+  "name": "@neurocore-ai/runtime-core",
   "version": "0.1.0",
   "type": "module",
+  "description": "Stateful agent runtime kernel with cycle engine, checkpoints, and session management",
+  "keywords": ["agent", "runtime", "ai", "llm", "stateful", "checkpoint"],
+  "license": "MIT",
+  "author": "neurocore",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/umuoy1/neurocore.git",
+    "directory": "packages/runtime-core"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -10,9 +19,13 @@
       "default": "./dist/index.js"
     }
   },
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "@neurocore/protocol": "file:../protocol",
-    "@neurocore/memory-core": "file:../memory-core",
-    "@neurocore/policy-core": "file:../policy-core"
+    "@neurocore-ai/protocol": "^0.1.0",
+    "@neurocore-ai/memory-core": "^0.1.0",
+    "@neurocore-ai/policy-core": "^0.1.0"
   }
 }

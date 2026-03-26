@@ -6,3 +6,4 @@ coverage
 .neurocore/*.local.json
 docs
 .log
+.npmrc

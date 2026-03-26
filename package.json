@@ -10,6 +10,9 @@
     "typecheck": "tsc -b --pretty false",
     "test": "npm run build && node --test tests/*.test.mjs",
     "test:coverage": "npm run build && node --test --experimental-test-coverage tests/*.test.mjs",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "npm run build && changeset publish",
     "demo:session": "npm run build && node examples/demo-session.mjs",
     "demo:high-risk": "npm run build && node examples/demo-high-risk-change.mjs",
     "demo:incident": "npm run build && node examples/demo-incident-diagnosis.mjs",
@@ -36,6 +39,7 @@
     "demo:runtime-recovery": "npm run build && node examples/demo-runtime-recovery.mjs"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.30.0",
     "@types/node": "^24.5.2",
     "typescript": "^5.8.2"
   }
