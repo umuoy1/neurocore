@@ -6,6 +6,7 @@ import type {
   CycleTraceRecord,
   Episode,
   Goal,
+  NeuroCoreEvent,
   SessionCheckpoint,
   SessionReplay,
   UserInput
@@ -63,6 +64,14 @@ export class AgentSessionHandle {
     return this.runtime.getEpisodes(this.sessionId);
   }
 
+  public getEvents(): NeuroCoreEvent[] {
+    return this.runtime.listEvents(this.sessionId);
+  }
+
+  public subscribeToEvents(listener: (event: NeuroCoreEvent) => void): () => void {
+    return this.runtime.subscribeToSessionEvents(this.sessionId, listener);
+  }
+
   public getGoals(): Goal[] {
     return this.runtime.listGoals(this.sessionId);
   }
@@ -85,6 +94,10 @@ export class AgentSessionHandle {
 
   public checkpoint(): SessionCheckpoint {
     return this.runtime.createCheckpoint(this.sessionId);
+  }
+
+  public getCheckpoints(): SessionCheckpoint[] {
+    return this.runtime.listCheckpoints(this.sessionId);
   }
 
   public suspend(): SessionCheckpoint {
@@ -124,6 +137,10 @@ export class AgentSessionHandle {
 
   public cancel(): AgentSession {
     return this.runtime.cancelSession(this.sessionId);
+  }
+
+  public cleanup(options?: { force?: boolean }): void {
+    this.runtime.cleanupSession(this.sessionId, options);
   }
 
   public async resumeText(content: string, metadata?: Record<string, unknown>) {

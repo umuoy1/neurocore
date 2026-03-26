@@ -59,6 +59,10 @@ export class SessionManager {
     return [...this.sessions.values()];
   }
 
+  public deleteSession(sessionId: string): void {
+    this.sessions.delete(sessionId);
+  }
+
   public updateState(sessionId: string, state: SessionState): AgentSession {
     const session = this.require(sessionId);
     return this.transition(session, state);

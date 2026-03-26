@@ -43,6 +43,11 @@ class SemanticMemoryStore {
     this.tenantBySession.set(sessionId, tenantId);
   }
 
+  public deleteSession(sessionId: string): void {
+    this.episodesBySession.delete(sessionId);
+    this.tenantBySession.delete(sessionId);
+  }
+
   public list(tenantId: string, excludeSessionId?: string): SemanticMemoryRecord[] {
     const groups = new Map<string, SemanticMemoryRecord>();
 
@@ -105,6 +110,10 @@ export class SemanticMemoryProvider implements MemoryProvider {
 
   public replaceSession(sessionId: string, tenantId: string, episodes: Episode[]): void {
     this.store.replaceSession(sessionId, tenantId, episodes);
+  }
+
+  public deleteSession(sessionId: string): void {
+    this.store.deleteSession(sessionId);
   }
 
   public async getDigest(ctx: ModuleContext): Promise<MemoryDigest[]> {

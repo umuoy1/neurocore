@@ -5,3 +5,4 @@ coverage
 .DS_Store
 .neurocore/*.local.json
 docs
+.log

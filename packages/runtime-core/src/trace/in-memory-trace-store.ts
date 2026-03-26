@@ -26,4 +26,8 @@ export class InMemoryTraceStore implements TraceStore {
   public replaceSession(sessionId: string, records: CycleTraceRecord[]): void {
     this.recordsBySession.set(sessionId, records);
   }
+
+  public deleteSession(sessionId: string): void {
+    this.recordsBySession.delete(sessionId);
+  }
 }

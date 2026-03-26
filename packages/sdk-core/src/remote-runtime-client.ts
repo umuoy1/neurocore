@@ -4,6 +4,7 @@ import type {
   CreateSessionCommand,
   CycleTraceRecord,
   Episode,
+  NeuroCoreEvent,
   UserInput,
   WorkspaceSnapshot
 } from "@neurocore/protocol";
@@ -24,6 +25,7 @@ export interface RemoteSessionRecord {
   agent_id: string;
   session: AgentSession;
   last_run: SessionRunSummary | null;
+  active_run: boolean;
   trace_count: number;
   episode_count: number;
   pending_approval: ApprovalRequest | null;
@@ -34,6 +36,16 @@ export interface RemoteRuntimeClientOptions {
   baseUrl: string;
   fetch?: typeof fetch;
   headers?: Record<string, string>;
+}
+
+export interface WaitForSessionOptions {
+  pollIntervalMs?: number;
+  timeoutMs?: number;
+}
+
+export interface RemoteSessionEventStream {
+  close(): void;
+  done: Promise<void>;
 }
 
 interface ApprovalDecisionResponse extends RemoteSessionRecord {
@@ -93,6 +105,13 @@ export class RemoteAgentClient {
     return this.request("POST", `/v1/sessions/${encodeURIComponent(sessionId)}/cancel`, {});
   }
 
+  public async cleanupSession(sessionId: string, options?: { force?: boolean }): Promise<void> {
+    await this.request(
+      "DELETE",
+      `/v1/sessions/${encodeURIComponent(sessionId)}${options?.force ? "?force=true" : ""}`
+    );
+  }
+
   public async fetchTraces(sessionId: string): Promise<CycleTraceRecord[]> {
     const response = await this.request<{ traces: CycleTraceRecord[] }>(
       "GET",
@@ -107,6 +126,14 @@ export class RemoteAgentClient {
       `/v1/sessions/${encodeURIComponent(sessionId)}/episodes`
     );
     return response.episodes;
+  }
+
+  public async fetchEvents(sessionId: string): Promise<NeuroCoreEvent[]> {
+    const response = await this.request<{ events: NeuroCoreEvent[] }>(
+      "GET",
+      `/v1/sessions/${encodeURIComponent(sessionId)}/events`
+    );
+    return response.events;
   }
 
   public async fetchWorkspace(sessionId: string, cycleId: string): Promise<WorkspaceSnapshot> {
@@ -136,8 +163,97 @@ export class RemoteAgentClient {
     );
   }
 
+  public async waitForSessionSettled(
+    sessionId: string,
+    options: WaitForSessionOptions = {}
+  ): Promise<RemoteSessionRecord> {
+    const pollIntervalMs = Math.max(25, options.pollIntervalMs ?? 100);
+    const timeoutAt = Date.now() + (options.timeoutMs ?? 30_000);
+
+    while (true) {
+      const record = await this.fetchSession(sessionId);
+      if (!record.active_run && record.session.state !== "running") {
+        return record;
+      }
+
+      if (Date.now() >= timeoutAt) {
+        throw new Error(`Timed out waiting for session ${sessionId} to settle.`);
+      }
+
+      await sleep(pollIntervalMs);
+    }
+  }
+
+  public async subscribeToSessionEvents(
+    sessionId: string,
+    listener: (event: NeuroCoreEvent) => void
+  ): Promise<RemoteSessionEventStream> {
+    const controller = new AbortController();
+    const response = await this.fetchImpl(`${this.baseUrl}/v1/sessions/${encodeURIComponent(sessionId)}/events/stream`, {
+      method: "GET",
+      headers: {
+        ...this.defaultHeaders,
+        accept: "text/event-stream"
+      },
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      let message = "Unknown error.";
+      try {
+        const payload = (await response.json()) as Record<string, unknown>;
+        if (typeof payload.message === "string") {
+          message = payload.message;
+        }
+      } catch {}
+
+      throw new Error(
+        `GET /v1/sessions/${encodeURIComponent(sessionId)}/events/stream failed with status ${response.status}: ${message}`
+      );
+    }
+
+    if (!response.body) {
+      throw new Error("Runtime server did not provide a readable event stream.");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    const done = (async () => {
+      try {
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) {
+            break;
+          }
+
+          buffer += decoder.decode(chunk.value, { stream: true });
+          ({ buffer } = drainSseBuffer(buffer, listener));
+        }
+
+        buffer += decoder.decode();
+        ({ buffer } = drainSseBuffer(buffer, listener, true));
+      } catch (error) {
+        if (isAbortError(error)) {
+          return;
+        }
+        throw error;
+      } finally {
+        reader.releaseLock();
+      }
+    })();
+
+    return {
+      close() {
+        controller.abort();
+      },
+      done
+    };
+  }
+
   private async request<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "DELETE",
     path: string,
     body?: Record<string, unknown>
   ): Promise<T> {
@@ -198,6 +314,10 @@ export class RemoteSessionHandle {
     return this.record.episode_count;
   }
 
+  public hasActiveRun(): boolean {
+    return this.record.active_run;
+  }
+
   public async refresh(): Promise<RemoteSessionRecord> {
     this.record = await this.client.fetchSession(this.id);
     return structuredClone(this.record);
@@ -243,12 +363,25 @@ export class RemoteSessionHandle {
     return structuredClone(this.record);
   }
 
+  public async cleanup(options?: { force?: boolean }): Promise<void> {
+    await this.client.cleanupSession(this.id, options);
+  }
+
+  public async waitForSettled(options?: WaitForSessionOptions): Promise<RemoteSessionRecord> {
+    this.record = await this.client.waitForSessionSettled(this.id, options);
+    return structuredClone(this.record);
+  }
+
   public async getTraceRecords(): Promise<CycleTraceRecord[]> {
     return this.client.fetchTraces(this.id);
   }
 
   public async getEpisodes(): Promise<Episode[]> {
     return this.client.fetchEpisodes(this.id);
+  }
+
+  public async getEvents(): Promise<NeuroCoreEvent[]> {
+    return this.client.fetchEvents(this.id);
   }
 
   public async getWorkspace(cycleId: string): Promise<WorkspaceSnapshot> {
@@ -261,6 +394,12 @@ export class RemoteSessionHandle {
       throw new Error(`Session ${this.id} does not have a pending approval request.`);
     }
     return this.client.fetchApproval(resolvedApprovalId);
+  }
+
+  public async subscribeToEvents(
+    listener: (event: NeuroCoreEvent) => void
+  ): Promise<RemoteSessionEventStream> {
+    return this.client.subscribeToSessionEvents(this.id, listener);
   }
 
   public async decideApproval(input: SessionApprovalDecisionInput): Promise<SessionApprovalDecisionResult> {
@@ -278,6 +417,7 @@ export class RemoteSessionHandle {
       agent_id: response.agent_id,
       session: response.session,
       last_run: response.last_run,
+      active_run: response.active_run,
       trace_count: response.trace_count,
       episode_count: response.episode_count,
       pending_approval: response.pending_approval
@@ -313,4 +453,66 @@ export function connectRemoteAgent(options: RemoteRuntimeClientOptions): RemoteA
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+}
+
+function drainSseBuffer(
+  rawBuffer: string,
+  listener: (event: NeuroCoreEvent) => void,
+  flush = false
+): { buffer: string } {
+  let buffer = rawBuffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  while (true) {
+    const boundaryIndex = buffer.indexOf("\n\n");
+    if (boundaryIndex === -1) {
+      break;
+    }
+
+    const frame = buffer.slice(0, boundaryIndex);
+    buffer = buffer.slice(boundaryIndex + 2);
+    const parsed = parseSseFrame(frame);
+    if (parsed) {
+      listener(parsed);
+    }
+  }
+
+  if (flush && buffer.trim().length > 0) {
+    const parsed = parseSseFrame(buffer);
+    if (parsed) {
+      listener(parsed);
+    }
+    buffer = "";
+  }
+
+  return { buffer };
+}
+
+function parseSseFrame(frame: string): NeuroCoreEvent | undefined {
+  const dataLines: string[] = [];
+
+  for (const line of frame.split("\n")) {
+    if (!line || line.startsWith(":")) {
+      continue;
+    }
+
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5).trimStart());
+    }
+  }
+
+  if (dataLines.length === 0) {
+    return undefined;
+  }
+
+  return JSON.parse(dataLines.join("\n")) as NeuroCoreEvent;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }

@@ -107,12 +107,14 @@ export interface TraceStore {
   getCycleRecord(sessionId: string, cycleId: string): CycleTraceRecord | undefined;
   listTraces(sessionId: string): CycleTrace[];
   replaceSession(sessionId: string, records: CycleTraceRecord[]): void;
+  deleteSession?(sessionId: string): void;
 }
 
 export interface CheckpointStore {
   save(snapshot: SessionCheckpoint): void;
   get(checkpointId: string): SessionCheckpoint | undefined;
   list(sessionId: string): SessionCheckpoint[];
+  deleteSession?(sessionId: string): void;
 }
 
 export interface RuntimeStateStore {

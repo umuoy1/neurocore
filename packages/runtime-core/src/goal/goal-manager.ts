@@ -46,6 +46,10 @@ export class GoalManager {
     return goals.filter((goal) => this.isActionable(goal, goals));
   }
 
+  public deleteSession(sessionId: string): void {
+    this.goalsBySession.delete(sessionId);
+  }
+
   public add(sessionId: string, goal: Goal): void {
     const current = this.goalsBySession.get(sessionId) ?? [];
     current.push(this.normalize(goal));
@@ -119,6 +123,44 @@ export class GoalManager {
     goal.status = status;
     this.refreshDerivedStatuses(sessionId);
     return goal;
+  }
+
+  public rebaseRootGoal(sessionId: string, input: UserInput): { rootGoal: Goal; retiredGoals: Goal[] } {
+    const goals = this.list(sessionId);
+    const rootGoal = goals.find(
+      (goal) => goal.parent_goal_id == null && goal.metadata?.root_goal === true
+    );
+
+    if (!rootGoal) {
+      return {
+        rootGoal: this.initializeRootGoal(sessionId, input),
+        retiredGoals: []
+      };
+    }
+
+    const retiredGoals: Goal[] = [];
+    for (const goal of goals) {
+      if (goal.goal_id === rootGoal.goal_id || TERMINAL_GOAL_STATUSES.has(goal.status)) {
+        continue;
+      }
+      goal.status = "cancelled";
+      retiredGoals.push(goal);
+    }
+
+    rootGoal.title = input.content.slice(0, 80);
+    rootGoal.description = input.content;
+    rootGoal.status = "active";
+    rootGoal.priority = 100;
+    rootGoal.owner = "user";
+    const metadata = (rootGoal.metadata ??= {});
+    metadata[GOAL_DECOMPOSITION_STATUS_KEY] = "pending";
+    metadata.root_goal = true;
+
+    this.refreshDerivedStatuses(sessionId);
+    return {
+      rootGoal,
+      retiredGoals
+    };
   }
 
   private require(sessionId: string, goalId: string): Goal {

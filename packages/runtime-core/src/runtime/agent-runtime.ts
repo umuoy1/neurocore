@@ -11,6 +11,8 @@ import type {
   Episode,
   MemoryProvider,
   MetaController,
+  NeuroCoreEvent,
+  NeuroCoreEventType,
   Observation,
   PendingApprovalContextSnapshot,
   PolicyProvider,
@@ -32,6 +34,7 @@ import type {
 import { EpisodicMemoryProvider, SemanticMemoryProvider, WorkingMemoryProvider } from "@neurocore/memory-core";
 import { InMemoryCheckpointStore } from "../checkpoint/in-memory-checkpoint-store.js";
 import { CycleEngine } from "../cycle/cycle-engine.js";
+import { InMemoryEventBus } from "../events/in-memory-event-bus.js";
 import { ToolGateway } from "../execution/tool-gateway.js";
 import { GoalManager } from "../goal/goal-manager.js";
 import { DefaultMetaController } from "../meta/meta-controller.js";
@@ -101,6 +104,7 @@ export class AgentRuntime {
   public readonly tools = new ToolGateway();
 
   private readonly cycleEngine = new CycleEngine();
+  private readonly eventBus = new InMemoryEventBus();
   private readonly workingMemoryProvider = new WorkingMemoryProvider();
   private readonly episodicMemoryProvider = new EpisodicMemoryProvider();
   private readonly semanticMemoryProvider = new SemanticMemoryProvider();
@@ -138,7 +142,9 @@ export class AgentRuntime {
 
   public createSession(profile: AgentProfile, command: CreateSessionCommand) {
     const session = this.sessions.create(profile, command);
-    this.goals.initializeRootGoal(session.session_id, command.initial_input);
+    const rootGoal = this.goals.initializeRootGoal(session.session_id, command.initial_input);
+    this.emitEvent(session, "session.created", session);
+    this.emitGoalCreated(session, rootGoal);
     this.persistSessionState(session.session_id);
     debugLog("runtime", "Session created", {
       sessionId: session.session_id,
@@ -150,7 +156,7 @@ export class AgentRuntime {
   }
 
   public async runOnce(profile: AgentProfile, sessionId: string, input: UserInput) {
-    const session = this.sessions.beginRun(sessionId);
+    const session = this.beginRun(sessionId);
     const startedAt = nowIso();
 
     debugLog("runtime", "Starting runOnce", {
@@ -178,6 +184,17 @@ export class AgentRuntime {
 
     this.sessions.setCurrentCycle(sessionId, result.cycleId);
     const selectedAction = selectAction(result.actions, result.decision);
+    this.emitCycleStarted(session, result.cycleId, startedAt);
+    for (const proposal of result.proposals) {
+      this.emitEvent(session, "proposal.submitted", proposal, result.cycleId);
+    }
+    for (const prediction of result.predictions) {
+      this.emitEvent(session, "prediction.recorded", prediction, result.cycleId);
+    }
+    this.emitEvent(session, "workspace.committed", result.workspace, result.cycleId);
+    if (selectedAction) {
+      this.emitEvent(session, "action.selected", selectedAction, result.cycleId);
+    }
     debugLog("runtime", "Selected action after cycle", {
       sessionId,
       cycleId: result.cycleId,
@@ -187,8 +204,8 @@ export class AgentRuntime {
     });
 
     if (result.decision.decision_type === "abort") {
-      const sessionState = this.sessions.updateState(sessionId, "aborted").state;
-      const trace = this.traceRecorder.record({
+      const sessionState = this.updateSessionState(sessionId, "aborted").state;
+      const trace = this.recordTrace({
         sessionId,
         cycleId: result.cycleId,
         input,
@@ -199,7 +216,7 @@ export class AgentRuntime {
         workspace: result.workspace,
         startedAt
       });
-      this.goals.markActionable(sessionId, "cancelled");
+      this.markActionableGoals(sessionId, "cancelled");
       this.maybeCreateCheckpoint(profile, sessionId);
       this.persistSessionState(sessionId);
 
@@ -214,8 +231,8 @@ export class AgentRuntime {
     }
 
     if (!selectedAction) {
-      const sessionState = this.sessions.updateState(sessionId, "failed").state;
-      const trace = this.traceRecorder.record({
+      const sessionState = this.updateSessionState(sessionId, "failed").state;
+      const trace = this.recordTrace({
         sessionId,
         cycleId: result.cycleId,
         input,
@@ -230,7 +247,7 @@ export class AgentRuntime {
         sessionId,
         cycleId: result.cycleId
       });
-      this.goals.markActionable(sessionId, "failed");
+      this.markActionableGoals(sessionId, "failed");
       this.maybeCreateCheckpoint(profile, sessionId);
       this.persistSessionState(sessionId);
       return {
@@ -255,8 +272,8 @@ export class AgentRuntime {
         selectedAction,
         startedAt
       });
-      const sessionState = this.sessions.updateState(sessionId, "escalated").state;
-      const trace = this.traceRecorder.record({
+      const sessionState = this.updateSessionState(sessionId, "escalated").state;
+      const trace = this.recordTrace({
         sessionId,
         cycleId: result.cycleId,
         input,
@@ -324,8 +341,8 @@ export class AgentRuntime {
       currentInput = observationToInput(step.observation);
     }
 
-    const finalSession = this.sessions.updateState(sessionId, "failed");
-    this.goals.markActionable(sessionId, "failed");
+    const finalSession = this.updateSessionState(sessionId, "failed");
+    this.markActionableGoals(sessionId, "failed");
     this.persistSessionState(sessionId);
     debugLog("runtime", "runUntilSettled exhausted max steps", {
       sessionId,
@@ -365,6 +382,16 @@ export class AgentRuntime {
   public getEpisodes(sessionId: string): Episode[] {
     this.requireSession(sessionId);
     return structuredClone(this.episodicMemoryProvider.list(sessionId));
+  }
+
+  public listEvents(sessionId: string): NeuroCoreEvent[] {
+    this.requireSession(sessionId);
+    return this.eventBus.list(sessionId);
+  }
+
+  public subscribeToSessionEvents(sessionId: string, listener: (event: NeuroCoreEvent) => void): () => void {
+    this.requireSession(sessionId);
+    return this.eventBus.subscribe(sessionId, listener);
   }
 
   public replaySession(sessionId: string): SessionReplay {
@@ -410,7 +437,7 @@ export class AgentRuntime {
 
   public suspendSession(sessionId: string): SessionCheckpoint {
     const session = this.requireSession(sessionId);
-    this.sessions.updateState(sessionId, "suspended");
+    this.updateSessionState(sessionId, "suspended");
     const checkpoint = this.createCheckpoint(sessionId);
     debugLog("runtime", "Suspended session", {
       sessionId: session.session_id,
@@ -457,6 +484,8 @@ export class AgentRuntime {
       traceCount: checkpoint.traces.length
     });
 
+    this.emitEvent(restoredSession, "session.state_changed", restoredSession);
+
     return restoredSession;
   }
 
@@ -474,6 +503,10 @@ export class AgentRuntime {
       );
     }
 
+    if (input) {
+      this.rebaseGoalsForExplicitInput(sessionId, input);
+    }
+
     debugLog("runtime", "Resuming session", {
       sessionId,
       restoredState: session.state,
@@ -487,6 +520,40 @@ export class AgentRuntime {
   public listCheckpoints(sessionId: string): SessionCheckpoint[] {
     this.requireSession(sessionId);
     return this.checkpointStore.list(sessionId);
+  }
+
+  public cleanupSession(sessionId: string, options?: { force?: boolean }): void {
+    const session = this.requireSession(sessionId);
+    if (!options?.force && !isTerminalState(session.state)) {
+      throw new SessionStateConflictError(
+        `Session ${sessionId} is in state ${session.state} and cannot be cleaned up yet.`
+      );
+    }
+
+    const approvalIds = [...this.approvals.values()]
+      .filter((approval) => approval.session_id === sessionId)
+      .map((approval) => approval.approval_id);
+
+    for (const approvalId of approvalIds) {
+      this.approvals.delete(approvalId);
+      this.pendingApprovals.delete(approvalId);
+    }
+
+    this.goals.deleteSession(sessionId);
+    this.workingMemoryProvider.deleteSession(sessionId);
+    this.episodicMemoryProvider.deleteSession(sessionId);
+    this.semanticMemoryProvider.deleteSession(sessionId);
+    this.traceRecorder.getStore().deleteSession?.(sessionId);
+    this.checkpointStore.deleteSession?.(sessionId);
+    this.eventBus.deleteSession(sessionId);
+    this.sessions.deleteSession(sessionId);
+    this.stateStore?.deleteSession?.(sessionId);
+
+    debugLog("runtime", "Cleaned up session state", {
+      sessionId,
+      forced: Boolean(options?.force),
+      deletedApprovalCount: approvalIds.length
+    });
   }
 
   public getApproval(approvalId: string): ApprovalRequest | undefined {
@@ -567,7 +634,7 @@ export class AgentRuntime {
     this.sessions.clearApprovalState(approval.session_id);
 
     if (decision.decision === "rejected") {
-      this.sessions.updateState(approval.session_id, "waiting");
+      this.updateSessionState(approval.session_id, "waiting");
       debugLog("runtime", "Approval rejected", {
         sessionId: approval.session_id,
         approvalId,
@@ -616,14 +683,123 @@ export class AgentRuntime {
   }
 
   public cancelSession(sessionId: string): AgentSession {
-    const session = this.sessions.cancel(sessionId);
-    this.goals.markActionable(sessionId, "cancelled");
+    const session = this.cancelManagedSession(sessionId);
+    this.markActionableGoals(sessionId, "cancelled");
     this.persistSessionState(sessionId);
     debugLog("runtime", "Cancelled session", {
       sessionId: session.session_id,
       state: session.state
     });
     return structuredClone(session);
+  }
+
+  private beginRun(sessionId: string): AgentSession {
+    const previousState = this.requireSession(sessionId).state;
+    const session = this.sessions.beginRun(sessionId);
+    if (session.state !== previousState) {
+      this.emitSessionStateChanged(session);
+    }
+    return session;
+  }
+
+  private updateSessionState(sessionId: string, nextState: SessionState): AgentSession {
+    const previousState = this.requireSession(sessionId).state;
+    const session = this.sessions.updateState(sessionId, nextState);
+    if (session.state !== previousState) {
+      this.emitSessionStateChanged(session);
+    }
+    return session;
+  }
+
+  private cancelManagedSession(sessionId: string): AgentSession {
+    const previousState = this.requireSession(sessionId).state;
+    const session = this.sessions.cancel(sessionId);
+    if (session.state !== previousState) {
+      this.emitSessionStateChanged(session);
+    }
+    return session;
+  }
+
+  private emitSessionStateChanged(session: AgentSession): void {
+    this.emitEvent(session, "session.state_changed", session);
+    if (session.state === "completed") {
+      this.emitEvent(session, "session.completed", session);
+    } else if (session.state === "failed") {
+      this.emitEvent(session, "session.failed", session);
+    }
+  }
+
+  private emitGoalCreated(session: AgentSession, goal: Goal): void {
+    this.emitEvent(session, "goal.created", goal);
+  }
+
+  private emitGoalUpdated(session: AgentSession, goal: Goal): void {
+    this.emitEvent(session, "goal.updated", goal);
+  }
+
+  private rebaseGoalsForExplicitInput(sessionId: string, input: UserInput): void {
+    const session = this.requireSession(sessionId);
+    const { rootGoal, retiredGoals } = this.goals.rebaseRootGoal(sessionId, input);
+    for (const goal of retiredGoals) {
+      this.emitGoalUpdated(session, goal);
+    }
+    this.emitGoalUpdated(session, rootGoal);
+    debugLog("runtime", "Rebased session goals from explicit input", {
+      sessionId,
+      rootGoalId: rootGoal.goal_id,
+      retiredGoalIds: retiredGoals.map((goal) => goal.goal_id),
+      inputChars: input.content.length
+    });
+  }
+
+  private markActionableGoals(sessionId: string, status: Goal["status"]): Goal[] {
+    const session = this.requireSession(sessionId);
+    const goals = this.goals.markActionable(sessionId, status);
+    for (const goal of goals) {
+      this.emitGoalUpdated(session, goal);
+    }
+    return goals;
+  }
+
+  private emitCycleStarted(session: AgentSession, cycleId: string, startedAt: string): void {
+    this.emitEvent(
+      session,
+      "cycle.started",
+      {
+        trace_id: generateId("trc"),
+        session_id: session.session_id,
+        cycle_id: cycleId,
+        started_at: startedAt,
+        input_refs: [],
+        proposal_refs: [],
+        prediction_refs: [],
+        policy_decision_refs: [],
+        observation_refs: []
+      },
+      cycleId
+    );
+  }
+
+  private recordTrace(input: Parameters<TraceRecorder["record"]>[0]): CycleTrace {
+    return this.traceRecorder.record(input);
+  }
+
+  private emitEvent(
+    session: Pick<AgentSession, "schema_version" | "tenant_id" | "session_id">,
+    eventType: NeuroCoreEventType,
+    payload: NeuroCoreEvent["payload"],
+    cycleId?: string
+  ): void {
+    this.eventBus.append({
+      event_id: generateId("evt"),
+      event_type: eventType,
+      schema_version: session.schema_version,
+      tenant_id: session.tenant_id,
+      session_id: session.session_id,
+      cycle_id: cycleId,
+      timestamp: nowIso(),
+      payload: structuredClone(payload)
+    } as NeuroCoreEvent);
   }
 
   private maybeCreateCheckpoint(profile: AgentProfile, sessionId: string): void {
@@ -647,7 +823,10 @@ export class AgentRuntime {
       const decomposition = await this.reasoner.decomposeGoal(ctx, structuredClone(goal));
 
       if (!Array.isArray(decomposition) || decomposition.length === 0) {
-        this.goals.markDecompositionState(session.session_id, goal.goal_id, "skipped");
+        this.emitGoalUpdated(
+          session,
+          this.goals.markDecompositionState(session.session_id, goal.goal_id, "skipped")
+        );
         continue;
       }
 
@@ -655,7 +834,13 @@ export class AgentRuntime {
         normalizeDecomposedGoal(profile, session.session_id, goal, child)
       );
       const inserted = this.goals.addMany(session.session_id, normalizedChildren);
-      this.goals.markDecompositionState(session.session_id, goal.goal_id, "completed");
+      for (const child of inserted) {
+        this.emitGoalCreated(session, child);
+      }
+      this.emitGoalUpdated(
+        session,
+        this.goals.markDecompositionState(session.session_id, goal.goal_id, "completed")
+      );
 
       debugLog("runtime", "Decomposed goal into child goals", {
         sessionId: session.session_id,
@@ -713,8 +898,10 @@ export class AgentRuntime {
     const sessionId = session.session_id;
 
     if (selectedAction.action_type === "abort") {
-      const sessionState = this.sessions.updateState(sessionId, "aborted").state;
-      const trace = this.traceRecorder.record({
+      const execution = buildRuntimeActionExecution(session, cycle.cycleId, selectedAction, "cancelled");
+      this.emitEvent(session, "action.executed", execution, cycle.cycleId);
+      const sessionState = this.updateSessionState(sessionId, "aborted").state;
+      const trace = this.recordTrace({
         sessionId,
         cycleId: cycle.cycleId,
         input,
@@ -724,6 +911,7 @@ export class AgentRuntime {
         policyDecisions: cycle.workspace.policy_decisions ?? [],
         selectedAction,
         selectedActionId: selectedAction.action_id,
+        actionExecution: execution,
         workspace: cycle.workspace,
         startedAt
       });
@@ -732,7 +920,7 @@ export class AgentRuntime {
         cycleId: cycle.cycleId,
         actionId: selectedAction.action_id
       });
-      this.goals.markActionable(sessionId, "cancelled");
+      this.markActionableGoals(sessionId, "cancelled");
       this.maybeCreateCheckpoint(profile, sessionId);
       this.persistSessionState(sessionId);
       return {
@@ -740,6 +928,7 @@ export class AgentRuntime {
         cycleId: cycle.cycleId,
         sessionState,
         selectedAction,
+        actionExecution: execution,
         outputText: selectedAction.description ?? selectedAction.title,
         trace,
         cycle: toAgentCycleState(cycle)
@@ -761,6 +950,7 @@ export class AgentRuntime {
           }
         }
       );
+      this.emitEvent(session, "action.executed", execution, cycle.cycleId);
       await this.recordObservation(
         profile,
         session,
@@ -771,8 +961,8 @@ export class AgentRuntime {
         observation.status === "failure" ? "failure" : "partial"
       );
 
-      const sessionState = this.sessions.updateState(sessionId, "waiting").state;
-      const trace = this.traceRecorder.record({
+      const sessionState = this.updateSessionState(sessionId, "waiting").state;
+      const trace = this.recordTrace({
         sessionId,
         cycleId: cycle.cycleId,
         input,
@@ -811,18 +1001,18 @@ export class AgentRuntime {
       };
     }
 
-    const sessionState = this.sessions.updateState(
-      sessionId,
-      deriveSessionState(selectedAction.action_type)
-    ).state;
+    const targetState = deriveSessionState(selectedAction.action_type);
     const observation = buildSyntheticObservation(session, cycle.cycleId, selectedAction);
+    const execution = buildRuntimeActionExecution(session, cycle.cycleId, selectedAction, "succeeded");
+    this.emitEvent(session, "action.executed", execution, cycle.cycleId);
     await this.recordObservation(profile, session, input, cycle.cycleId, selectedAction, observation, "success");
+    const sessionState = this.updateSessionState(sessionId, targetState).state;
     if (sessionState === "completed") {
-      this.goals.markActionable(sessionId, "completed");
+      this.markActionableGoals(sessionId, "completed");
     } else if (sessionState === "aborted") {
-      this.goals.markActionable(sessionId, "cancelled");
+      this.markActionableGoals(sessionId, "cancelled");
     }
-    const trace = this.traceRecorder.record({
+    const trace = this.recordTrace({
       sessionId,
       cycleId: cycle.cycleId,
       input,
@@ -832,6 +1022,7 @@ export class AgentRuntime {
       policyDecisions: cycle.workspace.policy_decisions ?? [],
       selectedAction,
       selectedActionId: selectedAction.action_id,
+      actionExecution: execution,
       observation,
       workspace: cycle.workspace,
       startedAt
@@ -849,6 +1040,7 @@ export class AgentRuntime {
       cycleId: cycle.cycleId,
       sessionState,
       selectedAction,
+      actionExecution: execution,
       observation,
       outputText: selectedAction.description ?? selectedAction.title,
       trace,
@@ -866,6 +1058,7 @@ export class AgentRuntime {
     outcome: Episode["outcome"]
   ): Promise<void> {
     this.workingMemoryProvider.appendObservation(session.session_id, observation);
+    this.emitEvent(session, "observation.recorded", observation, cycleId);
     await this.persistEpisode(profile, session, input, cycleId, action, observation, outcome);
 
     debugLog("runtime", "Recorded observation into session memory", {
@@ -910,6 +1103,7 @@ export class AgentRuntime {
 
     const ctx = buildMemoryContext(profile, session, this.goals.active(session.session_id), input);
     await Promise.all(this.memoryProviders.map(async (provider) => provider.writeEpisode(ctx, episode)));
+    this.emitEvent(session, "memory.written", episode, cycleId);
   }
 
   private ensureSessionLoaded(sessionId: string): void {
@@ -971,6 +1165,8 @@ export class AgentRuntime {
     for (const pending of snapshot.pending_approvals) {
       this.pendingApprovals.set(pending.approval_id, fromPendingApprovalSnapshot(pending));
     }
+
+    this.eventBus.replaceSession(sessionId, []);
   }
 
   private persistSessionState(sessionId: string): void {
@@ -1057,6 +1253,25 @@ function buildSyntheticObservation(
     status: "success",
     summary: action.description ?? action.title,
     created_at: new Date().toISOString()
+  };
+}
+
+function buildRuntimeActionExecution(
+  session: ReturnType<SessionManager["get"]> extends infer T ? NonNullable<T> : never,
+  cycleId: string,
+  action: CandidateAction,
+  status: ActionExecution["status"]
+): ActionExecution {
+  const timestamp = nowIso();
+  return {
+    execution_id: generateId("exe"),
+    session_id: session.session_id,
+    cycle_id: cycleId,
+    action_id: action.action_id,
+    status,
+    started_at: timestamp,
+    ended_at: timestamp,
+    executor: "runtime"
   };
 }
 

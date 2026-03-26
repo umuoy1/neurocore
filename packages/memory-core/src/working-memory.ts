@@ -27,6 +27,10 @@ export class WorkingMemoryStore {
     this.entries.set(sessionId, entries);
   }
 
+  public deleteSession(sessionId: string): void {
+    this.entries.delete(sessionId);
+  }
+
   public digest(sessionId: string): MemoryDigest[] {
     return this.list(sessionId).map((entry) => ({
       memory_id: entry.memory_id,
@@ -60,6 +64,10 @@ export class WorkingMemoryProvider implements MemoryProvider {
 
   public replace(sessionId: string, entries: WorkingMemoryEntry[]): void {
     this.store.replace(sessionId, entries);
+  }
+
+  public deleteSession(sessionId: string): void {
+    this.store.deleteSession(sessionId);
   }
 
   public digest(sessionId: string): MemoryDigest[] {

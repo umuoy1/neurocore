@@ -1,7 +1,9 @@
 import type {
   ActionExecution,
   AgentSession,
+  CandidateAction,
   CycleTrace,
+  Episode,
   Goal,
   Observation,
   Prediction,
@@ -43,9 +45,10 @@ export type NeuroCoreEvent =
   | EventEnvelope<Goal>
   | EventEnvelope<Proposal>
   | EventEnvelope<WorkspaceSnapshot>
+  | EventEnvelope<CandidateAction>
   | EventEnvelope<ActionExecution>
   | EventEnvelope<Observation>
+  | EventEnvelope<Episode>
   | EventEnvelope<Prediction>
   | EventEnvelope<PredictionError>
   | EventEnvelope<CycleTrace>;
-

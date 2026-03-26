@@ -7,10 +7,11 @@ import type {
   Reasoner
 } from "@neurocore/protocol";
 import type { OpenAICompatibleConfig } from "../config/openai-compatible-config.js";
-import { debugLog } from "../debug.js";
+import { appendDebugFile, debugLog } from "../debug.js";
 
 interface ChatCompletionResponse {
   choices?: Array<{
+    finish_reason?: string | null;
     message?: {
       content?: string | Array<{ type?: string; text?: string }>;
     };
@@ -57,10 +58,31 @@ interface NormalizedActionJson extends ActionJson {
   action_type: CandidateAction["action_type"];
 }
 
+interface ResponseLike {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  text?: () => Promise<string>;
+  json?: () => Promise<unknown>;
+}
+
+const DEFAULT_MAX_OUTPUT_TOKENS = 31_999;
+const DEFAULT_TEMPERATURE = 0.2;
+const MIN_RETRY_MAX_OUTPUT_TOKENS = 4096;
+
+export interface OpenAICompatibleReasonerOptions {
+  temperature?: number;
+  max_tokens?: number;
+  maxOutputTokens?: number;
+}
+
 export class OpenAICompatibleReasoner implements Reasoner {
   public readonly name = "openai-compatible-reasoner";
 
-  public constructor(private readonly config: OpenAICompatibleConfig) {}
+  public constructor(
+    private readonly config: OpenAICompatibleConfig,
+    private readonly options: OpenAICompatibleReasonerOptions = {}
+  ) {}
 
   public async plan(ctx: ModuleContext): Promise<Proposal[]> {
     const cycleId = ctx.session.current_cycle_id ?? ctx.services.generateId("cyc");
@@ -151,12 +173,7 @@ export class OpenAICompatibleReasoner implements Reasoner {
       return [
         {
           action_id: ctx.services.generateId("act"),
-          action_type: "ask_user",
-          title: "Clarify the request",
-          description:
-            "The model response could not be parsed into a valid action. Ask the user to restate or narrow the request.",
-          expected_outcome: "Collect a request that can be executed safely.",
-          side_effect_level: "none"
+          ...buildFallbackAskUserAction(error)
         }
       ];
     }
@@ -181,18 +198,21 @@ export class OpenAICompatibleReasoner implements Reasoner {
     const mapped = actions
       .map((action) => normalizeAction(action, knownTools))
       .filter((action): action is NormalizedActionJson => action !== null)
-      .map((action) => ({
-        action_id: ctx.services.generateId("act"),
-        action_type: action.action_type,
-        title: action.title ?? "Untitled action",
-        description: action.description,
-        tool_name: action.tool_name,
-        tool_args: action.tool_args,
-        expected_outcome: action.expected_outcome,
-        preconditions: action.preconditions,
-        side_effect_level:
-          action.side_effect_level ?? resolveToolSideEffectLevel(action, toolCatalog) ?? inferSideEffectLevel(action)
-      }));
+      .map((action) => {
+        const toolSideEffectLevel = resolveToolSideEffectLevel(action, toolCatalog);
+        return {
+          action_id: ctx.services.generateId("act"),
+          action_type: action.action_type,
+          title: action.title ?? "Untitled action",
+          description: action.description,
+          tool_name: action.tool_name,
+          tool_args: action.tool_args,
+          expected_outcome: action.expected_outcome,
+          preconditions: action.preconditions,
+          side_effect_level:
+            toolSideEffectLevel ?? action.side_effect_level ?? inferSideEffectLevel(action)
+        };
+      });
 
     if (mapped.length === 0) {
       debugLog("reasoner", "Model actions were invalid for the available tool catalog", {
@@ -222,19 +242,63 @@ export class OpenAICompatibleReasoner implements Reasoner {
   }
 
   private async completeJson<T>(systemPrompt: string, userPrompt: string): Promise<T> {
+    const firstBudget =
+      this.options.max_tokens ?? this.options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+    const retryBudget = Math.max(firstBudget, MIN_RETRY_MAX_OUTPUT_TOKENS);
+
+    try {
+      return await this.completeJsonOnce<T>(systemPrompt, userPrompt, firstBudget);
+    } catch (error) {
+      if (!isRetriableJsonParseError(error) || retryBudget === firstBudget) {
+        throw error;
+      }
+
+      debugLog("reasoner", "Retrying model request after JSON parse failure", {
+        model: this.config.model,
+        firstBudget,
+        retryBudget,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+
+      return this.completeJsonOnce<T>(systemPrompt, userPrompt, retryBudget);
+    }
+  }
+
+  private async completeJsonOnce<T>(
+    systemPrompt: string,
+    userPrompt: string,
+    maxOutputTokens: number
+  ): Promise<T> {
     const controller = new AbortController();
     const timeoutMs = this.config.timeoutMs ?? 60_000;
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const url = resolveChatCompletionsUrl(this.config.apiUrl);
     const startedAt = Date.now();
+    const temperature = this.options.temperature ?? DEFAULT_TEMPERATURE;
+    const requestPayload = {
+      model: this.config.model,
+      temperature,
+      max_tokens: maxOutputTokens,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ]
+    };
 
     try {
       debugLog("reasoner", "Sending model request", {
         model: this.config.model,
         url,
         timeoutMs,
+        temperature,
+        maxOutputTokens,
         systemPromptChars: systemPrompt.length,
         userPromptChars: userPrompt.length
+      });
+      await appendDebugFile("reasoner", "model-request", {
+        url,
+        timeoutMs,
+        request: requestPayload
       });
 
       const response = await fetch(url, {
@@ -244,15 +308,7 @@ export class OpenAICompatibleReasoner implements Reasoner {
           authorization: `Bearer ${this.config.bearerToken}`,
           ...this.config.headers
         },
-        body: JSON.stringify({
-          model: this.config.model,
-          temperature: 0.2,
-          max_tokens: 512,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt }
-          ]
-        }),
+        body: JSON.stringify(requestPayload),
         signal: controller.signal
       });
 
@@ -265,34 +321,52 @@ export class OpenAICompatibleReasoner implements Reasoner {
         latencyMs
       });
 
+      const responseText = await readResponseText(response);
+      await appendDebugFile("reasoner", "model-response", {
+        url,
+        status: response.status,
+        ok: response.ok,
+        statusText: response.statusText,
+        latencyMs,
+        response: responseText
+      });
+
       if (!response.ok) {
-        const body = await response.text();
         debugLog("reasoner", "Model request failed", {
           model: this.config.model,
           status: response.status,
           latencyMs,
-          errorPreview: body.slice(0, 300)
+          errorPreview: responseText.slice(0, 300)
         });
         throw new Error(
-          `Model request failed with ${response.status} ${response.statusText}: ${body}`
+          `Model request failed with ${response.status} ${response.statusText}: ${responseText}`
         );
       }
 
-      const data = (await response.json()) as ChatCompletionResponse;
+      const data = JSON.parse(responseText) as ChatCompletionResponse;
       const content = extractContent(data);
+      const finishReason = data.choices?.[0]?.finish_reason ?? null;
       debugLog("reasoner", "Parsed model response content", {
         model: this.config.model,
         latencyMs,
+        finishReason,
         contentChars: content.length,
         contentPreview: content.slice(0, 200)
       });
       return parseJsonResponse<T>(content);
     } catch (error) {
       const latencyMs = Date.now() - startedAt;
+      await appendDebugFile("reasoner", "model-error", {
+        url,
+        latencyMs,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
       debugLog("reasoner", "Model request threw", {
         model: this.config.model,
         url,
         latencyMs,
+        maxOutputTokens,
         errorName: error instanceof Error ? error.name : "UnknownError",
         errorMessage: error instanceof Error ? error.message : String(error)
       });
@@ -323,6 +397,19 @@ function extractContent(response: ChatCompletionResponse): string {
   throw new Error("Model response did not include message content.");
 }
 
+async function readResponseText(response: ResponseLike): Promise<string> {
+  if (typeof response.text === "function") {
+    return response.text();
+  }
+
+  if (typeof response.json === "function") {
+    const payload = await response.json();
+    return JSON.stringify(payload);
+  }
+
+  throw new Error("Model response body could not be read.");
+}
+
 function stripMarkdownCodeFence(value: string): string {
   return value.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
 }
@@ -334,6 +421,19 @@ function parseJsonResponse<T>(content: string): T {
     const extracted = extractFirstJsonObject(content);
     return JSON.parse(extracted) as T;
   }
+}
+
+function isRetriableJsonParseError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("incomplete json") ||
+    message.includes("unexpected end of json input") ||
+    message.includes("unterminated string")
+  );
 }
 
 function extractFirstJsonObject(content: string): string {
@@ -474,6 +574,7 @@ function buildRespondSystemPrompt(): string {
     "If prior evidence is insufficient, call the next necessary tool. If evidence is sufficient, respond or complete.",
     "For destructive or production-impacting tools, preserve a high side_effect_level and include preconditions.",
     "For respond or complete actions, put the exact user-facing answer in description. Do not write meta-instructions like 'provide diagnosis' or 'summarize result'.",
+    "Keep each action compact enough to fit in a single JSON response without truncation.",
     "Prefer concise outputs."
   ].join("\n");
 }
@@ -662,4 +763,52 @@ function resolveToolSideEffectLevel(
 
   const matched = toolCatalog.find((tool) => tool.name === action.tool_name);
   return matched?.sideEffectLevel;
+}
+
+function buildFallbackAskUserAction(error: unknown): Omit<CandidateAction, "action_id"> {
+  if (isRetriableJsonParseError(error)) {
+    return {
+      action_type: "ask_user",
+      title: "Retry the request",
+      description:
+        "The model returned incomplete structured output before a valid action could be selected. Retry the request or narrow the task if it keeps happening.",
+      expected_outcome: "Collect a request that can be executed safely.",
+      side_effect_level: "none"
+    };
+  }
+
+  if (isProviderQuotaError(error)) {
+    return {
+      action_type: "ask_user",
+      title: "Retry later",
+      description:
+        "The model provider rejected the request before a valid action could be selected because the current quota or rate limit was exceeded. Retry later or narrow the task.",
+      expected_outcome: "Collect a request that can be retried after the provider recovers.",
+      side_effect_level: "none"
+    };
+  }
+
+  return {
+    action_type: "ask_user",
+    title: "Retry the request",
+    description:
+      "The model request failed before a valid action could be selected. Retry the request or narrow the task if it keeps happening.",
+    expected_outcome: "Collect a request that can be executed safely.",
+    side_effect_level: "none"
+  };
+}
+
+function isProviderQuotaError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("429") ||
+    message.includes("quota") ||
+    message.includes("throttl") ||
+    message.includes("限流") ||
+    message.includes("配额")
+  );
 }

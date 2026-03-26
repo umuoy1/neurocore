@@ -22,6 +22,14 @@ export class InMemoryCheckpointStore implements CheckpointStore {
       .map((id) => this.get(id))
       .filter((snapshot): snapshot is SessionCheckpoint => Boolean(snapshot));
   }
+
+  public deleteSession(sessionId: string): void {
+    const ids = this.checkpointIdsBySession.get(sessionId) ?? [];
+    for (const checkpointId of ids) {
+      this.checkpointsById.delete(checkpointId);
+    }
+    this.checkpointIdsBySession.delete(sessionId);
+  }
 }
 
 function clone<T>(value: T): T {

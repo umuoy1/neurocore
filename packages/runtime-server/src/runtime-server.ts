@@ -3,6 +3,8 @@ import type {
   AgentSession,
   ApprovalRequest,
   CreateSessionCommand,
+  NeuroCoreEvent,
+  NeuroCoreEventType,
   SessionState,
   UserInput
 } from "@neurocore/protocol";
@@ -13,6 +15,15 @@ export interface RuntimeServerOptions {
   host?: string;
   port?: number;
   agents?: AgentBuilder[];
+  webhooks?: RuntimeWebhookTarget[];
+  fetch?: typeof fetch;
+}
+
+export interface RuntimeWebhookTarget {
+  url: string;
+  headers?: Record<string, string>;
+  event_types?: NeuroCoreEventType[];
+  session_modes?: AgentSession["session_mode"][];
 }
 
 interface SessionRunSummary {
@@ -27,6 +38,8 @@ interface ManagedSession {
   agent_id: string;
   handle: AgentSessionHandle;
   last_run?: SessionRunSummary;
+  active_run?: Promise<void>;
+  webhook_unsubscribe?: () => void;
 }
 
 class HttpError extends Error {
@@ -45,11 +58,16 @@ export class NeuroRuntimeServer {
   private readonly port: number;
   private readonly agents = new Map<string, AgentBuilder>();
   private readonly sessions = new Map<string, ManagedSession>();
+  private readonly activeOperations = new Map<string, string>();
   private readonly server: HttpServer;
+  private readonly webhookTargets: RuntimeWebhookTarget[];
+  private readonly fetchImpl: typeof fetch;
 
   public constructor(options: RuntimeServerOptions = {}) {
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
+    this.webhookTargets = options.webhooks ?? [];
+    this.fetchImpl = options.fetch ?? fetch;
     for (const agent of options.agents ?? []) {
       this.registerAgent(agent);
     }
@@ -110,6 +128,11 @@ export class NeuroRuntimeServer {
   }
 
   public async close(): Promise<void> {
+    for (const record of this.sessions.values()) {
+      record.webhook_unsubscribe?.();
+      record.webhook_unsubscribe = undefined;
+    }
+
     await new Promise<void>((resolve, reject) => {
       this.server.close((error) => {
         if (error) {
@@ -143,6 +166,22 @@ export class NeuroRuntimeServer {
       const sessionId = path[2] ?? "";
       const record = this.requireSession(sessionId);
 
+      if (method === "DELETE" && path.length === 3) {
+        const force = url.searchParams.get("force") === "true";
+        await this.runSessionOperation(record, "cleanup", async () => {
+          record.handle.cleanup({ force });
+        });
+        record.webhook_unsubscribe?.();
+        record.webhook_unsubscribe = undefined;
+        record.active_run = undefined;
+        this.sessions.delete(sessionId);
+        writeJson(response, 200, {
+          session_id: sessionId,
+          deleted: true
+        });
+        return;
+      }
+
       if (method === "GET" && path.length === 3) {
         writeJson(response, 200, this.serializeManagedSession(record));
         return;
@@ -151,7 +190,13 @@ export class NeuroRuntimeServer {
       if (method === "POST" && path.length === 4 && path[3] === "inputs") {
         const body = await readJson(request);
         const input = normalizeInput(body.input ?? body, "session_input");
-        const result = await record.handle.runInput(input);
+        if (isBackgroundMode(record.handle.getSession()?.session_mode)) {
+          this.startBackgroundRun(record, "run_input", async () => record.handle.runInput(input));
+          writeJson(response, 202, this.serializeManagedSession(record));
+          return;
+        }
+
+        const result = await this.runSessionOperation(record, "run_input", async () => record.handle.runInput(input));
         record.last_run = summarizeLoopResult(result);
         writeJson(response, 200, this.serializeManagedSession(record));
         return;
@@ -160,14 +205,22 @@ export class NeuroRuntimeServer {
       if (method === "POST" && path.length === 4 && path[3] === "resume") {
         const body = await readJson(request);
         const input = body.input ? normalizeInput(body.input, "resume_input") : undefined;
-        const result = await record.handle.resume(input);
+        if (isBackgroundMode(record.handle.getSession()?.session_mode)) {
+          this.startBackgroundRun(record, "resume", async () => record.handle.resume(input));
+          writeJson(response, 202, this.serializeManagedSession(record));
+          return;
+        }
+
+        const result = await this.runSessionOperation(record, "resume", async () => record.handle.resume(input));
         record.last_run = summarizeLoopResult(result);
         writeJson(response, 200, this.serializeManagedSession(record));
         return;
       }
 
       if (method === "POST" && path.length === 4 && path[3] === "cancel") {
-        record.handle.cancel();
+        await this.runSessionOperation(record, "cancel", async () => {
+          record.handle.cancel();
+        });
         writeJson(response, 200, this.serializeManagedSession(record));
         return;
       }
@@ -209,6 +262,19 @@ export class NeuroRuntimeServer {
         });
         return;
       }
+
+      if (method === "GET" && path.length === 4 && path[3] === "events") {
+        writeJson(response, 200, {
+          session_id: sessionId,
+          events: record.handle.getEvents()
+        });
+        return;
+      }
+
+      if (method === "GET" && path.length === 5 && path[3] === "events" && path[4] === "stream") {
+        this.streamSessionEvents(request, response, record);
+        return;
+      }
     }
 
     if (path.length >= 2 && path[0] === "v1" && path[1] === "approvals") {
@@ -225,11 +291,13 @@ export class NeuroRuntimeServer {
 
       if (method === "POST" && path.length === 4 && path[3] === "decision") {
         const body = await readJson(request);
-        const result = await sessionRecord.handle.decideApproval({
-          approval_id: approvalId,
-          approver_id: getRequiredString(body.approver_id, "approver_id"),
-          decision: normalizeApprovalDecision(body.decision),
-          comment: getOptionalString(body.comment)
+        const result = await this.runSessionOperation(sessionRecord, "approval_decision", async () => {
+          return sessionRecord.handle.decideApproval({
+            approval_id: approvalId,
+            approver_id: getRequiredString(body.approver_id, "approver_id"),
+            decision: normalizeApprovalDecision(body.decision),
+            comment: getOptionalString(body.comment)
+          });
         });
 
         if (result.run) {
@@ -278,12 +346,17 @@ export class NeuroRuntimeServer {
       agent_id: agentId,
       handle
     };
+    this.attachWebhookDelivery(record);
     this.sessions.set(handle.id, record);
 
     const runImmediately = payload.run_immediately !== false;
     if (runImmediately) {
-      const result = await handle.run();
-      record.last_run = summarizeLoopResult(result);
+      if (isBackgroundMode(command.session_mode)) {
+        this.startBackgroundRun(record, "run", async () => handle.run());
+      } else {
+        const result = await this.runSessionOperation(record, "run", async () => handle.run());
+        record.last_run = summarizeLoopResult(result);
+      }
     }
 
     return record;
@@ -305,6 +378,7 @@ export class NeuroRuntimeServer {
           agent_id: agentId,
           handle
         };
+        this.attachWebhookDelivery(record);
         this.sessions.set(sessionId, record);
         return record;
       } catch {
@@ -336,10 +410,163 @@ export class NeuroRuntimeServer {
       agent_id: record.agent_id,
       session,
       last_run: record.last_run ?? null,
+      active_run: Boolean(record.active_run),
       trace_count: record.handle.getTraceRecords().length,
       episode_count: record.handle.getEpisodes().length,
       pending_approval: record.handle.getPendingApproval() ?? null
     };
+  }
+
+  private attachWebhookDelivery(record: ManagedSession): void {
+    if (this.webhookTargets.length === 0 || record.webhook_unsubscribe) {
+      return;
+    }
+
+    for (const event of record.handle.getEvents()) {
+      this.dispatchWebhookEvent(record, event);
+    }
+
+    record.webhook_unsubscribe = record.handle.subscribeToEvents((event) => {
+      this.dispatchWebhookEvent(record, event);
+    });
+  }
+
+  private dispatchWebhookEvent(record: ManagedSession, event: NeuroCoreEvent): void {
+    const sessionMode = record.handle.getSession()?.session_mode;
+
+    for (const target of this.webhookTargets) {
+      if (
+        Array.isArray(target.event_types) &&
+        target.event_types.length > 0 &&
+        !target.event_types.includes(event.event_type)
+      ) {
+        continue;
+      }
+
+      if (
+        Array.isArray(target.session_modes) &&
+        target.session_modes.length > 0 &&
+        sessionMode &&
+        !target.session_modes.includes(sessionMode)
+      ) {
+        continue;
+      }
+
+      void this.deliverWebhook(target, event);
+    }
+  }
+
+  private async deliverWebhook(target: RuntimeWebhookTarget, event: NeuroCoreEvent): Promise<void> {
+    try {
+      await this.fetchImpl(target.url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(target.headers ?? {})
+        },
+        body: JSON.stringify(event)
+      });
+    } catch {
+      return;
+    }
+  }
+
+  private startBackgroundRun(
+    record: ManagedSession,
+    operation: string,
+    execute: () => Promise<{
+      finalState: SessionState;
+      outputText?: string;
+      steps: Array<{ cycleId: string }>;
+    }>
+  ): Promise<void> {
+    const release = this.beginSessionOperation(record, operation);
+
+    const run = execute()
+      .then((result) => {
+        record.last_run = summarizeLoopResult(result);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        const session = record.handle.getSession();
+        record.last_run = {
+          final_state: session?.state ?? "failed",
+          output_text: message,
+          step_count: 0,
+          last_cycle_id: session?.current_cycle_id,
+          updated_at: new Date().toISOString()
+        };
+      })
+      .finally(() => {
+        release();
+        if (record.active_run === run) {
+          record.active_run = undefined;
+        }
+      });
+
+    record.active_run = run;
+    return run;
+  }
+
+  private async runSessionOperation<T>(
+    record: ManagedSession,
+    operation: string,
+    execute: () => Promise<T>
+  ): Promise<T> {
+    const release = this.beginSessionOperation(record, operation);
+    try {
+      return await execute();
+    } finally {
+      release();
+    }
+  }
+
+  private beginSessionOperation(record: ManagedSession, operation: string): () => void {
+    const sessionId = record.handle.id;
+    const current = this.activeOperations.get(sessionId);
+    if (current) {
+      throw new SessionStateConflictError(
+        `Session ${sessionId} already has an active ${current} operation.`
+      );
+    }
+
+    this.activeOperations.set(sessionId, operation);
+    return () => {
+      if (this.activeOperations.get(sessionId) === operation) {
+        this.activeOperations.delete(sessionId);
+      }
+    };
+  }
+
+  private streamSessionEvents(
+    request: IncomingMessage,
+    response: ServerResponse,
+    record: ManagedSession
+  ): void {
+    response.statusCode = 200;
+    response.setHeader("content-type", "text/event-stream; charset=utf-8");
+    response.setHeader("cache-control", "no-cache, no-transform");
+    response.setHeader("connection", "keep-alive");
+    response.flushHeaders?.();
+
+    for (const event of record.handle.getEvents()) {
+      writeSseEvent(response, event);
+    }
+
+    const unsubscribe = record.handle.subscribeToEvents((event) => {
+      writeSseEvent(response, event);
+    });
+
+    const cleanup = () => {
+      unsubscribe();
+      if (!response.writableEnded) {
+        response.end();
+      }
+    };
+
+    request.once("close", cleanup);
+    request.once("aborted", cleanup);
+    response.once("close", cleanup);
   }
 }
 
@@ -413,6 +640,10 @@ function normalizeSessionMode(value: unknown): AgentSession["session_mode"] | un
   return undefined;
 }
 
+function isBackgroundMode(mode: AgentSession["session_mode"] | undefined): boolean {
+  return mode === "async" || mode === "stream";
+}
+
 function normalizeApprovalDecision(value: unknown): "approved" | "rejected" {
   if (value === "approved" || value === "rejected") {
     return value;
@@ -435,4 +666,9 @@ function writeJson(response: ServerResponse, statusCode: number, body: Record<st
   response.statusCode = statusCode;
   response.setHeader("content-type", "application/json; charset=utf-8");
   response.end(JSON.stringify(body, null, 2));
+}
+
+function writeSseEvent(response: ServerResponse, event: NeuroCoreEvent): void {
+  response.write(`event: ${event.event_type}\n`);
+  response.write(`data: ${JSON.stringify(event)}\n\n`);
 }

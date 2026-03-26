@@ -33,6 +33,11 @@ export class EpisodicMemoryStore {
     this.episodes.set(sessionId, episodes);
     this.sessionTenants.set(sessionId, tenantId);
   }
+
+  public deleteSession(sessionId: string): void {
+    this.episodes.delete(sessionId);
+    this.sessionTenants.delete(sessionId);
+  }
 }
 
 const sharedEpisodicMemoryStore = new EpisodicMemoryStore();
@@ -48,6 +53,10 @@ export class EpisodicMemoryProvider implements MemoryProvider {
 
   public replace(sessionId: string, tenantId: string, episodes: Episode[]): void {
     this.store.replace(sessionId, tenantId, episodes);
+  }
+
+  public deleteSession(sessionId: string): void {
+    this.store.deleteSession(sessionId);
   }
 
   public async getDigest(ctx: ModuleContext): Promise<MemoryDigest[]> {
