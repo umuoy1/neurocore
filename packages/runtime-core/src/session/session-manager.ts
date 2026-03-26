@@ -1,6 +1,25 @@
 import type { AgentProfile, AgentSession, CreateSessionCommand, SessionState } from "@neurocore/protocol";
 import { generateId, nowIso } from "../utils/ids.js";
 
+const ALLOWED_SESSION_TRANSITIONS: Record<SessionState, readonly SessionState[]> = {
+  created: ["running", "suspended", "aborted", "failed"],
+  hydrated: ["running", "suspended", "aborted", "failed"],
+  running: ["waiting", "suspended", "escalated", "completed", "failed", "aborted"],
+  waiting: ["running", "suspended", "aborted", "failed"],
+  suspended: ["hydrated", "aborted", "failed"],
+  escalated: ["running", "waiting", "suspended", "aborted", "failed"],
+  completed: [],
+  failed: [],
+  aborted: []
+};
+
+export class SessionStateConflictError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = "SessionStateConflictError";
+  }
+}
+
 export class SessionManager {
   private readonly sessions = new Map<string, AgentSession>();
 
@@ -42,11 +61,62 @@ export class SessionManager {
 
   public updateState(sessionId: string, state: SessionState): AgentSession {
     const session = this.require(sessionId);
-    session.state = state;
-    if (state === "completed" || state === "failed" || state === "aborted") {
-      session.ended_at = nowIso();
+    return this.transition(session, state);
+  }
+
+  public beginRun(sessionId: string): AgentSession {
+    const session = this.require(sessionId);
+    if (session.state === "running") {
+      return session;
     }
+    return this.transition(session, "running");
+  }
+
+  public ensureResumable(sessionId: string): AgentSession {
+    const session = this.require(sessionId);
+    if (session.state === "waiting" || session.state === "suspended" || session.state === "hydrated") {
+      return session;
+    }
+
+    if (session.state === "escalated") {
+      throw new SessionStateConflictError(
+        `Session ${sessionId} is waiting for approval and cannot be resumed yet.`
+      );
+    }
+
+    throw new SessionStateConflictError(
+      `Session ${sessionId} cannot be resumed from state ${session.state}.`
+    );
+  }
+
+  public ensureAwaitingApproval(sessionId: string, approvalId?: string): AgentSession {
+    const session = this.require(sessionId);
+    const pendingApprovalId =
+      session.metadata && typeof session.metadata.pending_approval_id === "string"
+        ? session.metadata.pending_approval_id
+        : undefined;
+
+    if (session.state !== "escalated" || !pendingApprovalId) {
+      throw new SessionStateConflictError(
+        `Session ${sessionId} is not waiting on an approval decision.`
+      );
+    }
+
+    if (approvalId && pendingApprovalId !== approvalId) {
+      throw new SessionStateConflictError(
+        `Session ${sessionId} is waiting on approval ${pendingApprovalId}, not ${approvalId}.`
+      );
+    }
+
     return session;
+  }
+
+  public cancel(sessionId: string): AgentSession {
+    const session = this.require(sessionId);
+    if (session.state === "aborted") {
+      return session;
+    }
+    return this.transition(session, "aborted");
   }
 
   public setCurrentCycle(sessionId: string, cycleId: string): AgentSession {
@@ -89,6 +159,27 @@ export class SessionManager {
     const session = this.sessions.get(sessionId);
     if (!session) {
       throw new Error(`Unknown session: ${sessionId}`);
+    }
+    return session;
+  }
+
+  private transition(session: AgentSession, nextState: SessionState): AgentSession {
+    if (session.state === nextState) {
+      return session;
+    }
+
+    const allowed = ALLOWED_SESSION_TRANSITIONS[session.state];
+    if (!allowed.includes(nextState)) {
+      throw new SessionStateConflictError(
+        `Invalid session state transition: ${session.state} -> ${nextState} for ${session.session_id}.`
+      );
+    }
+
+    session.state = nextState;
+    if (nextState === "completed" || nextState === "failed" || nextState === "aborted") {
+      session.ended_at = session.ended_at ?? nowIso();
+    } else {
+      session.ended_at = undefined;
     }
     return session;
   }

@@ -5,6 +5,7 @@ import type {
   CycleTrace,
   CycleTraceRecord,
   Episode,
+  Goal,
   SessionCheckpoint,
   SessionReplay,
   UserInput
@@ -60,6 +61,10 @@ export class AgentSessionHandle {
 
   public getEpisodes(): Episode[] {
     return this.runtime.getEpisodes(this.sessionId);
+  }
+
+  public getGoals(): Goal[] {
+    return this.runtime.listGoals(this.sessionId);
   }
 
   public getApproval(approvalId: string): ApprovalRequest | undefined {

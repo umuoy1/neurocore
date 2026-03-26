@@ -13,6 +13,8 @@ import type {
   MetaController,
   Observation,
   PendingApprovalContextSnapshot,
+  PolicyProvider,
+  Predictor,
   Prediction,
   Proposal,
   Reasoner,
@@ -21,18 +23,20 @@ import type {
   SessionCheckpoint,
   SessionReplay,
   SessionState,
+  SkillProvider,
   TraceStore,
+  Goal,
   UserInput,
   WorkspaceSnapshot
 } from "@neurocore/protocol";
-import { EpisodicMemoryProvider, WorkingMemoryProvider } from "@neurocore/memory-core";
+import { EpisodicMemoryProvider, SemanticMemoryProvider, WorkingMemoryProvider } from "@neurocore/memory-core";
 import { InMemoryCheckpointStore } from "../checkpoint/in-memory-checkpoint-store.js";
 import { CycleEngine } from "../cycle/cycle-engine.js";
 import { ToolGateway } from "../execution/tool-gateway.js";
 import { GoalManager } from "../goal/goal-manager.js";
 import { DefaultMetaController } from "../meta/meta-controller.js";
 import { ReplayRunner } from "../replay/replay-runner.js";
-import { SessionManager } from "../session/session-manager.js";
+import { SessionManager, SessionStateConflictError } from "../session/session-manager.js";
 import { InMemoryTraceStore } from "../trace/in-memory-trace-store.js";
 import { TraceRecorder } from "../trace/trace-recorder.js";
 import { debugLog } from "../utils/debug.js";
@@ -42,6 +46,9 @@ export interface AgentRuntimeOptions {
   reasoner: Reasoner;
   metaController?: MetaController;
   memoryProviders?: MemoryProvider[];
+  predictors?: Predictor[];
+  policyProviders?: PolicyProvider[];
+  skillProviders?: SkillProvider[];
   traceStore?: TraceStore;
   checkpointStore?: CheckpointStore;
   stateStore?: RuntimeStateStore;
@@ -96,7 +103,11 @@ export class AgentRuntime {
   private readonly cycleEngine = new CycleEngine();
   private readonly workingMemoryProvider = new WorkingMemoryProvider();
   private readonly episodicMemoryProvider = new EpisodicMemoryProvider();
+  private readonly semanticMemoryProvider = new SemanticMemoryProvider();
   private readonly memoryProviders: MemoryProvider[];
+  private readonly predictors: Predictor[];
+  private readonly policyProviders: PolicyProvider[];
+  private readonly skillProviders: SkillProvider[];
   private readonly reasoner: Reasoner;
   private readonly metaController: MetaController;
   private readonly traceRecorder: TraceRecorder;
@@ -117,8 +128,12 @@ export class AgentRuntime {
     this.memoryProviders = [
       this.workingMemoryProvider,
       this.episodicMemoryProvider,
+      this.semanticMemoryProvider,
       ...(options.memoryProviders ?? [])
     ];
+    this.predictors = options.predictors ?? [];
+    this.policyProviders = options.policyProviders ?? [];
+    this.skillProviders = options.skillProviders ?? [];
   }
 
   public createSession(profile: AgentProfile, command: CreateSessionCommand) {
@@ -135,7 +150,7 @@ export class AgentRuntime {
   }
 
   public async runOnce(profile: AgentProfile, sessionId: string, input: UserInput) {
-    const session = this.requireSession(sessionId);
+    const session = this.sessions.beginRun(sessionId);
     const startedAt = nowIso();
 
     debugLog("runtime", "Starting runOnce", {
@@ -144,19 +159,25 @@ export class AgentRuntime {
       inputChars: input.content.length
     });
 
+    await this.decomposeGoals(profile, session, input);
+    const activeGoals = this.goals.active(sessionId);
+
     const result = await this.cycleEngine.run({
       tenantId: session.tenant_id,
       session,
       profile,
       input,
-      goals: this.goals.active(sessionId),
+      goals: activeGoals,
       memoryProviders: this.memoryProviders,
+      predictors: this.predictors,
+      policies: this.policyProviders,
+      skillProviders: this.skillProviders,
       reasoner: this.reasoner,
       metaController: this.metaController
     });
 
     this.sessions.setCurrentCycle(sessionId, result.cycleId);
-    const selectedAction = selectAction(result.actions, result.decision.selected_action_id);
+    const selectedAction = selectAction(result.actions, result.decision);
     debugLog("runtime", "Selected action after cycle", {
       sessionId,
       cycleId: result.cycleId,
@@ -164,6 +185,33 @@ export class AgentRuntime {
       selectedActionType: selectedAction?.action_type,
       decisionType: result.decision.decision_type
     });
+
+    if (result.decision.decision_type === "abort") {
+      const sessionState = this.sessions.updateState(sessionId, "aborted").state;
+      const trace = this.traceRecorder.record({
+        sessionId,
+        cycleId: result.cycleId,
+        input,
+        proposals: result.proposals,
+        candidateActions: result.actions,
+        predictions: result.predictions,
+        policyDecisions: result.workspace.policy_decisions ?? [],
+        workspace: result.workspace,
+        startedAt
+      });
+      this.goals.markActionable(sessionId, "cancelled");
+      this.maybeCreateCheckpoint(profile, sessionId);
+      this.persistSessionState(sessionId);
+
+      return {
+        sessionId,
+        cycleId: result.cycleId,
+        sessionState,
+        outputText: formatAbortDecision(result.decision),
+        trace,
+        cycle: result
+      };
+    }
 
     if (!selectedAction) {
       const sessionState = this.sessions.updateState(sessionId, "failed").state;
@@ -182,6 +230,7 @@ export class AgentRuntime {
         sessionId,
         cycleId: result.cycleId
       });
+      this.goals.markActionable(sessionId, "failed");
       this.maybeCreateCheckpoint(profile, sessionId);
       this.persistSessionState(sessionId);
       return {
@@ -276,6 +325,7 @@ export class AgentRuntime {
     }
 
     const finalSession = this.sessions.updateState(sessionId, "failed");
+    this.goals.markActionable(sessionId, "failed");
     this.persistSessionState(sessionId);
     debugLog("runtime", "runUntilSettled exhausted max steps", {
       sessionId,
@@ -300,6 +350,11 @@ export class AgentRuntime {
     this.ensureSessionLoaded(sessionId);
     const session = this.sessions.get(sessionId);
     return session ? structuredClone(session) : undefined;
+  }
+
+  public listGoals(sessionId: string): Goal[] {
+    this.requireSession(sessionId);
+    return structuredClone(this.goals.list(sessionId));
   }
 
   public getTraceRecords(sessionId: string): CycleTraceRecord[] {
@@ -380,6 +435,12 @@ export class AgentRuntime {
     );
     this.episodicMemoryProvider.replace(
       restoredSession.session_id,
+      restoredSession.tenant_id,
+      structuredClone(checkpoint.episodes)
+    );
+    this.semanticMemoryProvider.replaceSession(
+      restoredSession.session_id,
+      restoredSession.tenant_id,
       structuredClone(checkpoint.episodes)
     );
     this.traceRecorder.getStore().replaceSession(
@@ -404,7 +465,7 @@ export class AgentRuntime {
     sessionId: string,
     input?: UserInput
   ): Promise<AgentRunLoopResult> {
-    const session = this.requireSession(sessionId);
+    const session = this.sessions.ensureResumable(sessionId);
 
     const resumeInput = input ?? derivePendingInput(this.getTraceRecords(sessionId), session);
     if (!resumeInput) {
@@ -471,13 +532,26 @@ export class AgentRuntime {
       throw new Error(`Unknown approval request: ${approvalId}`);
     }
     if (approval.status !== "pending") {
-      throw new Error(`Approval request ${approvalId} is already ${approval.status}.`);
+      if (
+        approval.status === decision.decision &&
+        approval.decision === decision.decision &&
+        approval.approver_id === decision.approver_id &&
+        approval.comment === decision.comment
+      ) {
+        return {
+          approval: structuredClone(approval)
+        };
+      }
+
+      throw new SessionStateConflictError(`Approval request ${approvalId} is already ${approval.status}.`);
     }
 
     const pending = this.pendingApprovals.get(approvalId);
     if (!pending) {
       throw new Error(`Approval request ${approvalId} is no longer executable.`);
     }
+
+    this.sessions.ensureAwaitingApproval(approval.session_id, approvalId);
 
     approval.status = decision.decision;
     approval.decision = decision.decision;
@@ -542,8 +616,8 @@ export class AgentRuntime {
   }
 
   public cancelSession(sessionId: string): AgentSession {
-    this.requireSession(sessionId);
-    const session = this.sessions.updateState(sessionId, "aborted");
+    const session = this.sessions.cancel(sessionId);
+    this.goals.markActionable(sessionId, "cancelled");
     this.persistSessionState(sessionId);
     debugLog("runtime", "Cancelled session", {
       sessionId: session.session_id,
@@ -555,6 +629,40 @@ export class AgentRuntime {
   private maybeCreateCheckpoint(profile: AgentProfile, sessionId: string): void {
     if (profile.runtime_config.checkpoint_interval === "cycle") {
       this.createCheckpoint(sessionId);
+    }
+  }
+
+  private async decomposeGoals(
+    profile: AgentProfile,
+    session: AgentSession,
+    input: UserInput
+  ): Promise<void> {
+    if (!this.reasoner.decomposeGoal) {
+      return;
+    }
+
+    const decomposableGoals = this.goals.decomposable(session.session_id);
+    for (const goal of decomposableGoals) {
+      const ctx = buildMemoryContext(profile, session, this.goals.active(session.session_id), input);
+      const decomposition = await this.reasoner.decomposeGoal(ctx, structuredClone(goal));
+
+      if (!Array.isArray(decomposition) || decomposition.length === 0) {
+        this.goals.markDecompositionState(session.session_id, goal.goal_id, "skipped");
+        continue;
+      }
+
+      const normalizedChildren = decomposition.map((child) =>
+        normalizeDecomposedGoal(profile, session.session_id, goal, child)
+      );
+      const inserted = this.goals.addMany(session.session_id, normalizedChildren);
+      this.goals.markDecompositionState(session.session_id, goal.goal_id, "completed");
+
+      debugLog("runtime", "Decomposed goal into child goals", {
+        sessionId: session.session_id,
+        goalId: goal.goal_id,
+        childGoalCount: inserted.length,
+        childGoalIds: inserted.map((child) => child.goal_id)
+      });
     }
   }
 
@@ -624,6 +732,7 @@ export class AgentRuntime {
         cycleId: cycle.cycleId,
         actionId: selectedAction.action_id
       });
+      this.goals.markActionable(sessionId, "cancelled");
       this.maybeCreateCheckpoint(profile, sessionId);
       this.persistSessionState(sessionId);
       return {
@@ -708,6 +817,11 @@ export class AgentRuntime {
     ).state;
     const observation = buildSyntheticObservation(session, cycle.cycleId, selectedAction);
     await this.recordObservation(profile, session, input, cycle.cycleId, selectedAction, observation, "success");
+    if (sessionState === "completed") {
+      this.goals.markActionable(sessionId, "completed");
+    } else if (sessionState === "aborted") {
+      this.goals.markActionable(sessionId, "cancelled");
+    }
     const trace = this.traceRecorder.record({
       sessionId,
       cycleId: cycle.cycleId,
@@ -833,11 +947,17 @@ export class AgentRuntime {
   }
 
   private hydratePersistedSession(snapshot: RuntimeSessionSnapshot): void {
+    validateRuntimeSessionSnapshot(snapshot);
     const sessionId = snapshot.session.session_id;
     this.sessions.hydrate(structuredClone(snapshot.session));
     this.goals.hydrate(sessionId, structuredClone(snapshot.goals));
     this.workingMemoryProvider.replace(sessionId, structuredClone(snapshot.working_memory));
-    this.episodicMemoryProvider.replace(sessionId, structuredClone(snapshot.episodes));
+    this.episodicMemoryProvider.replace(sessionId, snapshot.session.tenant_id, structuredClone(snapshot.episodes));
+    this.semanticMemoryProvider.replaceSession(
+      sessionId,
+      snapshot.session.tenant_id,
+      structuredClone(snapshot.episodes)
+    );
     this.traceRecorder.getStore().replaceSession(sessionId, structuredClone(snapshot.trace_records));
 
     for (const checkpoint of snapshot.checkpoints) {
@@ -888,11 +1008,29 @@ function isTerminalState(state: SessionState): boolean {
   return state === "completed" || state === "failed" || state === "aborted";
 }
 
-function selectAction(actions: CandidateAction[], selectedActionId?: string): CandidateAction | undefined {
+function selectAction(
+  actions: CandidateAction[],
+  decision: Awaited<ReturnType<CycleEngine["run"]>>["decision"]
+): CandidateAction | undefined {
+  if (decision.decision_type !== "execute_action" && decision.decision_type !== "request_approval") {
+    return undefined;
+  }
+
+  const selectedActionId = decision.selected_action_id;
   if (!selectedActionId) {
     return actions[0];
   }
   return actions.find((action) => action.action_id === selectedActionId) ?? actions[0];
+}
+
+function formatAbortDecision(decision: Awaited<ReturnType<CycleEngine["run"]>>["decision"]): string {
+  if (Array.isArray(decision.rejection_reasons) && decision.rejection_reasons.length > 0) {
+    return decision.rejection_reasons.join(" ");
+  }
+  if (typeof decision.explanation === "string" && decision.explanation.trim().length > 0) {
+    return decision.explanation;
+  }
+  return "The runtime aborted before executing any action.";
 }
 
 function deriveSessionState(actionType: CandidateAction["action_type"]) {
@@ -996,6 +1134,48 @@ function toExecutionCycleState(cycle: Awaited<ReturnType<CycleEngine["run"]>>): 
   };
 }
 
+function normalizeDecomposedGoal(
+  profile: AgentProfile,
+  sessionId: string,
+  parentGoal: Goal,
+  goal: Goal
+): Goal {
+  const title =
+    typeof goal.title === "string" && goal.title.trim().length > 0
+      ? goal.title
+      : typeof goal.description === "string" && goal.description.trim().length > 0
+        ? goal.description
+        : `Subgoal for ${parentGoal.title}`;
+
+  return {
+    goal_id: goal.goal_id,
+    schema_version: goal.schema_version ?? profile.schema_version,
+    session_id: goal.session_id ?? sessionId,
+    parent_goal_id: goal.parent_goal_id ?? parentGoal.goal_id,
+    title,
+    description: goal.description,
+    goal_type: goal.goal_type ?? "subtask",
+    status: goal.status ?? "pending",
+    priority: typeof goal.priority === "number" ? goal.priority : Math.max(parentGoal.priority - 10, 1),
+    importance: goal.importance,
+    urgency: goal.urgency,
+    deadline_at: goal.deadline_at,
+    dependencies: goal.dependencies,
+    constraints: goal.constraints,
+    acceptance_criteria: goal.acceptance_criteria,
+    progress: goal.progress,
+    owner: goal.owner ?? "agent",
+    metadata: {
+      ...(goal.metadata ?? {}),
+      decomposition_status:
+        goal.metadata && typeof goal.metadata.decomposition_status === "string"
+          ? goal.metadata.decomposition_status
+          : "pending",
+      decomposed_from_goal_id: parentGoal.goal_id
+    }
+  };
+}
+
 function toAgentCycleState(cycle: ExecutionCycleState): Awaited<ReturnType<CycleEngine["run"]>> {
   return {
     cycleId: cycle.cycleId,
@@ -1035,4 +1215,43 @@ function fromPendingApprovalSnapshot(snapshot: PendingApprovalContextSnapshot): 
     selectedAction: structuredClone(snapshot.selected_action),
     startedAt: snapshot.started_at
   };
+}
+
+function validateRuntimeSessionSnapshot(snapshot: RuntimeSessionSnapshot): void {
+  const pendingApprovalIds = snapshot.pending_approvals.map((pending) => pending.approval_id);
+  const metadataPendingApprovalId =
+    snapshot.session.metadata && typeof snapshot.session.metadata.pending_approval_id === "string"
+      ? snapshot.session.metadata.pending_approval_id
+      : undefined;
+
+  if (pendingApprovalIds.length > 1) {
+    throw new Error(
+      `Session ${snapshot.session.session_id} has multiple pending approvals, which is not yet supported.`
+    );
+  }
+
+  if (snapshot.session.state === "escalated") {
+    if (pendingApprovalIds.length !== 1) {
+      throw new Error(
+        `Escalated session ${snapshot.session.session_id} must have exactly one pending approval.`
+      );
+    }
+
+    if (metadataPendingApprovalId && metadataPendingApprovalId !== pendingApprovalIds[0]) {
+      throw new Error(
+        `Session ${snapshot.session.session_id} points to pending approval ${metadataPendingApprovalId}, but snapshot has ${pendingApprovalIds[0]}.`
+      );
+    }
+  }
+
+  if (
+    (snapshot.session.state === "completed" ||
+      snapshot.session.state === "failed" ||
+      snapshot.session.state === "aborted") &&
+    pendingApprovalIds.length > 0
+  ) {
+    throw new Error(
+      `Terminal session ${snapshot.session.session_id} cannot retain a pending approval.`
+    );
+  }
 }

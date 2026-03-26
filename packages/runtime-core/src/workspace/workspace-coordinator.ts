@@ -6,6 +6,7 @@ import type {
   PolicyDecision,
   Proposal,
   RiskAssessment,
+  SkillDigest,
   WorkspaceSnapshot
 } from "@neurocore/protocol";
 import { generateId, nowIso } from "../utils/ids.js";
@@ -18,6 +19,7 @@ export interface BuildWorkspaceInput {
   proposals: Proposal[];
   candidateActions: CandidateAction[];
   memoryDigest?: MemoryDigest[];
+  skillDigest?: SkillDigest[];
   policyDecisions?: PolicyDecision[];
 }
 
@@ -43,7 +45,7 @@ export class WorkspaceCoordinator {
       })),
       context_summary: input.contextSummary,
       memory_digest: input.memoryDigest ?? [],
-      skill_digest: [],
+      skill_digest: input.skillDigest ?? [],
       candidate_actions: input.candidateActions,
       selected_proposal_id: selectedProposal?.proposal_id,
       risk_assessment: risk,

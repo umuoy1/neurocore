@@ -12,6 +12,8 @@ import type {
   Predictor,
   Proposal,
   Reasoner,
+  SkillDigest,
+  SkillProvider,
   UserInput,
   WorkspaceSnapshot
 } from "@neurocore/protocol";
@@ -31,6 +33,7 @@ export interface CycleExecutionInput {
   policies?: PolicyProvider[];
   memoryProviders?: MemoryProvider[];
   predictors?: Predictor[];
+  skillProviders?: SkillProvider[];
 }
 
 export interface CycleExecutionResult {
@@ -71,20 +74,24 @@ export class CycleEngine {
     };
 
     const memoryState = await this.collectMemoryState(baseContext, input.memoryProviders ?? []);
+    const skillState = await this.collectSkillState(baseContext, input.skillProviders ?? []);
     const enrichedContext: ModuleContext = {
       ...baseContext,
       runtime_state: {
         ...baseContext.runtime_state,
-        memory_recall_proposals: memoryState.proposals
+        memory_recall_proposals: memoryState.proposals,
+        skill_match_proposals: skillState.proposals
       }
     };
     const reasonerProposals = await input.reasoner.plan(enrichedContext);
-    const proposals = [...memoryState.proposals, ...reasonerProposals];
+    const proposals = [...memoryState.proposals, ...skillState.proposals, ...reasonerProposals];
     debugLog("cycle", "Collected proposals", {
       sessionId: input.session.session_id,
       cycleId,
       memoryProposalCount: memoryState.proposals.length,
       memoryDigestCount: memoryState.digest.length,
+      skillProposalCount: skillState.proposals.length,
+      skillDigestCount: skillState.digest.length,
       reasonerProposalCount: reasonerProposals.length,
       totalProposalCount: proposals.length
     });
@@ -111,6 +118,7 @@ export class CycleEngine {
       proposals,
       candidateActions: actions,
       memoryDigest: memoryState.digest,
+      skillDigest: skillState.digest,
       policyDecisions: policies
     });
 
@@ -186,6 +194,41 @@ export class CycleEngine {
     return predictions.filter((prediction): prediction is Prediction => prediction !== null);
   }
 
+  private async collectSkillState(
+    ctx: ModuleContext,
+    providers: SkillProvider[]
+  ): Promise<{ proposals: Proposal[]; digest: SkillDigest[] }> {
+    const results = await Promise.all(
+      providers.map(async (provider) => {
+        const proposals = await provider.match(ctx);
+        return {
+          providerName: provider.name,
+          proposals,
+          digest: proposals
+            .filter((proposal) => proposal.proposal_type === "skill_match")
+            .map((proposal) => toSkillDigest(provider.name, proposal))
+        };
+      })
+    );
+
+    debugLog("cycle", "Collected skill matches", {
+      sessionId: ctx.session.session_id,
+      cycleId: ctx.session.current_cycle_id,
+      providers: results.map((result) => ({
+        provider: result.providerName,
+        proposalCount: result.proposals.length,
+        digestCount: result.digest.length
+      }))
+    });
+
+    return {
+      proposals: results.flatMap((result) => result.proposals),
+      digest: results
+        .flatMap((result) => result.digest)
+        .sort((left, right) => right.relevance - left.relevance)
+    };
+  }
+
   private async collectPolicyDecisions(
     ctx: ModuleContext,
     actions: CandidateAction[],
@@ -197,4 +240,21 @@ export class CycleEngine {
 
     return policyResults.flat();
   }
+}
+
+function toSkillDigest(providerName: string, proposal: Proposal): SkillDigest {
+  const skillId =
+    typeof proposal.payload.skill_id === "string" && proposal.payload.skill_id.trim().length > 0
+      ? proposal.payload.skill_id
+      : proposal.proposal_id;
+  const name =
+    typeof proposal.payload.skill_name === "string" && proposal.payload.skill_name.trim().length > 0
+      ? proposal.payload.skill_name
+      : providerName;
+
+  return {
+    skill_id: skillId,
+    name,
+    relevance: proposal.salience_score
+  };
 }

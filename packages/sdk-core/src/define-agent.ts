@@ -2,9 +2,12 @@ import type {
   AgentProfile,
   CreateSessionCommand,
   MemoryProvider,
+  PolicyProvider,
+  Predictor,
   Reasoner,
   RuntimeStateStore,
   SessionCheckpoint,
+  SkillProvider,
   UserInput,
   Tool
 } from "@neurocore/protocol";
@@ -24,6 +27,9 @@ export class AgentBuilder {
   private readonly profile: AgentProfile;
   private reasoner?: Reasoner;
   private readonly memoryProviders: MemoryProvider[] = [];
+  private readonly predictors: Predictor[] = [];
+  private readonly policyProviders: PolicyProvider[] = [];
+  private readonly skillProviders: SkillProvider[] = [];
   private readonly tools: Tool[] = [];
   private runtimeStateStoreFactory?: () => RuntimeStateStore;
 
@@ -97,6 +103,47 @@ export class AgentBuilder {
     return this;
   }
 
+  public registerPredictor(predictor: Predictor): this {
+    this.predictors.push(predictor);
+    const metadata = (this.profile.metadata ??= {});
+    const currentCatalog = Array.isArray(metadata.predictor_catalog) ? metadata.predictor_catalog : [];
+    metadata.predictor_catalog = [
+      ...currentCatalog,
+      {
+        name: predictor.name
+      }
+    ];
+    return this;
+  }
+
+  public registerPolicyProvider(provider: PolicyProvider): this {
+    this.policyProviders.push(provider);
+    this.profile.policies.policy_ids.push(provider.name);
+    const metadata = (this.profile.metadata ??= {});
+    const currentCatalog = Array.isArray(metadata.policy_catalog) ? metadata.policy_catalog : [];
+    metadata.policy_catalog = [
+      ...currentCatalog,
+      {
+        name: provider.name
+      }
+    ];
+    return this;
+  }
+
+  public registerSkillProvider(provider: SkillProvider): this {
+    this.skillProviders.push(provider);
+    this.profile.skill_refs.push(provider.name);
+    const metadata = (this.profile.metadata ??= {});
+    const currentCatalog = Array.isArray(metadata.skill_catalog) ? metadata.skill_catalog : [];
+    metadata.skill_catalog = [
+      ...currentCatalog,
+      {
+        name: provider.name
+      }
+    ];
+    return this;
+  }
+
   public useRuntimeStateStore(factory: () => RuntimeStateStore): this {
     this.runtimeStateStoreFactory = factory;
     return this;
@@ -141,6 +188,9 @@ export class AgentBuilder {
     const runtime = new AgentRuntime({
       reasoner: this.reasoner,
       memoryProviders: this.memoryProviders,
+      predictors: this.predictors,
+      policyProviders: this.policyProviders,
+      skillProviders: this.skillProviders,
       stateStore: this.runtimeStateStoreFactory?.()
     });
     for (const tool of this.tools) {

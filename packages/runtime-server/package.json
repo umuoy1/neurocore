@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@neurocore/protocol": "file:../protocol",
+    "@neurocore/runtime-core": "file:../runtime-core",
     "@neurocore/sdk-core": "file:../sdk-core"
   }
 }

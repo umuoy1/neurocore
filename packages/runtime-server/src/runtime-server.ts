@@ -6,6 +6,7 @@ import type {
   SessionState,
   UserInput
 } from "@neurocore/protocol";
+import { SessionStateConflictError } from "@neurocore/runtime-core";
 import type { AgentBuilder, AgentSessionHandle } from "@neurocore/sdk-core";
 
 export interface RuntimeServerOptions {
@@ -60,6 +61,14 @@ export class NeuroRuntimeServer {
         if (error instanceof HttpError) {
           writeJson(response, error.statusCode, {
             error: error.code,
+            message: error.message
+          });
+          return;
+        }
+
+        if (error instanceof SessionStateConflictError) {
+          writeJson(response, 409, {
+            error: "state_conflict",
             message: error.message
           });
           return;

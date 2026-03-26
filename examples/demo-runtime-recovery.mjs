@@ -122,6 +122,11 @@ try {
     decision: "approved",
     comment: "Recovered after server restart."
   });
+  const approvedAgain = await postJson(`${secondServer.url}/v1/approvals/${approvalId}/decision`, {
+    approver_id: "durable-runtime-demo",
+    decision: "approved",
+    comment: "Recovered after server restart."
+  });
   const resumed = await postJson(`${secondServer.url}/v1/sessions/${sessionId}/resume`, {});
 
   console.log(
@@ -141,6 +146,11 @@ try {
           approvalStatus: approved.approval.status,
           sessionState: approved.session.state,
           outputText: approved.last_run?.output_text ?? null
+        },
+        approvedAgain: {
+          approvalStatus: approvedAgain.approval.status,
+          sessionState: approvedAgain.session.state,
+          outputText: approvedAgain.last_run?.output_text ?? null
         },
         resumed: {
           finalState: resumed.session.state,
