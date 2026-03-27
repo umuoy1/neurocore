@@ -1,5 +1,6 @@
 import type {
   BudgetAssessment,
+  BudgetState,
   CandidateAction,
   Goal,
   MemoryDigest,
@@ -18,6 +19,7 @@ export interface BuildWorkspaceInput {
   goals: Goal[];
   proposals: Proposal[];
   candidateActions: CandidateAction[];
+  budgetState: BudgetState;
   memoryDigest?: MemoryDigest[];
   skillDigest?: SkillDigest[];
   policyDecisions?: PolicyDecision[];
@@ -26,7 +28,6 @@ export interface BuildWorkspaceInput {
 export class WorkspaceCoordinator {
   public buildSnapshot(input: BuildWorkspaceInput): WorkspaceSnapshot {
     const risk = this.computeRisk(input.proposals);
-    const budget = this.computeBudget(input.candidateActions);
     const selectedProposal = [...input.proposals].sort(
       (left, right) => right.salience_score - left.salience_score
     )[0];
@@ -53,7 +54,7 @@ export class WorkspaceCoordinator {
         confidence: selectedProposal?.confidence ?? 0.5,
         summary: "Derived from the top-ranked proposal."
       },
-      budget_assessment: budget,
+      budget_assessment: this.computeBudget(input.budgetState),
       policy_decisions: input.policyDecisions ?? [],
       decision_reasoning: selectedProposal?.explanation,
       created_at: nowIso()
@@ -68,10 +69,26 @@ export class WorkspaceCoordinator {
     };
   }
 
-  private computeBudget(actions: CandidateAction[]): BudgetAssessment {
-    return {
-      within_budget: actions.length < 20,
-      summary: "MVP budget check only validates candidate action count."
-    };
+  private computeBudget(budgetState: BudgetState): BudgetAssessment {
+    const cycleExceeded =
+      budgetState.cycle_limit !== undefined &&
+      (budgetState.cycle_used ?? 0) >= budgetState.cycle_limit;
+    const toolExceeded =
+      budgetState.tool_call_limit !== undefined &&
+      (budgetState.tool_call_used ?? 0) >= budgetState.tool_call_limit;
+
+    if (cycleExceeded) {
+      return {
+        within_budget: false,
+        summary: `Cycle limit reached (${budgetState.cycle_used}/${budgetState.cycle_limit}).`
+      };
+    }
+    if (toolExceeded) {
+      return {
+        within_budget: false,
+        summary: `Tool call limit reached (${budgetState.tool_call_used}/${budgetState.tool_call_limit}).`
+      };
+    }
+    return { within_budget: true, summary: "Within budget." };
   }
 }

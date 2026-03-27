@@ -117,6 +117,7 @@ export class CycleEngine {
       goals: input.goals,
       proposals,
       candidateActions: actions,
+      budgetState: input.session.budget_state,
       memoryDigest: memoryState.digest,
       skillDigest: skillState.digest,
       policyDecisions: policies

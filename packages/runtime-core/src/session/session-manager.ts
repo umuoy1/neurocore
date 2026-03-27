@@ -130,6 +130,12 @@ export class SessionManager {
     return session;
   }
 
+  public incrementToolCallUsed(sessionId: string): AgentSession {
+    const session = this.require(sessionId);
+    session.budget_state.tool_call_used = (session.budget_state.tool_call_used ?? 0) + 1;
+    return session;
+  }
+
   public setCheckpointRef(sessionId: string, checkpointRef: string): AgentSession {
     const session = this.require(sessionId);
     session.checkpoint_ref = checkpointRef;

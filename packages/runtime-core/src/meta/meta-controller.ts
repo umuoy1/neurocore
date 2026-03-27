@@ -27,8 +27,13 @@ export class DefaultMetaController implements IMetaController {
       };
     }
 
+    const warnedActionIds = new Set(
+      policies.filter((decision) => decision.level === "warn").map((decision) => decision.target_id)
+    );
+
     const requiresApproval =
       selected.side_effect_level === "high" ||
+      warnedActionIds.has(selected.action_id) ||
       predictions.some((prediction) => prediction.action_id === selected.action_id && (prediction.uncertainty ?? 0) > 0.7);
 
     return {

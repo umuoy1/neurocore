@@ -24,6 +24,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@neurocore-ai/eval-core": "^0.1.0",
     "@neurocore-ai/protocol": "^0.1.0",
     "@neurocore-ai/runtime-core": "^0.1.0",
     "@neurocore-ai/sdk-core": "^0.1.0"

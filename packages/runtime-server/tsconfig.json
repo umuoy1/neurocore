@@ -5,6 +5,7 @@
     "outDir": "dist"
   },
   "references": [
+    { "path": "../eval-core" },
     { "path": "../protocol" },
     { "path": "../sdk-core" }
   ],

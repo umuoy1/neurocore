@@ -12,6 +12,7 @@ import type {
   Tool
 } from "@neurocore/protocol";
 import { AgentRuntime } from "@neurocore/runtime-core";
+import { ToolPolicyProvider } from "@neurocore/policy-core";
 import { AgentSessionHandle } from "./session-handle.js";
 
 export interface DefineAgentOptions {
@@ -76,6 +77,11 @@ export class AgentBuilder {
       ...config,
       ...(nextToolExecution ? { tool_execution: nextToolExecution } : {})
     };
+    return this;
+  }
+
+  public configurePolicy(options: { blockedTools?: string[]; requiredApprovalTools?: string[] }): this {
+    this.policyProviders.push(new ToolPolicyProvider(options));
     return this;
   }
 

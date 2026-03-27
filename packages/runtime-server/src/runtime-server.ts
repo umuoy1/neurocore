@@ -10,6 +10,7 @@ import type {
 } from "@neurocore/protocol";
 import { SessionStateConflictError } from "@neurocore/runtime-core";
 import type { AgentBuilder, AgentSessionHandle } from "@neurocore/sdk-core";
+import { EvalRunner, createSessionExecutor, type EvalCase, type EvalRunReport } from "@neurocore/eval-core";
 
 export interface RuntimeServerOptions {
   host?: string;
@@ -59,6 +60,7 @@ export class NeuroRuntimeServer {
   private readonly agents = new Map<string, AgentBuilder>();
   private readonly sessions = new Map<string, ManagedSession>();
   private readonly activeOperations = new Map<string, string>();
+  private readonly evalReports = new Map<string, EvalRunReport>();
   private readonly server: HttpServer;
   private readonly webhookTargets: RuntimeWebhookTarget[];
   private readonly fetchImpl: typeof fetch;
@@ -313,11 +315,27 @@ export class NeuroRuntimeServer {
     }
 
     if (path.length >= 3 && path[0] === "v1" && path[1] === "evals" && path[2] === "runs") {
-      writeJson(response, 501, {
-        error: "not_implemented",
-        message: "Eval API is not implemented in the MVP runtime-server yet."
-      });
-      return;
+      if (method === "POST" && path.length === 3) {
+        const body = await readJson(request);
+        const agentId = getRequiredString(body.agent_id, "agent_id");
+        const cases = body.cases;
+        if (!Array.isArray(cases)) {
+          throw new HttpError(400, "invalid_request", "cases must be an array of EvalCase.");
+        }
+        const report = await this.runEval(agentId, cases as EvalCase[]);
+        writeJson(response, 201, report as unknown as Record<string, unknown>);
+        return;
+      }
+
+      if (method === "GET" && path.length === 4) {
+        const runId = path[3] ?? "";
+        const report = this.evalReports.get(runId);
+        if (!report) {
+          throw new HttpError(404, "eval_run_not_found", `Unknown eval run: ${runId}`);
+        }
+        writeJson(response, 200, report as unknown as Record<string, unknown>);
+        return;
+      }
     }
 
     writeJson(response, 404, {
@@ -360,6 +378,32 @@ export class NeuroRuntimeServer {
     }
 
     return record;
+  }
+
+  private async runEval(agentId: string, cases: EvalCase[]): Promise<EvalRunReport> {
+    const agent = this.agents.get(agentId);
+    if (!agent) {
+      throw new HttpError(404, "agent_not_found", `Unknown agent: ${agentId}`);
+    }
+
+    const executor = createSessionExecutor((testCase) => {
+      const handle = agent.createSession({
+        agent_id: agentId,
+        tenant_id: "eval",
+        initial_input: {
+          input_id: `inp_eval_${testCase.case_id}`,
+          content: testCase.input.content,
+          created_at: new Date().toISOString(),
+          metadata: testCase.input.metadata
+        }
+      });
+      return handle;
+    });
+
+    const runner = new EvalRunner(executor);
+    const report = await runner.run(cases);
+    this.evalReports.set(report.run_id, report);
+    return report;
   }
 
   private requireSession(sessionId: string): ManagedSession {

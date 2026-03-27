@@ -5,9 +5,9 @@
     "outDir": "dist"
   },
   "references": [
+    { "path": "../policy-core" },
     { "path": "../protocol" },
     { "path": "../runtime-core" }
   ],
   "include": ["src/**/*.ts"]
 }
-

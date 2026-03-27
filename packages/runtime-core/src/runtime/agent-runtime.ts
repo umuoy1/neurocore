@@ -951,6 +951,7 @@ export class AgentRuntime {
         }
       );
       this.emitEvent(session, "action.executed", execution, cycle.cycleId);
+      this.sessions.incrementToolCallUsed(sessionId);
       await this.recordObservation(
         profile,
         session,
