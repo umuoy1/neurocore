@@ -6,3 +6,6 @@ coverage
 .neurocore/*.local.json
 .log
 .npmrc
+.claude
+.codex
+AGENTS.md

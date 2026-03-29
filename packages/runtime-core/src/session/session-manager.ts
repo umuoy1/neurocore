@@ -22,6 +22,7 @@ export class SessionStateConflictError extends Error {
 
 export class SessionManager {
   private readonly sessions = new Map<string, AgentSession>();
+  private runningSessionId: string | undefined;
 
   public create(profile: AgentProfile, command: CreateSessionCommand): AgentSession {
     const session: AgentSession = {
@@ -53,6 +54,9 @@ export class SessionManager {
   }
 
   public hydrate(session: AgentSession): AgentSession {
+    if (this.sessions.has(session.session_id)) {
+      throw new Error(`Session ${session.session_id} already exists. Remove it first.`);
+    }
     this.sessions.set(session.session_id, session);
     return session;
   }
@@ -75,7 +79,17 @@ export class SessionManager {
     if (session.state === "running") {
       return session;
     }
-    return this.transition(session, "running");
+    if (this.runningSessionId) {
+      throw new SessionStateConflictError(
+        `Session ${this.runningSessionId} is running. Cannot start ${sessionId}.`
+      );
+    }
+    this.runningSessionId = sessionId;
+    try {
+      return this.transition(session, "running");
+    } finally {
+      this.runningSessionId = undefined;
+    }
   }
 
   public ensureResumable(sessionId: string): AgentSession {
@@ -129,12 +143,14 @@ export class SessionManager {
     const session = this.require(sessionId);
     session.current_cycle_id = cycleId;
     session.budget_state.cycle_used = (session.budget_state.cycle_used ?? 0) + 1;
+    this.touch(session);
     return session;
   }
 
   public incrementToolCallUsed(sessionId: string): AgentSession {
     const session = this.require(sessionId);
     session.budget_state.tool_call_used = (session.budget_state.tool_call_used ?? 0) + 1;
+    this.touch(session);
     return session;
   }
 
@@ -150,6 +166,7 @@ export class SessionManager {
     session.policy_state.escalation_level = "approval";
     const metadata = (session.metadata ??= {});
     metadata.pending_approval_id = approvalId;
+    this.touch(session);
     return session;
   }
 
@@ -164,6 +181,7 @@ export class SessionManager {
       delete session.metadata.pending_approval_id;
     }
 
+    this.touch(session);
     return session;
   }
 
@@ -173,6 +191,10 @@ export class SessionManager {
       throw new Error(`Unknown session: ${sessionId}`);
     }
     return session;
+  }
+
+  private touch(session: AgentSession): void {
+    session.last_active_at = nowIso();
   }
 
   private transition(session: AgentSession, nextState: SessionState): AgentSession {
@@ -188,6 +210,7 @@ export class SessionManager {
     }
 
     session.state = nextState;
+    this.touch(session);
     if (nextState === "completed" || nextState === "failed" || nextState === "aborted") {
       session.ended_at = session.ended_at ?? nowIso();
     } else {

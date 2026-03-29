@@ -188,6 +188,7 @@ export interface AgentSession {
   started_at?: Timestamp;
   ended_at?: Timestamp;
   metadata?: Record<string, unknown>;
+  last_active_at?: Timestamp;
 }
 
 export interface Goal {
@@ -209,6 +210,8 @@ export interface Goal {
   progress?: number;
   owner?: "agent" | "user" | "human_reviewer" | "system";
   metadata?: Record<string, unknown>;
+  created_at?: Timestamp;
+  updated_at?: Timestamp;
 }
 
 export interface GoalDigest {

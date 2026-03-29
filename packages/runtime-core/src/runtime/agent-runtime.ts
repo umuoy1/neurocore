@@ -165,6 +165,7 @@ export class AgentRuntime {
       inputChars: input.content.length
     });
 
+    try {
     await this.decomposeGoals(profile, session, input);
     const activeGoals = this.goals.active(sessionId);
 
@@ -306,6 +307,16 @@ export class AgentRuntime {
     }
 
     return this.executeSelectedAction(profile, session, input, startedAt, toExecutionCycleState(result), selectedAction);
+    } catch (error) {
+      debugLog("runtime", "runOnce failed with unhandled error", {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      this.updateSessionState(sessionId, "failed");
+      this.markActionableGoals(sessionId, "failed");
+      this.persistSessionState(sessionId);
+      throw error;
+    }
   }
 
   public async runUntilSettled(
@@ -1362,6 +1373,7 @@ function normalizeDecomposedGoal(
       : typeof goal.description === "string" && goal.description.trim().length > 0
         ? goal.description
         : `Subgoal for ${parentGoal.title}`;
+  const now = nowIso();
 
   return {
     goal_id: goal.goal_id,
@@ -1381,6 +1393,8 @@ function normalizeDecomposedGoal(
     acceptance_criteria: goal.acceptance_criteria,
     progress: goal.progress,
     owner: goal.owner ?? "agent",
+    created_at: goal.created_at ?? now,
+    updated_at: now,
     metadata: {
       ...(goal.metadata ?? {}),
       decomposition_status:

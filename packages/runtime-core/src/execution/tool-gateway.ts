@@ -89,6 +89,20 @@ export class ToolGateway {
     const maxAttempts = (executionPolicy.max_retries ?? 0) + 1;
     const failures: ToolAttemptFailure[] = [];
 
+    if (tool.inputSchema && Object.keys(tool.inputSchema).length > 0) {
+      const validationErrors = validateArgs(action.tool_args ?? {}, tool.inputSchema);
+      if (validationErrors.length > 0) {
+        return this.buildFailureOutcome({
+          action,
+          ctx,
+          startedAt,
+          endedAt: nowIso(),
+          failures: [createImmediateFailure("invalid_action", `Tool argument validation failed: ${validationErrors.join("; ")}`)],
+          executionPolicy
+        });
+      }
+    }
+
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const attemptStartedAt = nowIso();
       debugLog("tool", "Executing tool action", {
@@ -192,8 +206,11 @@ export class ToolGateway {
           });
         }
 
-        if ((executionPolicy.retry_backoff_ms ?? 0) > 0) {
-          await sleep(executionPolicy.retry_backoff_ms ?? 0);
+        const baseDelay = executionPolicy.retry_backoff_ms ?? 0;
+        if (baseDelay > 0) {
+          const expDelay = baseDelay * Math.pow(2, attempt - 1);
+          const jitter = Math.random() * baseDelay * 0.5;
+          await sleep(expDelay + jitter);
         }
       }
     }
@@ -443,4 +460,34 @@ async function sleep(ms: number): Promise<void> {
     return;
   }
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function validateArgs(args: Record<string, unknown>, schema: Record<string, unknown>): string[] {
+  const errors: string[] = [];
+  const required = schema.required;
+  if (Array.isArray(required)) {
+    for (const key of required) {
+      if (!(key in args)) {
+        errors.push(`Missing required property: ${key}`);
+      }
+    }
+  }
+  const properties = schema.properties;
+  if (properties && typeof properties === "object") {
+    for (const [key, propSchema] of Object.entries(properties)) {
+      if (key in args && propSchema && typeof propSchema === "object") {
+        const type = (propSchema as Record<string, unknown>).type;
+        if (type === "number" && typeof args[key] !== "number") {
+          errors.push(`Property ${key} should be number, got ${typeof args[key]}`);
+        }
+        if (type === "string" && typeof args[key] !== "string") {
+          errors.push(`Property ${key} should be string, got ${typeof args[key]}`);
+        }
+        if (type === "boolean" && typeof args[key] !== "boolean") {
+          errors.push(`Property ${key} should be boolean, got ${typeof args[key]}`);
+        }
+      }
+    }
+  }
+  return errors;
 }

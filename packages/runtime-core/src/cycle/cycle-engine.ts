@@ -61,6 +61,7 @@ export class CycleEngine {
       goalCount: input.goals.length,
       inputChars: input.input.content.length
     });
+    try {
     const services = {
       now: nowIso,
       generateId
@@ -88,7 +89,16 @@ export class CycleEngine {
         skill_match_proposals: skillState.proposals
       }
     };
-    const reasonerProposals = await input.reasoner.plan(enrichedContext);
+    let reasonerProposals: Proposal[] = [];
+    try {
+      reasonerProposals = await input.reasoner.plan(enrichedContext);
+    } catch (error) {
+      debugLog("cycle", "reasoner.plan() failed", {
+        sessionId: input.session.session_id,
+        cycleId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
     let proposals = [...memoryState.proposals, ...skillState.proposals, ...reasonerProposals];
     debugLog("cycle", "Collected proposals", {
       sessionId: input.session.session_id,
@@ -100,7 +110,16 @@ export class CycleEngine {
       reasonerProposalCount: reasonerProposals.length,
       totalProposalCount: proposals.length
     });
-    const actions = await input.reasoner.respond(enrichedContext);
+    let actions: CandidateAction[] = [];
+    try {
+      actions = await input.reasoner.respond(enrichedContext);
+    } catch (error) {
+      debugLog("cycle", "reasoner.respond() failed", {
+        sessionId: input.session.session_id,
+        cycleId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
     debugLog("cycle", "Collected candidate actions", {
       sessionId: input.session.session_id,
       cycleId,
@@ -170,13 +189,21 @@ export class CycleEngine {
       predictions,
       decision
     };
+    } catch (error) {
+      debugLog("cycle", "Cycle failed with unhandled error", {
+        sessionId: input.session.session_id,
+        cycleId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
   }
 
   private async collectMemoryState(
     ctx: ModuleContext,
     providers: MemoryProvider[]
   ): Promise<{ proposals: Proposal[]; digest: MemoryDigest[] }> {
-    const results = await Promise.all(
+    const settled = await Promise.allSettled(
       providers.map(async (provider) => {
         const [proposals, digest] = await Promise.all([
           provider.retrieve(ctx),
@@ -189,6 +216,17 @@ export class CycleEngine {
         };
       })
     );
+
+    const results = settled.filter((r): r is PromiseFulfilledResult<{ providerName: string; proposals: Proposal[]; digest: MemoryDigest[] }> => {
+      if (r.status === "rejected") {
+        debugLog("cycle", "MemoryProvider failed", {
+          sessionId: ctx.session.session_id,
+          error: r.reason instanceof Error ? r.reason.message : String(r.reason)
+        });
+        return false;
+      }
+      return true;
+    }).map(r => r.value);
 
     debugLog("cycle", "Collected provider memory state", {
       sessionId: ctx.session.session_id,
@@ -213,18 +251,30 @@ export class CycleEngine {
     actions: CandidateAction[],
     predictors: Predictor[]
   ): Promise<Prediction[]> {
-    const predictions = await Promise.all(
+    const settled = await Promise.allSettled(
       actions.flatMap((action) => predictors.map(async (predictor) => predictor.predict(ctx, action)))
     );
 
-    return predictions.filter((prediction): prediction is Prediction => prediction !== null);
+    return settled
+      .filter((r): r is PromiseFulfilledResult<Prediction | null> => {
+        if (r.status === "rejected") {
+          debugLog("cycle", "Predictor failed", {
+            sessionId: ctx.session.session_id,
+            error: r.reason instanceof Error ? r.reason.message : String(r.reason)
+          });
+          return false;
+        }
+        return true;
+      })
+      .map(r => r.value)
+      .filter((prediction): prediction is Prediction => prediction !== null);
   }
 
   private async collectSkillState(
     ctx: ModuleContext,
     providers: SkillProvider[]
   ): Promise<{ proposals: Proposal[]; digest: SkillDigest[] }> {
-    const results = await Promise.all(
+    const settled = await Promise.allSettled(
       providers.map(async (provider) => {
         const proposals = await provider.match(ctx);
         return {
@@ -236,6 +286,17 @@ export class CycleEngine {
         };
       })
     );
+
+    const results = settled.filter((r): r is PromiseFulfilledResult<{ providerName: string; proposals: Proposal[]; digest: SkillDigest[] }> => {
+      if (r.status === "rejected") {
+        debugLog("cycle", "SkillProvider failed", {
+          sessionId: ctx.session.session_id,
+          error: r.reason instanceof Error ? r.reason.message : String(r.reason)
+        });
+        return false;
+      }
+      return true;
+    }).map(r => r.value);
 
     debugLog("cycle", "Collected skill matches", {
       sessionId: ctx.session.session_id,
@@ -260,11 +321,23 @@ export class CycleEngine {
     actions: CandidateAction[],
     policies: PolicyProvider[]
   ) {
-    const policyResults = await Promise.all(
+    const settled = await Promise.allSettled(
       actions.flatMap((action) => policies.map(async (policy) => policy.evaluateAction(ctx, action)))
     );
 
-    return policyResults.flat();
+    return settled
+      .filter((r): r is PromiseFulfilledResult<import("@neurocore/protocol").PolicyDecision[]> => {
+        if (r.status === "rejected") {
+          debugLog("cycle", "PolicyProvider failed", {
+            sessionId: ctx.session.session_id,
+            error: r.reason instanceof Error ? r.reason.message : String(r.reason)
+          });
+          return false;
+        }
+        return true;
+      })
+      .map(r => r.value)
+      .flat();
   }
 }
 

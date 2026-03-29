@@ -1,5 +1,5 @@
 import type { Goal, UserInput } from "@neurocore/protocol";
-import { generateId } from "../utils/ids.js";
+import { generateId, nowIso } from "../utils/ids.js";
 
 const ACTIVE_GOAL_STATUSES = new Set<Goal["status"]>(["pending", "active"]);
 const TERMINAL_GOAL_STATUSES = new Set<Goal["status"]>(["completed", "failed", "cancelled"]);
@@ -9,6 +9,7 @@ export class GoalManager {
   private readonly goalsBySession = new Map<string, Goal[]>();
 
   public initializeRootGoal(sessionId: string, input: UserInput): Goal {
+    const now = nowIso();
     const rootGoal: Goal = {
       goal_id: generateId("gol"),
       schema_version: "0.1.0",
@@ -19,6 +20,8 @@ export class GoalManager {
       status: "active",
       priority: 100,
       owner: "user",
+      created_at: now,
+      updated_at: now,
       metadata: {
         [GOAL_DECOMPOSITION_STATUS_KEY]: "pending",
         root_goal: true
@@ -52,7 +55,11 @@ export class GoalManager {
 
   public add(sessionId: string, goal: Goal): void {
     const current = this.goalsBySession.get(sessionId) ?? [];
-    current.push(this.normalize(goal));
+    const now = nowIso();
+    const normalized = this.normalize(goal);
+    if (!normalized.created_at) normalized.created_at = now;
+    normalized.updated_at = now;
+    current.push(normalized);
     this.goalsBySession.set(sessionId, current);
     this.refreshDerivedStatuses(sessionId);
   }
@@ -60,8 +67,14 @@ export class GoalManager {
   public addMany(sessionId: string, goals: Goal[]): Goal[] {
     const current = this.goalsBySession.get(sessionId) ?? [];
     const existingIds = new Set(current.map((goal) => goal.goal_id));
+    const now = nowIso();
     const normalized = goals
-      .map((goal) => this.normalize(goal))
+      .map((goal) => {
+        const n = this.normalize(goal);
+        if (!n.created_at) n.created_at = now;
+        n.updated_at = now;
+        return n;
+      })
       .filter((goal) => !existingIds.has(goal.goal_id));
     this.goalsBySession.set(sessionId, [...current, ...normalized]);
     this.refreshDerivedStatuses(sessionId);
@@ -97,6 +110,7 @@ export class GoalManager {
     const goal = this.require(sessionId, goalId);
     const metadata = (goal.metadata ??= {});
     metadata[GOAL_DECOMPOSITION_STATUS_KEY] = state;
+    goal.updated_at = nowIso();
     this.refreshDerivedStatuses(sessionId);
     return goal;
   }
@@ -121,6 +135,7 @@ export class GoalManager {
   public updateStatus(sessionId: string, goalId: string, status: Goal["status"]): Goal {
     const goal = this.require(sessionId, goalId);
     goal.status = status;
+    goal.updated_at = nowIso();
     this.refreshDerivedStatuses(sessionId);
     return goal;
   }
@@ -152,6 +167,7 @@ export class GoalManager {
     rootGoal.status = "active";
     rootGoal.priority = 100;
     rootGoal.owner = "user";
+    rootGoal.updated_at = nowIso();
     const metadata = (rootGoal.metadata ??= {});
     metadata[GOAL_DECOMPOSITION_STATUS_KEY] = "pending";
     metadata.root_goal = true;
