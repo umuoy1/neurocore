@@ -126,6 +126,11 @@ export interface ObservabilityConfig {
   event_stream_enabled?: boolean;
 }
 
+export interface ContextBudget {
+  max_context_tokens?: number;
+  compression_strategy?: "truncate_oldest" | "summarize" | "graded";
+}
+
 export interface BudgetState {
   token_budget_total?: number;
   token_budget_used?: number;
@@ -162,6 +167,7 @@ export interface AgentProfile {
   prediction_config?: PredictionConfig;
   runtime_config: RuntimeConfig;
   observability_config?: ObservabilityConfig;
+  context_budget?: ContextBudget;
   metadata?: Record<string, unknown>;
 }
 

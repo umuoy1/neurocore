@@ -76,6 +76,9 @@ export class WorkspaceCoordinator {
     const toolExceeded =
       budgetState.tool_call_limit !== undefined &&
       (budgetState.tool_call_used ?? 0) >= budgetState.tool_call_limit;
+    const tokenExceeded =
+      budgetState.token_budget_total !== undefined &&
+      (budgetState.token_budget_used ?? 0) >= budgetState.token_budget_total;
 
     if (cycleExceeded) {
       return {
@@ -87,6 +90,12 @@ export class WorkspaceCoordinator {
       return {
         within_budget: false,
         summary: `Tool call limit reached (${budgetState.tool_call_used}/${budgetState.tool_call_limit}).`
+      };
+    }
+    if (tokenExceeded) {
+      return {
+        within_budget: false,
+        summary: `Token budget exceeded (${budgetState.token_budget_used}/${budgetState.token_budget_total}).`
       };
     }
     return { within_budget: true, summary: "Within budget." };

@@ -85,7 +85,7 @@ export class WorkingMemoryProvider implements MemoryProvider {
     }
 
     const cycleId = ctx.session.current_cycle_id ?? ctx.services.generateId("cyc");
-    const recalled = entries.slice(-5);
+    const recalled = entries.slice(-(ctx.memory_config?.retrieval_top_k ?? 5));
 
     return [
       {

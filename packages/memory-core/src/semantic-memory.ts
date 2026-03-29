@@ -119,7 +119,7 @@ export class SemanticMemoryProvider implements MemoryProvider {
   public async getDigest(ctx: ModuleContext): Promise<MemoryDigest[]> {
     return this.store
       .list(ctx.tenant_id, ctx.session.session_id)
-      .slice(0, 3)
+      .slice(0, ctx.memory_config?.retrieval_top_k ?? 3)
       .map((record) => ({
         memory_id: record.memory_id,
         memory_type: "semantic",
@@ -129,7 +129,7 @@ export class SemanticMemoryProvider implements MemoryProvider {
   }
 
   public async retrieve(ctx: ModuleContext): Promise<Proposal[]> {
-    const records = this.store.list(ctx.tenant_id, ctx.session.session_id).slice(0, 3);
+    const records = this.store.list(ctx.tenant_id, ctx.session.session_id).slice(0, ctx.memory_config?.retrieval_top_k ?? 3);
     if (records.length === 0) {
       return [];
     }

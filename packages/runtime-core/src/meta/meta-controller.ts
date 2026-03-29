@@ -9,11 +9,19 @@ import type {
 
 export class DefaultMetaController implements IMetaController {
   public async evaluate(
-    _ctx: ModuleContext,
+    ctx: ModuleContext,
     actions: CandidateAction[],
     predictions: Prediction[],
     policies: PolicyDecision[]
   ): Promise<MetaDecision> {
+    if (ctx.workspace?.budget_assessment && !ctx.workspace.budget_assessment.within_budget) {
+      return {
+        decision_type: "abort",
+        rejection_reasons: [ctx.workspace.budget_assessment.summary ?? "Budget exceeded."],
+        explanation: "Execution blocked: budget exhausted."
+      };
+    }
+
     const blockedActionIds = new Set(
       policies.filter((decision) => decision.level === "block").map((decision) => decision.target_id)
     );

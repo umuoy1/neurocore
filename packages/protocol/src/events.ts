@@ -26,6 +26,7 @@ export type NeuroCoreEventType =
   | "prediction.recorded"
   | "prediction_error.recorded"
   | "memory.written"
+  | "budget.exceeded"
   | "session.completed"
   | "session.failed";
 

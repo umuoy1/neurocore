@@ -60,15 +60,17 @@ export class EpisodicMemoryProvider implements MemoryProvider {
   }
 
   public async getDigest(ctx: ModuleContext): Promise<MemoryDigest[]> {
-    const recentSessionEpisodes = this.list(ctx.session.session_id).slice(-3).map((episode) => ({
+    const digestK = ctx.memory_config?.retrieval_top_k ?? 3;
+    const recentSessionEpisodes = this.list(ctx.session.session_id).slice(-(digestK)).map((episode) => ({
       memory_id: episode.episode_id,
       memory_type: "episodic" as const,
       summary: episode.outcome_summary,
       relevance: episode.outcome === "success" ? 0.85 : episode.outcome === "partial" ? 0.75 : 0.65
     }));
+    const crossDigestK = Math.max(1, Math.ceil(digestK * 0.66));
     const relatedEpisodes = this.store
       .listByTenant(ctx.tenant_id, ctx.session.session_id)
-      .slice(-2)
+      .slice(-(crossDigestK))
       .map((episode) => ({
         memory_id: episode.episode_id,
         memory_type: "episodic" as const,
@@ -81,12 +83,13 @@ export class EpisodicMemoryProvider implements MemoryProvider {
 
   public async retrieve(ctx: ModuleContext): Promise<Proposal[]> {
     const cycleId = ctx.session.current_cycle_id ?? ctx.services.generateId("cyc");
+    const topK = ctx.memory_config?.retrieval_top_k ?? 5;
     const proposals: Proposal[] = [];
-    const recentEpisodes = this.list(ctx.session.session_id).slice(-5);
+    const recentEpisodes = this.list(ctx.session.session_id).slice(-(topK));
     const relatedEpisodes = this.store
       .listByTenant(ctx.tenant_id, ctx.session.session_id)
       .filter((episode) => episode.outcome === "success" || episode.outcome === "partial")
-      .slice(-3);
+      .slice(-(Math.max(1, Math.ceil(topK * 0.6))));
 
     if (recentEpisodes.length > 0) {
       proposals.push({

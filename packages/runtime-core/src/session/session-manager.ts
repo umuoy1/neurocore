@@ -36,7 +36,9 @@ export class SessionManager {
       budget_state: {
         cycle_limit: profile.runtime_config.max_cycles,
         cycle_used: 0,
-        tool_call_used: 0
+        tool_call_used: 0,
+        token_budget_total: profile.context_budget?.max_context_tokens,
+        token_budget_used: 0
       },
       policy_state: {},
       started_at: nowIso()

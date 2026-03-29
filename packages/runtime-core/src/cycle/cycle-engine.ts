@@ -1,3 +1,4 @@
+import { DefaultPolicyProvider } from "@neurocore/policy-core";
 import type {
   AgentProfile,
   CandidateAction,
@@ -14,10 +15,12 @@ import type {
   Reasoner,
   SkillDigest,
   SkillProvider,
+  TokenEstimator,
   UserInput,
   WorkspaceSnapshot
 } from "@neurocore/protocol";
-import { DefaultPolicyProvider } from "@neurocore/policy-core";
+import { GradedContextCompressor } from "../context/graded-compressor.js";
+import { DefaultTokenEstimator } from "../context/token-estimator.js";
 import { debugLog } from "../utils/debug.js";
 import { generateId, nowIso } from "../utils/ids.js";
 import { WorkspaceCoordinator } from "../workspace/workspace-coordinator.js";
@@ -34,6 +37,7 @@ export interface CycleExecutionInput {
   memoryProviders?: MemoryProvider[];
   predictors?: Predictor[];
   skillProviders?: SkillProvider[];
+  tokenEstimator?: TokenEstimator;
 }
 
 export interface CycleExecutionResult {
@@ -70,7 +74,8 @@ export class CycleEngine {
         current_input_content: input.input.content,
         current_input_metadata: input.input.metadata ?? null,
       },
-      services
+      services,
+      memory_config: input.profile.memory_config
     };
 
     const memoryState = await this.collectMemoryState(baseContext, input.memoryProviders ?? []);
@@ -84,7 +89,7 @@ export class CycleEngine {
       }
     };
     const reasonerProposals = await input.reasoner.plan(enrichedContext);
-    const proposals = [...memoryState.proposals, ...skillState.proposals, ...reasonerProposals];
+    let proposals = [...memoryState.proposals, ...skillState.proposals, ...reasonerProposals];
     debugLog("cycle", "Collected proposals", {
       sessionId: input.session.session_id,
       cycleId,
@@ -110,7 +115,7 @@ export class CycleEngine {
       predictionCount: predictions.length,
       policyDecisionCount: policies.length
     });
-    const workspace = this.workspaceCoordinator.buildSnapshot({
+    let workspace = this.workspaceCoordinator.buildSnapshot({
       sessionId: input.session.session_id,
       cycleId,
       contextSummary: input.input.content,
@@ -122,6 +127,26 @@ export class CycleEngine {
       skillDigest: skillState.digest,
       policyDecisions: policies
     });
+
+    const maxTokens = input.profile.context_budget?.max_context_tokens;
+    const estimator = input.tokenEstimator ?? new DefaultTokenEstimator();
+    if (maxTokens) {
+      const totalTokens = estimator.estimate(JSON.stringify({ workspace, proposals }));
+      if (totalTokens > maxTokens) {
+        const compressor = new GradedContextCompressor();
+        const result = compressor.compress(workspace, proposals, maxTokens, estimator);
+        workspace = result.snapshot;
+        proposals = result.proposals;
+        debugLog("cycle", "Context compressed", {
+          tokensSaved: result.tokensSaved,
+          stages: result.stagesApplied
+        });
+      }
+    }
+
+    const inputTokens = estimator.estimate(JSON.stringify({ workspace, proposals }));
+    input.session.budget_state.token_budget_used =
+      (input.session.budget_state.token_budget_used ?? 0) + inputTokens;
 
     const decision = await input.metaController.evaluate(
       { ...enrichedContext, workspace },

@@ -10,6 +10,7 @@ import type {
   JsonValue,
   CycleTrace,
   CycleTraceRecord,
+  MemoryConfig,
   MemoryDigest,
   MetaDecision,
   Observation,
@@ -35,6 +36,7 @@ export interface ModuleContext {
   workspace?: WorkspaceSnapshot;
   runtime_state: Record<string, unknown>;
   services: RuntimeServiceLocator;
+  memory_config?: MemoryConfig;
 }
 
 export interface Reasoner {
@@ -122,4 +124,24 @@ export interface RuntimeStateStore {
   listSessions(): RuntimeSessionSnapshot[];
   saveSession(snapshot: RuntimeSessionSnapshot): void;
   deleteSession?(sessionId: string): void;
+}
+
+export interface TokenEstimator {
+  estimate(text: string): number;
+}
+
+export interface CompressResult {
+  snapshot: WorkspaceSnapshot;
+  proposals: Proposal[];
+  tokensSaved: number;
+  stagesApplied: string[];
+}
+
+export interface ContextCompressor {
+  compress(
+    snapshot: WorkspaceSnapshot,
+    proposals: Proposal[],
+    tokenBudget: number,
+    estimator: TokenEstimator
+  ): CompressResult;
 }

@@ -64,6 +64,14 @@ export class AgentBuilder {
     return this;
   }
 
+  public configureMemory(options: Partial<AgentProfile["memory_config"]>): this {
+    this.profile.memory_config = {
+      ...this.profile.memory_config,
+      ...options
+    };
+    return this;
+  }
+
   public configureRuntime(config: Partial<AgentProfile["runtime_config"]>): this {
     const nextToolExecution = config.tool_execution
       ? {
@@ -76,6 +84,14 @@ export class AgentBuilder {
       ...this.profile.runtime_config,
       ...config,
       ...(nextToolExecution ? { tool_execution: nextToolExecution } : {})
+    };
+    return this;
+  }
+
+  public withTokenBudget(maxTokens: number): this {
+    this.profile.context_budget = {
+      ...this.profile.context_budget,
+      max_context_tokens: maxTokens
     };
     return this;
   }

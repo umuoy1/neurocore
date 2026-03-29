@@ -1,4 +1,6 @@
 export * from "./checkpoint/in-memory-checkpoint-store.js";
+export * from "./context/graded-compressor.js";
+export * from "./context/token-estimator.js";
 export * from "./cycle/cycle-engine.js";
 export * from "./events/in-memory-event-bus.js";
 export * from "./execution/tool-gateway.js";
