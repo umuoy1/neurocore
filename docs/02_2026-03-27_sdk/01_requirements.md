@@ -2,7 +2,7 @@
 
 ## 1. 文档目的
 
-本文档用于把 `docs/NeuroCore_Agent_Architecture.md` 中提出的 Agent 新范式，收敛为一个可对外提供的基础 SDK 与运行时产品需求方案。目标不是继续讨论“Agent 应该像大脑”，而是明确：
+本文档用于把 `docs/01_2026-03-27_paradigm/04_neurocore-agent-architecture-full.md` 中提出的 Agent 新范式，收敛为一个可对外提供的基础 SDK 与运行时产品需求方案。目标不是继续讨论“Agent 应该像大脑”，而是明确：
 
 - 这个系统到底解决什么问题
 - 对谁提供价值

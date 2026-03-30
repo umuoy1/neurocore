@@ -10,7 +10,7 @@
   - [x] Track derived parent status from child goals
   - [x] Expose local goal inspection on session handles
   - [x] Add created_at/updated_at lifecycle timestamps to Goal type
-  - [ ] Enforce goal dependency ordering in `GoalManager.isActionable`
+  - [x] Enforce goal dependency ordering in `GoalManager.isActionable`
 - [done] Predictor and skill integration
   - [x] Add builder/runtime registration for predictors
   - [x] Add builder/runtime registration for skill providers
@@ -95,16 +95,16 @@
 - [in_progress] Execution correctness
   - [x] Validate `tool_args` against `tool.inputSchema` before invoking
   - [x] Add exponential backoff with jitter for tool retries
-  - [ ] Error on unknown `selected_action_id` instead of silent fallback to `actions[0]`
-  - [ ] Add session-level concurrency guard in `SessionManager` (CAS/lock instead of hosted wrapper only)
+  - [x] Error on unknown `selected_action_id` instead of silent fallback to `actions[0]`
+  - [x] Add session-level concurrency guard in `SessionManager` (CAS/lock instead of hosted wrapper only)
   - [ ] Distinguish transient vs permanent errors in tool retry logic
   - [ ] Add error handling around `RuntimeStateStore` persistence operations
 - [in_progress] MetaController improvements
   - [x] Rank candidate actions by predictor uncertainty (risk proxy)
   - [x] Make approval threshold configurable
   - [x] Compute confidence from prediction uncertainty
-  - [ ] Incorporate salience/conflict detection instead of picking the first viable action after risk sort
-  - [ ] Include `risk_summary` in approval decisions for reviewer context
+  - [x] Incorporate salience/conflict detection instead of picking the first viable action after risk sort
+  - [x] Include `risk_summary` in approval decisions for reviewer context
 - [in_progress] Session lifecycle
   - [x] Add `last_active_at` tracking
   - [x] Prevent `hydrate` from silently overwriting existing sessions

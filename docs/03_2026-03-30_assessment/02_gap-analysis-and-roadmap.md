@@ -17,9 +17,9 @@
 
 | 参照基准 | 完成度 |
 |---|---|
-| `agent_sdk_mvp_implementation_plan.md` MVP 定义 | ~95% |
-| `agent_sdk_requirements.md` 第一阶段 FR 清单 | ~75%~80% |
-| `NeuroCore_Agent_Architecture.md` 六模块完整目标 | ~50%~55% |
+| `docs/02_2026-03-27_sdk/06_mvp-implementation-plan.md` MVP 定义 | ~95% |
+| `docs/02_2026-03-27_sdk/01_requirements.md` 第一阶段 FR 清单 | ~75%~80% |
+| `docs/01_2026-03-27_paradigm/04_neurocore-agent-architecture-full.md` 六模块完整目标 | ~50%~55% |
 
 ### 1.2 六模块完成度
 
@@ -30,8 +30,8 @@
 | Cerebellar / World Model | 小脑 | 20% | predictor SPI 已有，但没有 prediction error 回写和策略修正闭环 |
 | Amygdala / Motivation-Risk | 杏仁核 | 25%~30% | 基础 policy / warn-block / approval / budget gate 已有；更细粒度 risk model、tenant-aware approval policy 未做 |
 | Basal Ganglia / Skill | 基底神经节 | 30%~35% | skill match proposal 已接入 cycle；没有 skill execute、procedural memory、技能版本化 |
-| Prefrontal / Meta | 前额叶 | 60%~65% | policy block、warn->approval、uncertainty-based ranking、configurable threshold 已有；仍缺 conflict arbitration 和 richer reasoning |
-| Global Workspace | 全局工作空间 | 50%~55% | workspace snapshot、risk/confidence/budget/policy 摘要和 token-aware compression 已有；仍非真正竞争广播机制 |
+| Prefrontal / Meta | 前额叶 | 80%~85% | policy block、warn->approval、uncertainty-based ranking、configurable threshold、multi-dimensional scoring (salience/confidence/risk)、conflict detection、risk_summary 已有；仍缺 richer reasoning 和 explanation generation |
+| Global Workspace | 全局工作空间 | 55%~60% | workspace snapshot、risk/confidence/budget/policy 摘要和 token-aware compression 已有；仍非真正竞争广播机制 |
 
 ### 1.3 已实现部分（稳固）
 
@@ -50,10 +50,10 @@
 | 差距 | 影响 | 优先级 |
 |---|---|---|
 | Global Workspace 仍是快照汇总而非竞争广播 | 多模块并行认知能力缺失 | P0 |
-| MetaController 仍主要是风险排序后取第一个候选 | 冲突检测、仲裁、解释性不足 | P0 |
-| `selected_action_id` 无效时仍静默 fallback | 执行正确性风险 | P0 |
-| `Goal.dependencies` 未参与 actionability 判断 | goal ordering 语义未闭环 | P0 |
-| `SessionManager` 无真正 session 级 CAS/lock | 本地/内核层并发安全不足 | P0 |
+| MetaController 仍主要是风险排序后取第一个候选 | 冲突检测、仲裁、解释性不足 | ~~P0~~ 已完成 |
+| `selected_action_id` 无效时仍静默 fallback | 执行正确性风险 | ~~P0~~ 已完成 |
+| `Goal.dependencies` 未参与 actionability 判断 | goal ordering 语义未闭环 | ~~P0~~ 已完成 |
+| `SessionManager` 无真正 session 级 CAS/lock | 本地/内核层并发安全不足 | ~~P0~~ 已完成 |
 | Predictor 无完整误差回写闭环 | 世界模型能力停留在 SPI 级别 | P1 |
 | Skill 只有 match，无 execute / procedural memory | 技能积累与复用能力不足 | P1 |
 | Hosted runtime 无 auth，eval 报告无 durable persistence | 企业级产品化不足 | P1 |

@@ -23,6 +23,7 @@ export class SessionStateConflictError extends Error {
 export class SessionManager {
   private readonly sessions = new Map<string, AgentSession>();
   private runningSessionId: string | undefined;
+  private readonly sessionLocks = new Map<string, Promise<void>>();
 
   public create(profile: AgentProfile, command: CreateSessionCommand): AgentSession {
     const session: AgentSession = {
@@ -67,6 +68,7 @@ export class SessionManager {
 
   public deleteSession(sessionId: string): void {
     this.sessions.delete(sessionId);
+    this.sessionLocks.delete(sessionId);
   }
 
   public updateState(sessionId: string, state: SessionState): AgentSession {
@@ -183,6 +185,21 @@ export class SessionManager {
 
     this.touch(session);
     return session;
+  }
+
+  public async acquireSessionLock(sessionId: string): Promise<() => void> {
+    while (this.sessionLocks.has(sessionId)) {
+      await this.sessionLocks.get(sessionId);
+    }
+    let releaseFn!: () => void;
+    const lockPromise = new Promise<void>((resolve) => {
+      releaseFn = resolve;
+    });
+    this.sessionLocks.set(sessionId, lockPromise);
+    return () => {
+      this.sessionLocks.delete(sessionId);
+      releaseFn();
+    };
   }
 
   private require(sessionId: string): AgentSession {

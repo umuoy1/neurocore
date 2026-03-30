@@ -202,6 +202,15 @@ export class GoalManager {
     if (!ACTIVE_GOAL_STATUSES.has(goal.status)) {
       return false;
     }
+    if (goal.dependencies && goal.dependencies.length > 0) {
+      const hasUnresolvedDependency = goal.dependencies.some((depId) => {
+        const dep = goals.find((g) => g.goal_id === depId);
+        return dep && !TERMINAL_GOAL_STATUSES.has(dep.status);
+      });
+      if (hasUnresolvedDependency) {
+        return false;
+      }
+    }
     return !goals.some(
       (candidate) =>
         candidate.parent_goal_id === goal.goal_id && !TERMINAL_GOAL_STATUSES.has(candidate.status)

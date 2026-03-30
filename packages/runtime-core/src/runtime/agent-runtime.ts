@@ -156,6 +156,15 @@ export class AgentRuntime {
   }
 
   public async runOnce(profile: AgentProfile, sessionId: string, input: UserInput) {
+    const releaseLock = await this.sessions.acquireSessionLock(sessionId);
+    try {
+      return await this.runOnceUnlocked(profile, sessionId, input);
+    } finally {
+      releaseLock();
+    }
+  }
+
+  private async runOnceUnlocked(profile: AgentProfile, sessionId: string, input: UserInput) {
     const session = this.beginRun(sessionId);
     const startedAt = nowIso();
 
@@ -325,6 +334,20 @@ export class AgentRuntime {
     initialInput: UserInput,
     options?: { maxSteps?: number }
   ): Promise<AgentRunLoopResult> {
+    const releaseLock = await this.sessions.acquireSessionLock(sessionId);
+    try {
+      return await this.runUntilSettledUnlocked(profile, sessionId, initialInput, options);
+    } finally {
+      releaseLock();
+    }
+  }
+
+  private async runUntilSettledUnlocked(
+    profile: AgentProfile,
+    sessionId: string,
+    initialInput: UserInput,
+    options?: { maxSteps?: number }
+  ): Promise<AgentRunLoopResult> {
     const maxSteps = options?.maxSteps ?? profile.runtime_config.max_cycles;
     const steps: AgentRunResult[] = [];
     let currentInput = initialInput;
@@ -336,7 +359,7 @@ export class AgentRuntime {
         maxSteps
       });
 
-      const step = await this.runOnce(profile, sessionId, currentInput);
+      const step = await this.runOnceUnlocked(profile, sessionId, currentInput);
       steps.push(step);
 
       if (!shouldContinue(step)) {
@@ -505,6 +528,19 @@ export class AgentRuntime {
     sessionId: string,
     input?: UserInput
   ): Promise<AgentRunLoopResult> {
+    const releaseLock = await this.sessions.acquireSessionLock(sessionId);
+    try {
+      return await this.resumeUnlocked(profile, sessionId, input);
+    } finally {
+      releaseLock();
+    }
+  }
+
+  private async resumeUnlocked(
+    profile: AgentProfile,
+    sessionId: string,
+    input?: UserInput
+  ): Promise<AgentRunLoopResult> {
     const session = this.sessions.ensureResumable(sessionId);
 
     const resumeInput = input ?? derivePendingInput(this.getTraceRecords(sessionId), session);
@@ -525,7 +561,7 @@ export class AgentRuntime {
       resumeInputChars: resumeInput.content.length
     });
 
-    return this.runUntilSettled(profile, sessionId, resumeInput);
+    return this.runUntilSettledUnlocked(profile, sessionId, resumeInput);
   }
 
   public listCheckpoints(sessionId: string): SessionCheckpoint[] {
@@ -609,6 +645,25 @@ export class AgentRuntime {
     if (!approval) {
       throw new Error(`Unknown approval request: ${approvalId}`);
     }
+
+    const releaseLock = await this.sessions.acquireSessionLock(approval.session_id);
+    try {
+      return await this.decideApprovalUnlocked(profile, approvalId, approval, decision);
+    } finally {
+      releaseLock();
+    }
+  }
+
+  private async decideApprovalUnlocked(
+    profile: AgentProfile,
+    approvalId: string,
+    approval: ApprovalRequest,
+    decision: {
+      approver_id: string;
+      decision: "approved" | "rejected";
+      comment?: string;
+    }
+  ): Promise<{ approval: ApprovalRequest; run?: AgentRunLoopResult }> {
     if (approval.status !== "pending") {
       if (
         approval.status === decision.decision &&
@@ -1228,7 +1283,14 @@ function selectAction(
   if (!selectedActionId) {
     return actions[0];
   }
-  return actions.find((action) => action.action_id === selectedActionId) ?? actions[0];
+  const match = actions.find((action) => action.action_id === selectedActionId);
+  if (!match) {
+    throw new Error(
+      `selected_action_id "${selectedActionId}" does not match any candidate action. ` +
+        `Available: [${actions.map((a) => a.action_id).join(", ")}]`
+    );
+  }
+  return match;
 }
 
 function formatAbortDecision(decision: Awaited<ReturnType<CycleEngine["run"]>>["decision"]): string {

@@ -1,6 +1,6 @@
 # MVP 差距分析与下一步目标
 
-> 基于 2026-03-30 代码状态，对照 `agent_sdk_mvp_implementation_plan.md` 的最新校准。
+> 基于 2026-03-30 代码状态，对照 `docs/02_2026-03-27_sdk/06_mvp-implementation-plan.md` 的最新校准。
 
 ## 1. 当前判断
 
