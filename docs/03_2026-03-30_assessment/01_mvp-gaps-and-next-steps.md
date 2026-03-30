@@ -32,7 +32,7 @@
 | Agent Builder | ✅ | `defineAgent()` + runtime wiring 可用 |
 | Session Runtime | ✅ | create / run / resume / checkpoint / approval / replay 打通 |
 | Goal Stack | ✅ | root goal、分解、父子状态派生、显式输入 rebase 已实现 |
-| Workspace Snapshot | ✅ | 已包含 risk / confidence / budget / policy 摘要；仍不是竞争广播机制 |
+| Workspace Snapshot | ✅ | 已包含 risk / confidence / budget / policy 摘要；竞争广播机制已实现（broadcast-compete-select） |
 | Tool Gateway | ✅ | schema 校验、超时、重试、失败观测、执行指标已实现 |
 | Working Memory | ✅ | session-scoped working memory 已实现 |
 | Episodic Memory | ✅ | session + cross-session episodic recall 已实现 |
@@ -117,9 +117,8 @@
 
 ### 6.2 仲裁层能力
 
-- `MetaController` 仍主要按 predictor uncertainty 排序后选第一个动作
-- 还没有冲突检测、salience 融合、真正的 action arbitration
-- `WorkspaceCoordinator` 还是快照聚合器，不是广播-竞争-选择机制
+- `MetaController` 已支持 policy block、warn→approval、uncertainty-based ranking、configurable threshold、多维评分、冲突检测
+- ~~`WorkspaceCoordinator` 还是快照聚合器，不是广播-竞争-选择机制~~ **已完成**：broadcast-compete-select 三阶段机制、source weight、salience fusion、goal alignment、conflict detection、CompetitionLog
 
 ### 6.3 托管产品化
 
@@ -142,9 +141,9 @@
    - goal dependency ordering
    - session-level CAS/lock
 
-2. **仲裁层升级**
-   - MetaController 冲突检测 / salience 融合 / richer risk reasoning
-   - Workspace 竞争广播机制
+2. ~~**仲裁层升级**~~ **已完成**
+   - ~~MetaController 冲突检测 / salience 融合 / richer risk reasoning~~
+   - ~~Workspace 竞争广播机制~~
 
 3. **Hosted Runtime 产品化**
    - auth / tenant permission checks

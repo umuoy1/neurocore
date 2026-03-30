@@ -31,7 +31,7 @@
 | Amygdala / Motivation-Risk | 杏仁核 | 25%~30% | 基础 policy / warn-block / approval / budget gate 已有；更细粒度 risk model、tenant-aware approval policy 未做 |
 | Basal Ganglia / Skill | 基底神经节 | 30%~35% | skill match proposal 已接入 cycle；没有 skill execute、procedural memory、技能版本化 |
 | Prefrontal / Meta | 前额叶 | 80%~85% | policy block、warn->approval、uncertainty-based ranking、configurable threshold、multi-dimensional scoring (salience/confidence/risk)、conflict detection、risk_summary 已有；仍缺 richer reasoning 和 explanation generation |
-| Global Workspace | 全局工作空间 | 55%~60% | workspace snapshot、risk/confidence/budget/policy 摘要和 token-aware compression 已有；仍非真正竞争广播机制 |
+| Global Workspace | 全局工作空间 | 80% | broadcast-compete-select 三阶段竞争机制已实现：source weight、salience fusion、goal alignment、conflict detection、CompetitionLog |
 
 ### 1.3 已实现部分（稳固）
 
@@ -49,7 +49,7 @@
 
 | 差距 | 影响 | 优先级 |
 |---|---|---|
-| Global Workspace 仍是快照汇总而非竞争广播 | 多模块并行认知能力缺失 | P0 |
+| Global Workspace 仍是快照汇总而非竞争广播 | 多模块并行认知能力缺失 | ~~P0~~ 已完成 |
 | MetaController 仍主要是风险排序后取第一个候选 | 冲突检测、仲裁、解释性不足 | ~~P0~~ 已完成 |
 | `selected_action_id` 无效时仍静默 fallback | 执行正确性风险 | ~~P0~~ 已完成 |
 | `Goal.dependencies` 未参与 actionability 判断 | goal ordering 语义未闭环 | ~~P0~~ 已完成 |
@@ -63,7 +63,7 @@
 
 ### Milestone 5.1：仲裁层升级（Meta + Workspace）
 
-**目标**：把“风险排序 + 选第一个”升级为真正的仲裁和竞争广播机制。
+**目标**：把”风险排序 + 选第一个”升级为真正的仲裁和竞争广播机制。
 
 **当前已有**：
 
@@ -72,16 +72,16 @@
 
 **剩余交付物**：
 
-- `WorkspaceCoordinator`：实现 broadcast -> compete -> select 三阶段
-- `MetaController`：引入 salience / confidence / risk 多维评分、冲突检测、升级决策
-- 对 invalid `selected_action_id` 直接报错，而不是 fallback
-- 让 `Goal.dependencies` 真正影响可执行性判断
+- ~~`WorkspaceCoordinator`：实现 broadcast -> compete -> select 三阶段~~ **已完成**
+- ~~`MetaController`：引入 salience / confidence / risk 多维评分、冲突检测、升级决策~~ **已完成**
+- ~~对 invalid `selected_action_id` 直接报错，而不是 fallback~~ **已完成**
+- ~~让 `Goal.dependencies` 真正影响可执行性判断~~ **已完成**
 
 **验收标准**：
 
-- 两个模块提出冲突 action 时，runtime 能给出稳定且可解释的选择
-- 无效 `selected_action_id` 会中止当前 cycle，而不是静默执行其他动作
-- 带 dependencies 的 goal 能按依赖顺序推进
+- ~~两个模块提出冲突 action 时，runtime 能给出稳定且可解释的选择~~ **已完成** — broadcast-compete-select 机制已实现
+- ~~无效 `selected_action_id` 会中止当前 cycle，而不是静默执行其他动作~~ **已完成**
+- ~~带 dependencies 的 goal 能按依赖顺序推进~~ **已完成**
 
 ### Milestone 5.2：预测闭环（Cerebellar / World Model）
 
@@ -154,10 +154,10 @@
 
 ```text
 P0（立即推进）：
-  - Meta / Workspace 仲裁层升级
-  - selected_action_id hard fail
-  - goal dependency ordering
-  - SessionManager session-level CAS / lock
+  - ~~Meta / Workspace 仲裁层升级~~ 已完成
+  - ~~selected_action_id hard fail~~ 已完成
+  - ~~goal dependency ordering~~ 已完成
+  - ~~SessionManager session-level CAS / lock~~ 已完成
 
 P1（P0 完成后）：
   - Predictor 误差闭环

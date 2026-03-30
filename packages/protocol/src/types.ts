@@ -301,6 +301,32 @@ export interface CandidateAction {
   source_proposal_id?: string;
 }
 
+export type ProposalSource = "reasoner" | "memory" | "skill";
+
+export interface CompetitionEntry {
+  proposal_id: string;
+  module_name: string;
+  source: ProposalSource;
+  raw_salience: number;
+  source_weight: number;
+  goal_alignment: number;
+  final_score: number;
+  rank: number;
+  fused_with?: string[];
+}
+
+export interface CompetitionConflict {
+  proposal_ids: [string, ...string[]];
+  conflict_type: "overlapping_action";
+  score_gap: number;
+}
+
+export interface CompetitionLog {
+  entries: CompetitionEntry[];
+  conflicts: CompetitionConflict[];
+  selection_reasoning: string;
+}
+
 export interface WorkspaceSnapshot {
   workspace_id: string;
   schema_version: string;
@@ -319,6 +345,7 @@ export interface WorkspaceSnapshot {
   budget_assessment?: BudgetAssessment;
   policy_decisions?: PolicyDecision[];
   decision_reasoning?: string;
+  competition_log?: CompetitionLog;
   created_at: Timestamp;
 }
 
