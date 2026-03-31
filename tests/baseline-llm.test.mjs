@@ -67,7 +67,7 @@ function makeToolCallVerifier(name, fn) {
   };
 }
 
-const API_COOLDOWN_MS = 15_000;
+const API_COOLDOWN_MS = 1000;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -117,7 +117,7 @@ async function checkApiConnectivity(config) {
       clearTimeout(timeout);
       if (attempt < 3) {
         console.log(`  Connectivity attempt ${attempt} failed, retrying in ${attempt * 5}s...`);
-        await sleep(attempt * 5_000);
+        await sleep(attempt * 1000);
         continue;
       }
       return { ok: false, reason: `Network error after ${attempt} attempts: ${err instanceof Error ? err.message : String(err)}` };
