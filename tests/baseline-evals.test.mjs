@@ -379,3 +379,186 @@ test("D5: baseline eval - multi-tool chain produces correct executed sequence", 
   assert.equal(report.pass_rate, 1);
   assert.ok(report.results[0].passed, JSON.stringify(report.results[0].failures));
 });
+
+test("D6: baseline eval - resume after waiting completes session", async () => {
+  let cycle = 0;
+  const agent = defineAgent({
+    id: "d6-resume-agent",
+    role: "Resume after waiting agent."
+  }).useReasoner({
+    name: "d6-resume-reasoner",
+    async plan(ctx) {
+      return [
+        {
+          proposal_id: ctx.services.generateId("prp"),
+          schema_version: ctx.profile.schema_version,
+          session_id: ctx.session.session_id,
+          cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+          module_name: this.name,
+          proposal_type: "plan",
+          salience_score: 0.9,
+          confidence: 0.95,
+          risk: 0,
+          payload: { summary: "Ask user then respond." }
+        }
+      ];
+    },
+    async respond(ctx) {
+      cycle++;
+      if (cycle === 1) {
+        return [
+          {
+            action_id: ctx.services.generateId("act"),
+            action_type: "ask_user",
+            title: "Need info",
+            description: "Please clarify.",
+            side_effect_level: "none"
+          }
+        ];
+      }
+      return [
+        {
+          action_id: ctx.services.generateId("act"),
+          action_type: "respond",
+          title: "Done",
+          description: "Resumed and completed.",
+          side_effect_level: "none"
+        }
+      ];
+    }
+  });
+
+  const testCase = BASELINE_CASES.find((c) => c.case_id === "d6-resume-after-waiting");
+
+  const executor = {
+    async execute(tc) {
+      const session = agent.createSession({
+        agent_id: "d6-resume-agent",
+        tenant_id: "d6-tenant",
+        initial_input: {
+          content: tc.input.content,
+          input_id: makeId(),
+          created_at: new Date().toISOString()
+        }
+      });
+
+      const first = await session.run();
+      assert.equal(first.finalState, "waiting");
+
+      const resumed = await session.resumeText("here is the clarification");
+      const replay = session.replay();
+      const toolSequence = replay.traces
+        .map((r) =>
+          r.action_execution && typeof r.selected_action?.tool_name === "string"
+            ? r.selected_action.tool_name
+            : undefined
+        )
+        .filter((t) => typeof t === "string");
+
+      return {
+        session_id: resumed.sessionId,
+        final_state: resumed.finalState,
+        step_count: resumed.steps.length + first.steps.length,
+        output_text: resumed.outputText,
+        tool_sequence: toolSequence,
+        executed_tool_sequence: toolSequence,
+        replay
+      };
+    }
+  };
+
+  const runner = new EvalRunner(executor);
+  const report = await runner.run([testCase]);
+
+  assert.equal(report.pass_count, 1);
+  assert.equal(report.pass_rate, 1);
+  assert.ok(report.results[0].passed, JSON.stringify(report.results[0].failures));
+  assert.equal(report.results[0].observed.final_state, "completed");
+});
+
+test("D7: baseline eval - memory recall from session 1 influences session 2", async () => {
+  let session2RecallCount = 0;
+
+  const agent = defineAgent({
+    id: "d7-memory-agent",
+    role: "Memory recall influence agent."
+  }).useReasoner({
+    name: "d7-memory-reasoner",
+    async plan(ctx) {
+      const recalls = Array.isArray(ctx.runtime_state.memory_recall_proposals)
+        ? ctx.runtime_state.memory_recall_proposals
+        : [];
+
+      if (recalls.length > 0) {
+        session2RecallCount = recalls.length;
+      }
+
+      return [
+        {
+          proposal_id: ctx.services.generateId("prp"),
+          schema_version: ctx.profile.schema_version,
+          session_id: ctx.session.session_id,
+          cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+          module_name: this.name,
+          proposal_type: "plan",
+          salience_score: 0.9,
+          confidence: 0.95,
+          risk: 0,
+          payload: { summary: "Respond based on recall." }
+        }
+      ];
+    },
+    async respond(ctx) {
+      const recalls = Array.isArray(ctx.runtime_state.memory_recall_proposals)
+        ? ctx.runtime_state.memory_recall_proposals
+        : [];
+      const desc = recalls.length > 0
+        ? "Decision influenced by previous experience."
+        : "No prior experience found.";
+      return [
+        {
+          action_id: ctx.services.generateId("act"),
+          action_type: "respond",
+          title: "Done",
+          description: desc,
+          side_effect_level: "none"
+        }
+      ];
+    }
+  });
+
+  const session1 = agent.createSession({
+    agent_id: "d7-memory-agent",
+    tenant_id: "d7-tenant",
+    initial_input: {
+      content: "initial experience task",
+      input_id: makeId(),
+      created_at: new Date().toISOString()
+    }
+  });
+  const result1 = await session1.run();
+  assert.equal(result1.finalState, "completed");
+  assert.ok(session1.getEpisodes().length >= 1);
+
+  const testCase = BASELINE_CASES.find((c) => c.case_id === "d7-memory-recall-influence");
+
+  const executor = createSessionExecutor((tc) =>
+    agent.createSession({
+      agent_id: "d7-memory-agent",
+      tenant_id: "d7-tenant",
+      initial_input: {
+        content: tc.input.content,
+        input_id: makeId(),
+        created_at: new Date().toISOString()
+      }
+    })
+  );
+
+  const runner = new EvalRunner(executor);
+  const report = await runner.run([testCase]);
+
+  assert.equal(report.pass_count, 1);
+  assert.equal(report.pass_rate, 1);
+  assert.ok(report.results[0].passed, JSON.stringify(report.results[0].failures));
+  assert.ok(session2RecallCount > 0, "session 2 should receive memory recalls from session 1");
+});

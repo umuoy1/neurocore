@@ -70,7 +70,7 @@ export const BASELINE_CASES: EvalCase[] = [
     input: { content: "need clarification" },
     tags: ["resume", "waiting"],
     expectations: {
-      final_state: "waiting"
+      final_state: "completed"
     }
   },
   {
