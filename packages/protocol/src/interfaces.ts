@@ -19,6 +19,7 @@ import type {
   PredictionError,
   Proposal,
   RuntimeSessionSnapshot,
+  SkillDefinition,
   ToolExecutionPolicy,
   WorkspaceSnapshot
 } from "./types.js";
@@ -99,8 +100,18 @@ export interface MetaController {
     ctx: ModuleContext,
     actions: CandidateAction[],
     predictions: Prediction[],
-    policies: PolicyDecision[]
+    policies: PolicyDecision[],
+    predictionErrorRate?: number
   ): Promise<MetaDecision>;
+}
+
+export interface PredictionStore {
+  recordPrediction(prediction: Prediction): void;
+  recordError(error: PredictionError): void;
+  listErrors(sessionId: string): PredictionError[];
+  getErrorsByAction(sessionId: string, actionId: string): PredictionError[];
+  getRecentErrorRate(sessionId: string, windowSize: number): number;
+  deleteSession?(sessionId: string): void;
 }
 
 export interface TraceStore {
@@ -124,6 +135,15 @@ export interface RuntimeStateStore {
   listSessions(): RuntimeSessionSnapshot[];
   saveSession(snapshot: RuntimeSessionSnapshot): void;
   deleteSession?(sessionId: string): void;
+}
+
+export interface SkillStore {
+  save(skill: SkillDefinition): void;
+  get(skillId: string): SkillDefinition | undefined;
+  list(tenantId: string): SkillDefinition[];
+  findByTrigger(tenantId: string, context: Record<string, unknown>): SkillDefinition[];
+  delete(skillId: string): void;
+  deleteByTenant?(tenantId: string): void;
 }
 
 export interface TokenEstimator {

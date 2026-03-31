@@ -22,7 +22,8 @@ export class DefaultMetaController implements IMetaController {
     ctx: ModuleContext,
     actions: CandidateAction[],
     predictions: Prediction[],
-    policies: PolicyDecision[]
+    policies: PolicyDecision[],
+    predictionErrorRate?: number
   ): Promise<MetaDecision> {
     if (ctx.workspace?.budget_assessment && !ctx.workspace.budget_assessment.within_budget) {
       return {
@@ -49,6 +50,11 @@ export class DefaultMetaController implements IMetaController {
 
     const scored = this.scoreAndRank(candidates, predictions, policies);
     const top = scored[0];
+
+    if (predictionErrorRate != null && predictionErrorRate > 0) {
+      top.confidence = top.confidence * (1 - predictionErrorRate * 0.3);
+    }
+
     const conflict = this.detectConflict(scored);
 
     const warnedActionIds = new Set<string>(
@@ -57,14 +63,16 @@ export class DefaultMetaController implements IMetaController {
         .map((decision) => decision.target_id!)
     );
 
+    const errorRateThreshold = 0.5;
     const approvalThreshold = this.options?.approvalThreshold ?? 0.7;
     const requiresApproval =
       top.action.side_effect_level === "high" ||
       warnedActionIds.has(top.action.action_id) ||
       top.risk > approvalThreshold ||
-      conflict.hasConflict;
+      conflict.hasConflict ||
+      (predictionErrorRate != null && predictionErrorRate >= errorRateThreshold);
 
-    const riskSummary = this.buildRiskSummary(top, conflict, warnedActionIds, policies);
+    const riskSummary = this.buildRiskSummary(top, conflict, warnedActionIds, policies, predictionErrorRate);
 
     return {
       decision_type: requiresApproval ? "request_approval" : "execute_action",
@@ -127,7 +135,8 @@ export class DefaultMetaController implements IMetaController {
     top: ScoredCandidate,
     conflict: { hasConflict: boolean; rivalCount: number },
     warnedActionIds: Set<string>,
-    policies: PolicyDecision[]
+    policies: PolicyDecision[],
+    predictionErrorRate?: number
   ): string {
     const reasons: string[] = [];
 
@@ -145,6 +154,9 @@ export class DefaultMetaController implements IMetaController {
     }
     if (conflict.hasConflict) {
       reasons.push(`${conflict.rivalCount} rival action(s) with competing scores`);
+    }
+    if (predictionErrorRate != null && predictionErrorRate >= 0.5) {
+      reasons.push(`high prediction error rate (${(predictionErrorRate * 100).toFixed(0)}%)`);
     }
 
     if (reasons.length === 0) {

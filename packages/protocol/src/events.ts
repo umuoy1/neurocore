@@ -9,6 +9,7 @@ import type {
   Prediction,
   PredictionError,
   Proposal,
+  SkillDefinition,
   WorkspaceSnapshot
 } from "./types.js";
 
@@ -26,6 +27,9 @@ export type NeuroCoreEventType =
   | "prediction.recorded"
   | "prediction_error.recorded"
   | "memory.written"
+  | "skill.matched"
+  | "skill.executed"
+  | "skill.promoted"
   | "budget.exceeded"
   | "session.completed"
   | "session.failed";
@@ -52,4 +56,5 @@ export type NeuroCoreEvent =
   | EventEnvelope<Episode>
   | EventEnvelope<Prediction>
   | EventEnvelope<PredictionError>
-  | EventEnvelope<CycleTrace>;
+  | EventEnvelope<CycleTrace>
+  | EventEnvelope<SkillDefinition>;

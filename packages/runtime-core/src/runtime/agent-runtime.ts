@@ -18,6 +18,8 @@ import type {
   PolicyProvider,
   Predictor,
   Prediction,
+  PredictionError,
+  PredictionStore,
   Proposal,
   Reasoner,
   RuntimeSessionSnapshot,
@@ -26,6 +28,7 @@ import type {
   SessionReplay,
   SessionState,
   SkillProvider,
+  SkillStore,
   TraceStore,
   Goal,
   UserInput,
@@ -38,8 +41,12 @@ import { InMemoryEventBus } from "../events/in-memory-event-bus.js";
 import { ToolGateway } from "../execution/tool-gateway.js";
 import { GoalManager } from "../goal/goal-manager.js";
 import { DefaultMetaController } from "../meta/meta-controller.js";
+import { InMemoryPredictionStore } from "../prediction/in-memory-prediction-store.js";
+import { computePredictionErrors } from "../prediction/prediction-error-computer.js";
 import { ReplayRunner } from "../replay/replay-runner.js";
 import { SessionManager, SessionStateConflictError } from "../session/session-manager.js";
+import { ProceduralMemoryProvider } from "../skill/procedural-memory-provider.js";
+import { executeSkill } from "../skill/skill-executor.js";
 import { InMemoryTraceStore } from "../trace/in-memory-trace-store.js";
 import { TraceRecorder } from "../trace/trace-recorder.js";
 import { debugLog } from "../utils/debug.js";
@@ -52,9 +59,11 @@ export interface AgentRuntimeOptions {
   predictors?: Predictor[];
   policyProviders?: PolicyProvider[];
   skillProviders?: SkillProvider[];
+  skillStore?: SkillStore;
   traceStore?: TraceStore;
   checkpointStore?: CheckpointStore;
   stateStore?: RuntimeStateStore;
+  predictionStore?: PredictionStore;
 }
 
 export interface AgentRunResult {
@@ -68,6 +77,7 @@ export interface AgentRunResult {
   outputText?: string;
   trace: CycleTrace;
   cycle: Awaited<ReturnType<CycleEngine["run"]>>;
+  predictionErrors?: PredictionError[];
 }
 
 export interface AgentRunLoopResult {
@@ -108,6 +118,7 @@ export class AgentRuntime {
   private readonly workingMemoryProvider = new WorkingMemoryProvider();
   private readonly episodicMemoryProvider = new EpisodicMemoryProvider();
   private readonly semanticMemoryProvider = new SemanticMemoryProvider();
+  private readonly proceduralMemoryProvider: ProceduralMemoryProvider;
   private readonly memoryProviders: MemoryProvider[];
   private readonly predictors: Predictor[];
   private readonly policyProviders: PolicyProvider[];
@@ -118,6 +129,7 @@ export class AgentRuntime {
   private readonly replayRunner: ReplayRunner;
   private readonly checkpointStore: CheckpointStore;
   private readonly stateStore?: RuntimeStateStore;
+  private readonly predictionStore: PredictionStore;
   private readonly approvals = new Map<string, ApprovalRequest>();
   private readonly pendingApprovals = new Map<string, PendingApprovalContext>();
 
@@ -127,17 +139,20 @@ export class AgentRuntime {
     const traceStore = options.traceStore ?? new InMemoryTraceStore();
     this.checkpointStore = options.checkpointStore ?? new InMemoryCheckpointStore();
     this.stateStore = options.stateStore;
+    this.predictionStore = options.predictionStore ?? new InMemoryPredictionStore();
     this.traceRecorder = new TraceRecorder(traceStore);
     this.replayRunner = new ReplayRunner(traceStore);
+    this.proceduralMemoryProvider = new ProceduralMemoryProvider(options.skillStore);
     this.memoryProviders = [
       this.workingMemoryProvider,
       this.episodicMemoryProvider,
       this.semanticMemoryProvider,
+      this.proceduralMemoryProvider,
       ...(options.memoryProviders ?? [])
     ];
     this.predictors = options.predictors ?? [];
     this.policyProviders = options.policyProviders ?? [];
-    this.skillProviders = options.skillProviders ?? [];
+    this.skillProviders = [this.proceduralMemoryProvider, ...(options.skillProviders ?? [])];
   }
 
   public createSession(profile: AgentProfile, command: CreateSessionCommand) {
@@ -178,6 +193,8 @@ export class AgentRuntime {
     await this.decomposeGoals(profile, session, input);
     const activeGoals = this.goals.active(sessionId);
 
+    const predictionErrorRate = this.predictionStore.getRecentErrorRate(sessionId, 5);
+
     const result = await this.cycleEngine.run({
       tenantId: session.tenant_id,
       session,
@@ -189,8 +206,13 @@ export class AgentRuntime {
       policies: this.policyProviders,
       skillProviders: this.skillProviders,
       reasoner: this.reasoner,
-      metaController: this.metaController
+      metaController: this.metaController,
+      predictionErrorRate
     });
+
+    for (const prediction of result.predictions) {
+      this.predictionStore.recordPrediction(prediction);
+    }
 
     this.sessions.setCurrentCycle(sessionId, result.cycleId);
     const selectedAction = selectAction(result.actions, result.decision);
@@ -590,8 +612,10 @@ export class AgentRuntime {
     this.workingMemoryProvider.deleteSession(sessionId);
     this.episodicMemoryProvider.deleteSession(sessionId);
     this.semanticMemoryProvider.deleteSession(sessionId);
+    this.proceduralMemoryProvider.deleteSession(sessionId);
     this.traceRecorder.getStore().deleteSession?.(sessionId);
     this.checkpointStore.deleteSession?.(sessionId);
+    this.predictionStore.deleteSession?.(sessionId);
     this.eventBus.deleteSession(sessionId);
     this.sessions.deleteSession(sessionId);
     this.stateStore?.deleteSession?.(sessionId);
@@ -685,6 +709,13 @@ export class AgentRuntime {
     }
 
     this.sessions.ensureAwaitingApproval(approval.session_id, approvalId);
+
+    if (profile.approval_policy?.allowed_approvers) {
+      const allowed = profile.approval_policy.allowed_approvers;
+      if (!allowed.includes(decision.approver_id)) {
+        throw new Error(`Approver ${decision.approver_id} is not in the allowed approvers list.`);
+      }
+    }
 
     approval.status = decision.decision;
     approval.decision = decision.decision;
@@ -840,6 +871,7 @@ export class AgentRuntime {
         proposal_refs: [],
         prediction_refs: [],
         policy_decision_refs: [],
+        prediction_error_refs: [],
         observation_refs: []
       },
       cycleId
@@ -928,6 +960,7 @@ export class AgentRuntime {
     const approval: ApprovalRequest = {
       approval_id: generateId("apr"),
       session_id: input.session.session_id,
+      tenant_id: input.session.tenant_id,
       cycle_id: input.cycle.cycleId,
       action_id: input.selectedAction.action_id,
       status: "pending",
@@ -1002,6 +1035,9 @@ export class AgentRuntime {
     }
 
     if (selectedAction.action_type === "call_tool") {
+      const skillResult = await this.trySkillExecution(profile, session, input, startedAt, cycle, selectedAction);
+      if (skillResult) return skillResult;
+
       const { execution, observation } = await this.tools.execute(
         selectedAction,
         {
@@ -1018,14 +1054,16 @@ export class AgentRuntime {
       );
       this.emitEvent(session, "action.executed", execution, cycle.cycleId);
       this.sessions.incrementToolCallUsed(sessionId);
-      await this.recordObservation(
+      const predictionErrors = await this.recordObservation(
         profile,
         session,
         input,
         cycle.cycleId,
         selectedAction,
         observation,
-        observation.status === "failure" ? "failure" : "partial"
+        observation.status === "failure" ? "failure" : "partial",
+        cycle.predictions,
+        execution
       );
 
       const sessionState = this.updateSessionState(sessionId, "waiting").state;
@@ -1037,6 +1075,7 @@ export class AgentRuntime {
         candidateActions: cycle.actions,
         predictions: cycle.predictions,
         policyDecisions: cycle.workspace.policy_decisions ?? [],
+        predictionErrors,
         selectedAction,
         selectedActionId: selectedAction.action_id,
         actionExecution: execution,
@@ -1064,7 +1103,8 @@ export class AgentRuntime {
         observation,
         outputText: observation.summary,
         trace,
-        cycle: toAgentCycleState(cycle)
+        cycle: toAgentCycleState(cycle),
+        predictionErrors
       };
     }
 
@@ -1072,7 +1112,10 @@ export class AgentRuntime {
     const observation = buildSyntheticObservation(session, cycle.cycleId, selectedAction);
     const execution = buildRuntimeActionExecution(session, cycle.cycleId, selectedAction, "succeeded");
     this.emitEvent(session, "action.executed", execution, cycle.cycleId);
-    await this.recordObservation(profile, session, input, cycle.cycleId, selectedAction, observation, "success");
+    const predictionErrors = await this.recordObservation(
+      profile, session, input, cycle.cycleId, selectedAction, observation, "success",
+      cycle.predictions, execution
+    );
     const sessionState = this.updateSessionState(sessionId, targetState).state;
     if (sessionState === "completed") {
       this.markActionableGoals(sessionId, "completed");
@@ -1087,6 +1130,7 @@ export class AgentRuntime {
       candidateActions: cycle.actions,
       predictions: cycle.predictions,
       policyDecisions: cycle.workspace.policy_decisions ?? [],
+      predictionErrors,
       selectedAction,
       selectedActionId: selectedAction.action_id,
       actionExecution: execution,
@@ -1111,7 +1155,8 @@ export class AgentRuntime {
       observation,
       outputText: selectedAction.description ?? selectedAction.title,
       trace,
-      cycle: toAgentCycleState(cycle)
+      cycle: toAgentCycleState(cycle),
+      predictionErrors
     };
   }
 
@@ -1122,19 +1167,68 @@ export class AgentRuntime {
     cycleId: string,
     action: CandidateAction,
     observation: Observation,
-    outcome: Episode["outcome"]
-  ): Promise<void> {
+    outcome: Episode["outcome"],
+    predictions?: Prediction[],
+    execution?: ActionExecution
+  ): Promise<PredictionError[]> {
     this.workingMemoryProvider.appendObservation(session.session_id, observation);
     this.emitEvent(session, "observation.recorded", observation, cycleId);
-    await this.persistEpisode(profile, session, input, cycleId, action, observation, outcome);
+
+    let predictionErrors: PredictionError[] = [];
+    if (predictions && predictions.length > 0) {
+      predictionErrors = computePredictionErrors({
+        predictions,
+        observation,
+        execution,
+        generateId,
+        now: nowIso
+      });
+
+      for (const error of predictionErrors) {
+        this.predictionStore.recordError(error);
+        this.emitEvent(session, "prediction_error.recorded", error, cycleId);
+      }
+
+      for (const predictor of this.predictors) {
+        if (predictor.recordError) {
+          for (const error of predictionErrors) {
+            await predictor.recordError(error);
+          }
+        }
+      }
+    }
+
+    const valence = this.deriveValence(outcome, predictionErrors);
+    const lessons = this.deriveLessons(predictionErrors);
+    await this.persistEpisode(profile, session, input, cycleId, action, observation, outcome, valence, lessons);
 
     debugLog("runtime", "Recorded observation into session memory", {
       sessionId: session.session_id,
       observationId: observation.observation_id,
       sourceType: observation.source_type,
       summaryPreview: observation.summary.slice(0, 160),
-      episodicCount: this.episodicMemoryProvider.list(session.session_id).length
+      episodicCount: this.episodicMemoryProvider.list(session.session_id).length,
+      predictionErrorCount: predictionErrors.length
     });
+
+    return predictionErrors;
+  }
+
+  private deriveValence(
+    outcome: Episode["outcome"],
+    predictionErrors: PredictionError[]
+  ): Episode["valence"] {
+    const hasHighSeverity = predictionErrors.some((e) => e.severity === "high");
+    if (hasHighSeverity || outcome === "failure") return "negative";
+    if (predictionErrors.length > 0) return "neutral";
+    if (outcome === "success") return "positive";
+    return "neutral";
+  }
+
+  private deriveLessons(predictionErrors: PredictionError[]): string[] {
+    return predictionErrors
+      .filter((e) => e.severity === "medium" || e.severity === "high")
+      .map((e) => e.impact_summary ?? `${e.error_type}: prediction did not match observation.`);
   }
 
   private async persistEpisode(
@@ -1144,7 +1238,9 @@ export class AgentRuntime {
     cycleId: string,
     action: CandidateAction,
     observation: Observation,
-    outcome: Episode["outcome"]
+    outcome: Episode["outcome"],
+    valence?: Episode["valence"],
+    lessons?: string[]
   ): Promise<void> {
     const episode: Episode = {
       episode_id: `epi_${observation.observation_id}`,
@@ -1158,6 +1254,8 @@ export class AgentRuntime {
       observation_refs: [observation.observation_id],
       outcome,
       outcome_summary: observation.summary,
+      valence,
+      lessons: lessons && lessons.length > 0 ? lessons : undefined,
       metadata: {
         action_type: action.action_type,
         tool_name: action.tool_name,
@@ -1171,6 +1269,90 @@ export class AgentRuntime {
     const ctx = buildMemoryContext(profile, session, this.goals.active(session.session_id), input);
     await Promise.all(this.memoryProviders.map(async (provider) => provider.writeEpisode(ctx, episode)));
     this.emitEvent(session, "memory.written", episode, cycleId);
+
+    const promoted = this.proceduralMemoryProvider.getLastPromotedSkill();
+    if (promoted) {
+      episode.promoted_to_skill = true;
+      this.emitEvent(session, "skill.promoted", promoted, cycleId);
+      this.proceduralMemoryProvider.clearLastPromotedSkill();
+    }
+  }
+
+  private async trySkillExecution(
+    profile: AgentProfile,
+    session: AgentSession,
+    input: UserInput,
+    startedAt: string,
+    cycle: ExecutionCycleState,
+    selectedAction: CandidateAction
+  ): Promise<AgentRunResult | null> {
+    if (!selectedAction.source_proposal_id) return null;
+
+    const skillProposal = cycle.proposals.find(
+      (p) => p.proposal_id === selectedAction.source_proposal_id && p.proposal_type === "skill_match"
+    );
+    if (!skillProposal) return null;
+
+    const skillId = skillProposal.payload.skill_id;
+    if (typeof skillId !== "string") return null;
+
+    const provider = this.skillProviders.find((sp) => sp.execute);
+    if (!provider) return null;
+
+    const ctx = buildMemoryContext(profile, session, this.goals.active(session.session_id), input);
+    const skillResult = await executeSkill(provider, ctx, skillId, selectedAction);
+    if (!skillResult) return null;
+
+    const { execution, observation } = skillResult;
+    this.emitEvent(session, "skill.executed", execution, cycle.cycleId);
+    this.emitEvent(session, "action.executed", execution, cycle.cycleId);
+
+    const predictionErrors = await this.recordObservation(
+      profile, session, input, cycle.cycleId, selectedAction, observation,
+      observation.status === "failure" ? "failure" : "success",
+      cycle.predictions, execution
+    );
+
+    const sessionState = this.updateSessionState(session.session_id, "waiting").state;
+    const trace = this.recordTrace({
+      sessionId: session.session_id,
+      cycleId: cycle.cycleId,
+      input,
+      proposals: cycle.proposals,
+      candidateActions: cycle.actions,
+      predictions: cycle.predictions,
+      policyDecisions: cycle.workspace.policy_decisions ?? [],
+      predictionErrors,
+      selectedAction,
+      selectedActionId: selectedAction.action_id,
+      actionExecution: execution,
+      observation,
+      workspace: cycle.workspace,
+      startedAt
+    });
+
+    debugLog("runtime", "Skill execution completed", {
+      sessionId: session.session_id,
+      cycleId: cycle.cycleId,
+      skillId,
+      providerName: provider.name
+    });
+
+    this.maybeCreateCheckpoint(profile, session.session_id);
+    this.persistSessionState(session.session_id);
+
+    return {
+      sessionId: session.session_id,
+      cycleId: cycle.cycleId,
+      sessionState,
+      selectedAction,
+      actionExecution: execution,
+      observation,
+      outputText: observation.summary,
+      trace,
+      cycle: toAgentCycleState(cycle),
+      predictionErrors
+    };
   }
 
   private ensureSessionLoaded(sessionId: string): void {
@@ -1215,6 +1397,11 @@ export class AgentRuntime {
     this.workingMemoryProvider.replace(sessionId, structuredClone(snapshot.working_memory));
     this.episodicMemoryProvider.replace(sessionId, snapshot.session.tenant_id, structuredClone(snapshot.episodes));
     this.semanticMemoryProvider.replaceSession(
+      sessionId,
+      snapshot.session.tenant_id,
+      structuredClone(snapshot.episodes)
+    );
+    this.proceduralMemoryProvider.replaceSession(
       sessionId,
       snapshot.session.tenant_id,
       structuredClone(snapshot.episodes)

@@ -10,7 +10,10 @@ import type {
 } from "@neurocore/protocol";
 import { SessionStateConflictError } from "@neurocore/runtime-core";
 import type { AgentBuilder, AgentSessionHandle } from "@neurocore/sdk-core";
-import { EvalRunner, createSessionExecutor, type EvalCase, type EvalRunReport } from "@neurocore/eval-core";
+import { EvalRunner, createSessionExecutor, type EvalCase, type EvalRunReport, compareEvalRuns } from "@neurocore/eval-core";
+import type { Authenticator, AuthContext } from "./auth.js";
+import { InMemoryEvalStore, type EvalStore } from "./eval-store.js";
+import { Logger } from "./logger.js";
 
 export interface RuntimeServerOptions {
   host?: string;
@@ -18,6 +21,9 @@ export interface RuntimeServerOptions {
   agents?: AgentBuilder[];
   webhooks?: RuntimeWebhookTarget[];
   fetch?: typeof fetch;
+  authenticator?: Authenticator;
+  evalStore?: EvalStore;
+  logLevel?: "debug" | "info" | "warn" | "error";
 }
 
 export interface RuntimeWebhookTarget {
@@ -43,6 +49,15 @@ interface ManagedSession {
   webhook_unsubscribe?: () => void;
 }
 
+interface WebhookDeliveryRecord {
+  event_type: string;
+  target_url: string;
+  status: "success" | "failed";
+  attempts: number;
+  last_error?: string;
+  timestamp: string;
+}
+
 class HttpError extends Error {
   public constructor(
     public readonly statusCode: number,
@@ -60,44 +75,66 @@ export class NeuroRuntimeServer {
   private readonly agents = new Map<string, AgentBuilder>();
   private readonly sessions = new Map<string, ManagedSession>();
   private readonly activeOperations = new Map<string, string>();
-  private readonly evalReports = new Map<string, EvalRunReport>();
+  private readonly evalStore: EvalStore;
   private readonly server: HttpServer;
   private readonly webhookTargets: RuntimeWebhookTarget[];
   private readonly fetchImpl: typeof fetch;
+  private readonly authenticator?: Authenticator;
+  private readonly logger: Logger;
+  private readonly startedAt = Date.now();
+  private readonly sseConnections = new Set<ServerResponse>();
+  private readonly webhookDeliveryLog: WebhookDeliveryRecord[] = [];
+  private static readonly MAX_DELIVERY_LOG = 1000;
+  private totalSessionsCreated = 0;
+  private totalCyclesExecuted = 0;
 
   public constructor(options: RuntimeServerOptions = {}) {
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
     this.webhookTargets = options.webhooks ?? [];
     this.fetchImpl = options.fetch ?? fetch;
+    this.authenticator = options.authenticator;
+    this.evalStore = options.evalStore ?? new InMemoryEvalStore();
+    this.logger = new Logger({ minLevel: options.logLevel ?? "info" });
     for (const agent of options.agents ?? []) {
       this.registerAgent(agent);
     }
 
     this.server = createServer(async (request, response) => {
+      const start = Date.now();
+      const method = request.method ?? "GET";
+      const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+
+      let authContext: AuthContext | undefined;
       try {
-        await this.handleRequest(request, response);
+        authContext = await this.authenticateRequest(request, url);
+        await this.handleRequest(request, response, authContext);
       } catch (error) {
         if (error instanceof HttpError) {
           writeJson(response, error.statusCode, {
             error: error.code,
             message: error.message
           });
-          return;
-        }
-
-        if (error instanceof SessionStateConflictError) {
+        } else if (error instanceof SessionStateConflictError) {
           writeJson(response, 409, {
             error: "state_conflict",
             message: error.message
           });
-          return;
+        } else {
+          const message = error instanceof Error ? error.message : "Internal server error.";
+          writeJson(response, 500, {
+            error: "internal_error",
+            message
+          });
         }
-
-        const message = error instanceof Error ? error.message : "Internal server error.";
-        writeJson(response, 500, {
-          error: "internal_error",
-          message
+      } finally {
+        const duration = Date.now() - start;
+        this.logger.info("request", {
+          method,
+          path: url.pathname,
+          status: response.statusCode,
+          duration_ms: duration,
+          tenant_id: authContext?.tenant_id
         });
       }
     });
@@ -146,20 +183,114 @@ export class NeuroRuntimeServer {
     });
   }
 
-  private async handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  private async authenticateRequest(req: IncomingMessage, url: URL): Promise<AuthContext | undefined> {
+    if (!this.authenticator) {
+      return undefined;
+    }
+
+    const path = url.pathname.split("/").filter(Boolean);
+    if (path.length === 1 && path[0] === "healthz") {
+      return undefined;
+    }
+
+    const ctx = await this.authenticator.authenticate(req);
+    if (!ctx) {
+      throw new HttpError(401, "unauthorized", "Invalid or missing API key.");
+    }
+
+    return ctx;
+  }
+
+  private async handleRequest(request: IncomingMessage, response: ServerResponse, authContext?: AuthContext): Promise<void> {
     const method = request.method ?? "GET";
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
     const path = url.pathname.split("/").filter(Boolean);
 
     if (method === "GET" && path.length === 1 && path[0] === "healthz") {
-      writeJson(response, 200, { status: "ok" });
+      const pkg = { version: "0.0.0" };
+      try {
+        const fs = await import("node:fs");
+        const p = await import("node:path");
+        const raw = fs.readFileSync(p.resolve(import.meta.dirname ?? ".", "..", "package.json"), "utf8");
+        Object.assign(pkg, JSON.parse(raw));
+      } catch {}
+      writeJson(response, 200, {
+        status: "ok",
+        active_sessions: this.sessions.size,
+        uptime_seconds: Math.floor((Date.now() - this.startedAt) / 1000),
+        version: pkg.version
+      });
+      return;
+    }
+
+    if (method === "GET" && path.length === 2 && path[0] === "v1" && path[1] === "metrics") {
+      writeJson(response, 200, {
+        total_sessions_created: this.totalSessionsCreated,
+        total_cycles_executed: this.totalCyclesExecuted,
+        total_eval_runs: this.evalStore.list().length,
+        active_sessions: this.sessions.size,
+        active_sse_connections: this.sseConnections.size
+      });
+      return;
+    }
+
+    if (method === "GET" && path.length === 2 && path[0] === "v1" && path[1] === "sessions") {
+      const tenantFilter = url.searchParams.get("tenant_id") ?? authContext?.tenant_id;
+      const stateFilter = url.searchParams.get("state");
+      const limit = parseInt(url.searchParams.get("limit") ?? "100", 10);
+      const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+
+      let entries = Array.from(this.sessions.entries()).map(([id, rec]) => ({
+        session_id: id,
+        agent_id: rec.agent_id,
+        session: rec.handle.getSession(),
+        active_run: Boolean(rec.active_run)
+      }));
+
+      if (tenantFilter) {
+        entries = entries.filter((e) => e.session?.tenant_id === tenantFilter);
+      }
+      if (stateFilter) {
+        entries = entries.filter((e) => e.session?.state === stateFilter);
+      }
+
+      writeJson(response, 200, {
+        sessions: entries.slice(offset, offset + limit),
+        total: entries.length
+      });
+      return;
+    }
+
+    if (method === "GET" && path.length === 2 && path[0] === "v1" && path[1] === "approvals") {
+      const tenantFilter = url.searchParams.get("tenant_id") ?? authContext?.tenant_id;
+      const statusFilter = url.searchParams.get("status");
+
+      let approvals: Array<{ approval: ApprovalRequest; session_id: string; agent_id: string }> = [];
+      for (const [, rec] of this.sessions) {
+        const pending = rec.handle.getPendingApproval();
+        if (pending) {
+          approvals.push({ approval: pending, session_id: rec.handle.id, agent_id: rec.agent_id });
+        }
+      }
+
+      if (tenantFilter) {
+        approvals = approvals.filter((a) => {
+          const sess = this.sessions.get(a.session_id);
+          return sess?.handle.getSession()?.tenant_id === tenantFilter;
+        });
+      }
+      if (statusFilter) {
+        approvals = approvals.filter((a) => a.approval.status === statusFilter);
+      }
+
+      writeJson(response, 200, { approvals });
       return;
     }
 
     if (method === "POST" && path.length === 4 && path[0] === "v1" && path[1] === "agents" && path[3] === "sessions") {
       const agentId = path[2] ?? "";
       const body = await readJson(request);
-      const record = await this.createSession(agentId, body);
+      const record = await this.createSession(agentId, body, authContext);
       writeJson(response, 201, this.serializeManagedSession(record));
       return;
     }
@@ -277,6 +408,33 @@ export class NeuroRuntimeServer {
         this.streamSessionEvents(request, response, record);
         return;
       }
+
+      if (method === "GET" && path.length === 4 && path[3] === "replay") {
+        const traces = record.handle.getTraceRecords();
+        const finalRecord = traces.at(-1);
+        const finalOutput =
+          finalRecord?.observation?.summary ??
+          finalRecord?.selected_action?.description ??
+          finalRecord?.selected_action?.title;
+        writeJson(response, 200, {
+          session_id: sessionId,
+          cycle_count: traces.length,
+          traces: traces,
+          final_output: finalOutput ?? null
+        });
+        return;
+      }
+
+      if (method === "GET" && path.length === 5 && path[3] === "replay") {
+        const cycleId = path[4] ?? "";
+        const cycleRecord = record.handle.getTraceRecords()
+          .find((tr) => tr.trace.cycle_id === cycleId);
+        if (!cycleRecord) {
+          throw new HttpError(404, "cycle_not_found", `No cycle record found for ${cycleId}.`);
+        }
+        writeJson(response, 200, cycleRecord as unknown as Record<string, unknown>);
+        return;
+      }
     }
 
     if (path.length >= 2 && path[0] === "v1" && path[1] === "approvals") {
@@ -292,6 +450,12 @@ export class NeuroRuntimeServer {
       }
 
       if (method === "POST" && path.length === 4 && path[3] === "decision") {
+        if (authContext) {
+          const sessionTenantId = sessionRecord.handle.getSession()?.tenant_id;
+          if (sessionTenantId && authContext.tenant_id !== sessionTenantId) {
+            throw new HttpError(403, "tenant_mismatch", `Authenticated tenant ${authContext.tenant_id} cannot decide approvals for tenant ${sessionTenantId}.`);
+          }
+        }
         const body = await readJson(request);
         const result = await this.runSessionOperation(sessionRecord, "approval_decision", async () => {
           return sessionRecord.handle.decideApproval({
@@ -314,6 +478,25 @@ export class NeuroRuntimeServer {
       }
     }
 
+    if (method === "GET" && path.length === 3 && path[0] === "v1" && path[1] === "evals" && path[2] === "compare") {
+      const runAId = url.searchParams.get("run_a");
+      const runBId = url.searchParams.get("run_b");
+      if (!runAId || !runBId) {
+        throw new HttpError(400, "invalid_request", "Both run_a and run_b query parameters are required.");
+      }
+      const reportA = this.evalStore.get(runAId);
+      if (!reportA) {
+        throw new HttpError(404, "eval_run_not_found", `Unknown eval run: ${runAId}`);
+      }
+      const reportB = this.evalStore.get(runBId);
+      if (!reportB) {
+        throw new HttpError(404, "eval_run_not_found", `Unknown eval run: ${runBId}`);
+      }
+      const comparison = compareEvalRuns(reportA, reportB);
+      writeJson(response, 200, comparison as unknown as Record<string, unknown>);
+      return;
+    }
+
     if (path.length >= 3 && path[0] === "v1" && path[1] === "evals" && path[2] === "runs") {
       if (method === "POST" && path.length === 3) {
         const body = await readJson(request);
@@ -322,20 +505,52 @@ export class NeuroRuntimeServer {
         if (!Array.isArray(cases)) {
           throw new HttpError(400, "invalid_request", "cases must be an array of EvalCase.");
         }
-        const report = await this.runEval(agentId, cases as EvalCase[]);
+        const report = await this.runEval(agentId, cases as EvalCase[], authContext);
         writeJson(response, 201, report as unknown as Record<string, unknown>);
+        return;
+      }
+
+      if (method === "GET" && path.length === 3) {
+        const tenantFilter = url.searchParams.get("tenant_id") ?? authContext?.tenant_id;
+        const agentFilter = url.searchParams.get("agent_id");
+        const limit = parseInt(url.searchParams.get("limit") ?? "100", 10);
+        const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+
+        const reports = this.evalStore.list({
+          tenant_id: tenantFilter ?? undefined,
+          agent_id: agentFilter ?? undefined,
+          limit,
+          offset
+        });
+        writeJson(response, 200, { runs: reports as unknown as Record<string, unknown>[], total: reports.length });
         return;
       }
 
       if (method === "GET" && path.length === 4) {
         const runId = path[3] ?? "";
-        const report = this.evalReports.get(runId);
+        const report = this.evalStore.get(runId);
         if (!report) {
           throw new HttpError(404, "eval_run_not_found", `Unknown eval run: ${runId}`);
         }
         writeJson(response, 200, report as unknown as Record<string, unknown>);
         return;
       }
+
+      if (method === "DELETE" && path.length === 4) {
+        const runId = path[3] ?? "";
+        const report = this.evalStore.get(runId);
+        if (!report) {
+          throw new HttpError(404, "eval_run_not_found", `Unknown eval run: ${runId}`);
+        }
+        this.evalStore.delete(runId);
+        writeJson(response, 200, { run_id: runId, deleted: true });
+        return;
+      }
+    }
+
+    if (method === "GET" && path.length === 3 && path[0] === "v1" && path[1] === "webhooks" && path[2] === "deliveries") {
+      writeJson(response, 200, { deliveries: this.webhookDeliveryLog });
+      return;
     }
 
     writeJson(response, 404, {
@@ -344,16 +559,21 @@ export class NeuroRuntimeServer {
     });
   }
 
-  private async createSession(agentId: string, payload: Record<string, unknown>): Promise<ManagedSession> {
+  private async createSession(agentId: string, payload: Record<string, unknown>, authContext?: AuthContext): Promise<ManagedSession> {
     const agent = this.agents.get(agentId);
     if (!agent) {
       throw new HttpError(404, "agent_not_found", `Unknown agent: ${agentId}`);
     }
 
+    const tenantId = getRequiredString(payload.tenant_id, "tenant_id");
+    if (authContext && authContext.tenant_id !== tenantId) {
+      throw new HttpError(403, "tenant_mismatch", `Authenticated tenant ${authContext.tenant_id} cannot create sessions for tenant ${tenantId}.`);
+    }
+
     const initialInput = normalizeInput(payload.initial_input, "initial_input");
     const command: CreateSessionCommand = {
       agent_id: agentId,
-      tenant_id: getRequiredString(payload.tenant_id, "tenant_id"),
+      tenant_id: tenantId,
       user_id: getOptionalString(payload.user_id),
       session_mode: normalizeSessionMode(payload.session_mode),
       initial_input: initialInput
@@ -366,6 +586,7 @@ export class NeuroRuntimeServer {
     };
     this.attachWebhookDelivery(record);
     this.sessions.set(handle.id, record);
+    this.totalSessionsCreated++;
 
     const runImmediately = payload.run_immediately !== false;
     if (runImmediately) {
@@ -374,22 +595,25 @@ export class NeuroRuntimeServer {
       } else {
         const result = await this.runSessionOperation(record, "run", async () => handle.run());
         record.last_run = summarizeLoopResult(result);
+        this.totalCyclesExecuted += result.steps.length;
       }
     }
 
     return record;
   }
 
-  private async runEval(agentId: string, cases: EvalCase[]): Promise<EvalRunReport> {
+  private async runEval(agentId: string, cases: EvalCase[], authContext?: AuthContext): Promise<EvalRunReport> {
     const agent = this.agents.get(agentId);
     if (!agent) {
       throw new HttpError(404, "agent_not_found", `Unknown agent: ${agentId}`);
     }
 
+    const tenantId = authContext?.tenant_id ?? "eval";
+
     const executor = createSessionExecutor((testCase) => {
       const handle = agent.createSession({
         agent_id: agentId,
-        tenant_id: "eval",
+        tenant_id: tenantId,
         initial_input: {
           input_id: `inp_eval_${testCase.case_id}`,
           content: testCase.input.content,
@@ -402,7 +626,9 @@ export class NeuroRuntimeServer {
 
     const runner = new EvalRunner(executor);
     const report = await runner.run(cases);
-    this.evalReports.set(report.run_id, report);
+    report.tenant_id = tenantId;
+    report.agent_id = agentId;
+    this.evalStore.save(report);
     return report;
   }
 
@@ -501,17 +727,67 @@ export class NeuroRuntimeServer {
   }
 
   private async deliverWebhook(target: RuntimeWebhookTarget, event: NeuroCoreEvent): Promise<void> {
-    try {
-      await this.fetchImpl(target.url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(target.headers ?? {})
-        },
-        body: JSON.stringify(event)
-      });
-    } catch {
-      return;
+    const maxAttempts = 3;
+    let lastError: string | undefined;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await this.fetchImpl(target.url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(target.headers ?? {})
+          },
+          body: JSON.stringify(event)
+        });
+
+        if (res.ok || (res.status >= 400 && res.status < 500)) {
+          this.recordWebhookDelivery({
+            event_type: event.event_type,
+            target_url: target.url,
+            status: "success",
+            attempts: attempt,
+            timestamp: new Date().toISOString()
+          });
+          this.logger.debug("webhook_delivered", {
+            event_type: event.event_type,
+            target_url: target.url,
+            attempts: attempt
+          });
+          return;
+        }
+
+        lastError = `HTTP ${res.status}`;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+      }
+
+      if (attempt < maxAttempts) {
+        const delay = Math.pow(2, attempt - 1) * 1000;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+
+    this.recordWebhookDelivery({
+      event_type: event.event_type,
+      target_url: target.url,
+      status: "failed",
+      attempts: maxAttempts,
+      last_error: lastError,
+      timestamp: new Date().toISOString()
+    });
+    this.logger.warn("webhook_delivery_failed", {
+      event_type: event.event_type,
+      target_url: target.url,
+      attempts: maxAttempts,
+      last_error: lastError
+    });
+  }
+
+  private recordWebhookDelivery(record: WebhookDeliveryRecord): void {
+    this.webhookDeliveryLog.push(record);
+    if (this.webhookDeliveryLog.length > NeuroRuntimeServer.MAX_DELIVERY_LOG) {
+      this.webhookDeliveryLog.shift();
     }
   }
 
@@ -593,6 +869,8 @@ export class NeuroRuntimeServer {
     response.setHeader("connection", "keep-alive");
     response.flushHeaders?.();
 
+    this.sseConnections.add(response);
+
     for (const event of record.handle.getEvents()) {
       writeSseEvent(response, event);
     }
@@ -603,6 +881,7 @@ export class NeuroRuntimeServer {
 
     const cleanup = () => {
       unsubscribe();
+      this.sseConnections.delete(response);
       if (!response.writableEnded) {
         response.end();
       }

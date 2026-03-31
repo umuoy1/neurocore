@@ -6,6 +6,7 @@ import type {
   Observation,
   PolicyDecision,
   Prediction,
+  PredictionError,
   Proposal,
   TraceStore,
   UserInput,
@@ -23,6 +24,7 @@ export interface RecordTraceInput {
   candidateActions: CandidateAction[];
   predictions: Prediction[];
   policyDecisions: PolicyDecision[];
+  predictionErrors?: PredictionError[];
   selectedAction?: CandidateAction;
   selectedActionId?: string;
   actionExecution?: ActionExecution;
@@ -39,6 +41,7 @@ export class TraceRecorder {
 
   public record(input: RecordTraceInput): CycleTrace {
     const endedAt = input.endedAt ?? nowIso();
+    const predictionErrors = input.predictionErrors ?? [];
     const trace: CycleTrace = {
       trace_id: generateId("trc"),
       session_id: input.sessionId,
@@ -49,6 +52,7 @@ export class TraceRecorder {
       proposal_refs: input.proposals.map((proposal) => proposal.proposal_id),
       prediction_refs: input.predictions.map((prediction) => prediction.prediction_id),
       policy_decision_refs: input.policyDecisions.map((decision) => decision.decision_id),
+      prediction_error_refs: predictionErrors.map((e) => e.prediction_error_id),
       selected_action_ref: input.selectedAction?.action_id ?? input.selectedActionId,
       observation_refs: input.observation ? [input.observation.observation_id] : [],
       metrics: {
@@ -63,6 +67,7 @@ export class TraceRecorder {
       candidate_actions: input.candidateActions,
       predictions: input.predictions,
       policy_decisions: input.policyDecisions,
+      prediction_errors: predictionErrors,
       selected_action: input.selectedAction,
       action_execution: input.actionExecution,
       observation: input.observation,

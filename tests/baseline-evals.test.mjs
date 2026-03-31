@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { EvalRunner, createSessionExecutor } from "@neurocore/eval-core";
+import { BASELINE_CASES, EvalRunner, createSessionExecutor } from "@neurocore/eval-core";
 import { defineAgent } from "@neurocore/sdk-core";
 
 function makeId() {
@@ -59,27 +59,8 @@ test("D1: baseline eval - simple respond completes with echoed output", async ()
   );
 
   const runner = new EvalRunner(executor);
-  const report = await runner.run([
-    {
-      case_id: "d1-echo-hello",
-      description: "Agent echoes hello back.",
-      input: { content: "hello baseline" },
-      expectations: {
-        final_state: "completed",
-        output_includes: ["hello baseline"],
-        max_steps: 2
-      }
-    },
-    {
-      case_id: "d1-echo-world",
-      description: "Agent echoes world back.",
-      input: { content: "world baseline" },
-      expectations: {
-        final_state: "completed",
-        output_includes: ["world baseline"]
-      }
-    }
-  ]);
+  const d1Cases = BASELINE_CASES.filter((c) => c.case_id.startsWith("d1-"));
+  const report = await runner.run(d1Cases);
 
   assert.equal(report.case_count, 2);
   assert.equal(report.pass_count, 2);
@@ -162,16 +143,7 @@ test("D2: baseline eval - single tool call then respond", async () => {
 
   const runner = new EvalRunner(executor);
   const report = await runner.run([
-    {
-      case_id: "d2-single-tool",
-      description: "Agent calls fetch_data once then responds.",
-      input: { content: "run fetch" },
-      expectations: {
-        final_state: "completed",
-        executed_tool_sequence: ["fetch_data"],
-        output_includes: ["fetch-result"]
-      }
-    }
+    BASELINE_CASES.find((c) => c.case_id === "d2-single-tool")
   ]);
 
   assert.equal(report.pass_count, 1);
@@ -228,15 +200,7 @@ test("D3: baseline eval - clarification trigger leaves session waiting", async (
 
   const runner = new EvalRunner(executor);
   const report = await runner.run([
-    {
-      case_id: "d3-clarification",
-      description: "Ambiguous input triggers ask_user, leaving session in waiting state.",
-      input: { content: "do something" },
-      expectations: {
-        final_state: "waiting",
-        requires_approval: false
-      }
-    }
+    BASELINE_CASES.find((c) => c.case_id === "d3-clarification")
   ]);
 
   assert.equal(report.pass_count, 1);
@@ -304,15 +268,7 @@ test("D4: baseline eval - high-risk tool triggers approval escalation", async ()
 
   const runner = new EvalRunner(executor);
   const report = await runner.run([
-    {
-      case_id: "d4-approval-escalation",
-      description: "High-risk tool call escalates session for human approval.",
-      input: { content: "run destructive op" },
-      expectations: {
-        final_state: "escalated",
-        requires_approval: true
-      }
-    }
+    BASELINE_CASES.find((c) => c.case_id === "d4-approval-escalation")
   ]);
 
   assert.equal(report.pass_count, 1);
@@ -416,16 +372,7 @@ test("D5: baseline eval - multi-tool chain produces correct executed sequence", 
 
   const runner = new EvalRunner(executor);
   const report = await runner.run([
-    {
-      case_id: "d5-tool-chain",
-      description: "Agent executes step_a then step_b in order.",
-      input: { content: "run the chain" },
-      expectations: {
-        final_state: "completed",
-        executed_tool_sequence: ["step_a", "step_b"],
-        min_steps: 3
-      }
-    }
+    BASELINE_CASES.find((c) => c.case_id === "d5-tool-chain")
   ]);
 
   assert.equal(report.pass_count, 1);

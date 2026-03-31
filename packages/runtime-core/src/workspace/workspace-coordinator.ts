@@ -317,6 +317,15 @@ export class WorkspaceCoordinator {
         summary: `Token budget exceeded (${budgetState.token_budget_used}/${budgetState.token_budget_total}).`
       };
     }
+    const costExceeded =
+      budgetState.cost_budget_total !== undefined &&
+      (budgetState.cost_budget_used ?? 0) >= budgetState.cost_budget_total;
+    if (costExceeded) {
+      return {
+        within_budget: false,
+        summary: `Cost budget exceeded (${budgetState.cost_budget_used}/${budgetState.cost_budget_total}).`
+      };
+    }
     return { within_budget: true, summary: "Within budget." };
   }
 }

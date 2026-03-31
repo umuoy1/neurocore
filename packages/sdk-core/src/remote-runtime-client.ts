@@ -36,6 +36,8 @@ export interface RemoteRuntimeClientOptions {
   baseUrl: string;
   fetch?: typeof fetch;
   headers?: Record<string, string>;
+  requestTimeoutMs?: number;
+  maxRetries?: number;
 }
 
 export interface WaitForSessionOptions {
@@ -57,12 +59,16 @@ export class RemoteAgentClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly defaultHeaders: Record<string, string>;
+  private readonly requestTimeoutMs: number;
+  private readonly maxRetries: number;
 
   public constructor(options: RemoteRuntimeClientOptions) {
     this.agentId = options.agentId;
     this.baseUrl = normalizeBaseUrl(options.baseUrl);
     this.fetchImpl = options.fetch ?? fetch;
     this.defaultHeaders = options.headers ?? {};
+    this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
+    this.maxRetries = options.maxRetries ?? 2;
   }
 
   public async createSession(
@@ -257,25 +263,54 @@ export class RemoteAgentClient {
     path: string,
     body?: Record<string, unknown>
   ): Promise<T> {
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
-      method,
-      headers: {
-        ...this.defaultHeaders,
-        ...(body ? { "content-type": "application/json" } : {})
-      },
-      body: body ? JSON.stringify(body) : undefined
-    });
+    let lastError: Error | undefined;
 
-    const payload = (await response.json()) as Record<string, unknown>;
-    if (!response.ok) {
-      throw new Error(
-        `${method} ${path} failed with status ${response.status}: ${
-          typeof payload.message === "string" ? payload.message : "Unknown error."
-        }`
-      );
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+          method,
+          headers: {
+            ...this.defaultHeaders,
+            ...(body ? { "content-type": "application/json" } : {})
+          },
+          body: body ? JSON.stringify(body) : undefined,
+          signal: AbortSignal.timeout(this.requestTimeoutMs)
+        });
+
+        const payload = (await response.json()) as Record<string, unknown>;
+        if (!response.ok) {
+          if (response.status >= 500 && attempt < this.maxRetries) {
+            lastError = new Error(
+              `${method} ${path} failed with status ${response.status}: ${
+                typeof payload.message === "string" ? payload.message : "Unknown error."
+              }`
+            );
+            await sleep(500 * Math.pow(2, attempt));
+            continue;
+          }
+          throw new Error(
+            `${method} ${path} failed with status ${response.status}: ${
+              typeof payload.message === "string" ? payload.message : "Unknown error."
+            }`
+          );
+        }
+
+        return payload as T;
+      } catch (error) {
+        if (
+          attempt < this.maxRetries &&
+          error instanceof Error &&
+          (error.name === "AbortError" || error.name === "TimeoutError" || error instanceof TypeError)
+        ) {
+          lastError = error;
+          await sleep(500 * Math.pow(2, attempt));
+          continue;
+        }
+        throw error;
+      }
     }
 
-    return payload as T;
+    throw lastError ?? new Error(`${method} ${path} failed after ${this.maxRetries + 1} attempts.`);
   }
 }
 

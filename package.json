@@ -9,6 +9,8 @@
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",
     "test": "npm run build && node --test tests/*.test.mjs",
+    "test:unit": "npm run build && node --test tests/*.test.mjs --test-name-pattern \"^(?!.*baseline-llm)\"",
+    "test:hosted": "npm run build && node --test tests/hosted-productization.test.mjs tests/eval-api.test.mjs",
     "test:baseline": "npm run build && node --test tests/baseline-llm.test.mjs",
     "test:coverage": "npm run build && node --test --experimental-test-coverage tests/*.test.mjs",
     "changeset": "changeset",

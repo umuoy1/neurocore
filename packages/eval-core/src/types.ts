@@ -42,6 +42,8 @@ export interface EvalCaseResult {
 
 export interface EvalRunReport {
   run_id: string;
+  tenant_id?: string;
+  agent_id?: string;
   started_at: string;
   ended_at: string;
   case_count: number;

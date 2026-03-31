@@ -168,6 +168,9 @@ export interface AgentProfile {
   runtime_config: RuntimeConfig;
   observability_config?: ObservabilityConfig;
   context_budget?: ContextBudget;
+  cost_per_token?: number;
+  cost_budget?: number;
+  approval_policy?: { allowed_approvers?: string[] };
   metadata?: Record<string, unknown>;
 }
 
@@ -375,6 +378,7 @@ export interface ActionExecution {
 export interface ApprovalRequest {
   approval_id: string;
   session_id: string;
+  tenant_id?: string;
   cycle_id: string;
   action_id: string;
   status: ApprovalStatus;
@@ -547,6 +551,7 @@ export interface CycleTrace {
   proposal_refs: string[];
   prediction_refs: string[];
   policy_decision_refs: string[];
+  prediction_error_refs: string[];
   selected_action_ref?: string;
   observation_refs: string[];
   episode_ref?: string;
@@ -564,6 +569,7 @@ export interface CycleTraceRecord {
   candidate_actions: CandidateAction[];
   predictions: Prediction[];
   policy_decisions: PolicyDecision[];
+  prediction_errors: PredictionError[];
   selected_action?: CandidateAction;
   action_execution?: ActionExecution;
   observation?: Observation;

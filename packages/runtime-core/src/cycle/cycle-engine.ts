@@ -38,6 +38,7 @@ export interface CycleExecutionInput {
   predictors?: Predictor[];
   skillProviders?: SkillProvider[];
   tokenEstimator?: TokenEstimator;
+  predictionErrorRate?: number;
 }
 
 export interface CycleExecutionResult {
@@ -167,11 +168,21 @@ export class CycleEngine {
     input.session.budget_state.token_budget_used =
       (input.session.budget_state.token_budget_used ?? 0) + inputTokens;
 
+    const costPerToken = input.profile.cost_per_token;
+    if (costPerToken !== undefined && costPerToken > 0) {
+      const cycleCost = inputTokens * costPerToken;
+      input.session.budget_state.cost_budget_used = (input.session.budget_state.cost_budget_used ?? 0) + cycleCost;
+      if (input.profile.cost_budget !== undefined) {
+        input.session.budget_state.cost_budget_total = input.profile.cost_budget;
+      }
+    }
+
     const decision = await input.metaController.evaluate(
       { ...enrichedContext, workspace },
       actions,
       predictions,
-      policies
+      policies,
+      input.predictionErrorRate
     );
     debugLog("cycle", "Meta decision completed", {
       sessionId: input.session.session_id,
