@@ -1,5 +1,5 @@
 {
-  "name": "@neurocore-ai/protocol",
+  "name": "@neurocore/protocol",
   "version": "0.1.0",
   "type": "module",
   "description": "Core protocol types, interfaces, commands and events for NeuroCore agent runtime",

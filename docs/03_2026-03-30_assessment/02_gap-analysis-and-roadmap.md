@@ -45,7 +45,8 @@
 - **Trace / Replay / Eval**：本地 eval runner、remote eval API、session replay、replay 浏览 API、eval 持久化（InMemory + SQLite）、eval 列表/过滤/删除/比较 API、baseline eval cases 共享模块已实现
 - **预测闭环**：PredictionStore、PredictionErrorComputer、RuleBasedPredictor 已实现；prediction-observation-error-correction 闭环已打通；trace 包含 prediction_error_refs 和 prediction_errors；Episode 基于误差填充 valence/lessons
 - **设备接入与世界模型（M8）**：`device-core` 包（Sensor/Actuator SPI、MockCameraSensor、MockSpeakerActuator、InMemoryDeviceRegistry、DefaultPerceptionPipeline）+ `world-model` 包（InMemoryWorldStateGraph、RuleBasedSimulator、SimulationBasedPredictor）已实现；CycleEngine 新增 Perceive 阶段（感知-融合-衰减-裁剪）；AgentRuntime 可选注入设备组件；7 种新事件类型已注册
-- **测试与 CI**：本地单元/集成测试（169 个）、GitHub Actions CI（含 test:unit 分层 + baseline-llm gated lane）、changesets 配置 + 自动发布 workflow 已存在；prediction-error 测试覆盖 store/computer/E2E/MetaController/RuleBasedPredictor；M8 新增 38 个测试覆盖 sensor/actuator/registry/pipeline/graph/simulation/integration
+- **多 Agent 分布式调度（M9）**：`multi-agent` 包已实现（AgentRegistry/HeartbeatMonitor/LocalInterAgentBus/TaskDelegator/DelegationStrategies/AuctionManager/HierarchicalStrategy/PeerToPeerStrategy/MarketBasedStrategy/DistributedGoalManager/SharedStateStore/AgentLifecycleManager）；CycleEngine delegate 分支已集成；AgentRuntime 7 个可选注入字段；18 种新事件类型已注册
+- **测试与 CI**：本地单元/集成测试（255 个）、GitHub Actions CI（含 test:unit 分层 + baseline-llm gated lane）、changesets 配置 + 自动发布 workflow 已存在；prediction-error 测试覆盖 store/computer/E2E/MetaController/RuleBasedPredictor；M8 新增 38 个测试覆盖 sensor/actuator/registry/pipeline/graph/simulation/integration；M9 新增 86 个测试覆盖 registry/heartbeat/bus/delegation/coordination/goal/shared-state/lifecycle
 
 ### 1.4 主要差距
 
@@ -184,6 +185,35 @@
 
 **推迟项（P2）**：Active Inference（FR-42）、Device Coordination（FR-43）——仅定义接口，未实现
 
+### Milestone 9：多 Agent 分布式调度（M9）
+
+**目标**：将 NeuroCore 从单 Agent 升级为多 Agent 分布式调度平台，新增 `@neurocore/multi-agent` 包。
+
+**状态：已完成**
+
+**已完成交付物**：
+
+- `packages/multi-agent/`：AgentRegistry + HeartbeatMonitor（注册/发现/心跳/超时/状态回调）、LocalInterAgentBus（request-response/pub-sub/stream/timeout）、TaskDelegator（unicast/broadcast/auction 三种委派模式）、DelegationStrategies（CapabilityBased/LoadBalanced/CostAware）、AuctionManager、CoordinationStrategies（Hierarchical/PeerToPeer/MarketBased）、DistributedGoalManager（分解/状态传播/重分配/聚合）、SharedStateStore（version vector + last-writer-wins + namespace 隔离）、AgentLifecycleManager（spawn/terminate/drain/pause/resume）
+- `packages/protocol/src/events.ts`：18 种新事件类型（agent.registered/deregistered/status_changed/heartbeat_lost、delegation.requested/accepted/rejected/completed/failed/timeout、auction.started/bid_received/completed、coordination.started/assignment_created/completed、world_state.conflict_detected/conflict_resolved）
+- `packages/protocol/src/types.ts`：AgentProfile 新增 multi_agent_config 可选字段
+- CycleEngine 集成：CycleExecutionInput 新增 taskDelegator/agentRegistry 可选字段
+- AgentRuntime 集成：AgentRuntimeOptions 新增 7 个多 Agent 可选注入字段；executeSelectedAction 新增 delegate 分支（构建 DelegationRequest → taskDelegator.delegate → response → Observation）
+- 86 个新测试全部通过
+
+**验收标准**：
+
+- ~~AgentRegistry 注册/发现/心跳/超时/能力查询~~ **已完成**
+- ~~InterAgentBus send/publish/subscribe/stream/timeout~~ **已完成**
+- ~~TaskDelegator unicast/broadcast/auction 三种模式~~ **已完成**
+- ~~CoordinationStrategy 层级/P2P/市场三种策略~~ **已完成**
+- ~~DistributedGoalManager 分解/传播/重分配~~ **已完成**
+- ~~SharedStateStore 并发写入/冲突解决/namespace 隔离~~ **已完成**
+- ~~AgentLifecycleManager spawn/terminate/drain/pause/resume~~ **已完成**
+- ~~CycleEngine delegate 分支集成~~ **已完成**
+- ~~不注入时行为不变（向后兼容）~~ **已完成**
+
+**推迟项（P2）**：分布式 Bus 实现（Redis/NATS）、去中心化注册（gossip/DHT）、runtime-server 多 Agent 管理 API（FR-35）、CRDT 冲突解决、DistributedTracer 跨 Agent span 管理
+
 ## 3. 优先级排序
 
 ```text
@@ -218,7 +248,7 @@ P3（运营能力增强）：
 
 ## 4. 不做的事（当前阶段边界）
 
-- 多 Agent 分布式调度
+- 多 Agent 分布式调度（M9 基础已实现，分布式 Bus/去中心化注册/runtime-server API 推迟）
 - ~~高保真世界状态图（图数据库）~~ 基础 InMemoryWorldStateGraph 已实现（M8），图数据库后端推迟
 - 技能自动提炼的强化学习
 - 完整运营控制台 UI
@@ -239,8 +269,8 @@ P3（运营能力增强）：
 
 这次校准后的判断是：
 
-- NeuroCore 已完成 **MVP + 全部产品化补齐 + 运营能力增强 + M8 世界模型与设备接入**，P0/P1/P2/P3/M7/M8 全部交付
-- 六模块完成度显著提升：Cerebellar/World Model 从 75% 升至 90%（device-core + world-model 两个新包），整体架构完成度 ~85%~90%
+- NeuroCore 已完成 **MVP + 全部产品化补齐 + 运营能力增强 + M8 世界模型与设备接入 + M9 多 Agent 分布式调度**，P0/P1/P2/P3/M7/M8/M9 全部交付
+- 六模块完成度显著提升：Cerebellar/World Model 从 75% 升至 90%（device-core + world-model 两个新包），整体架构完成度 ~90%~95%
 - 自动发布 workflow、CI 测试分层、gated LLM baseline lane 已就绪
-- 169 个测试全部通过（M8 新增 38 个），覆盖 sensor/actuator/registry/pipeline/graph/simulation/integration
-- 当前阶段边界外的工作（多 Agent 调度、图数据库后端、RL 自动提炼、控制台 UI、Active Inference、Device Coordination）保持不做
+- 255 个测试全部通过（M9 新增 86 个），覆盖 registry/heartbeat/bus/delegation/coordination/goal/shared-state/lifecycle + runtime-core delegate 集成
+- 当前阶段边界外的工作（分布式 Bus、去中心化注册、图数据库后端、RL 自动提炼、控制台 UI、Active Inference、Device Coordination）保持不做

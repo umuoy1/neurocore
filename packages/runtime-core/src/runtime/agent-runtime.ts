@@ -36,6 +36,15 @@ import type {
 } from "@neurocore/protocol";
 import type { DeviceRegistry, PerceptionPipeline } from "@neurocore/device-core";
 import { type ForwardSimulator, type WorldStateGraph, SimulationBasedPredictor } from "@neurocore/world-model";
+import type {
+  TaskDelegator,
+  AgentRegistry as MultiAgentRegistry,
+  InterAgentBus,
+  DistributedGoalManager,
+  AgentLifecycleManager,
+  SharedStateStore,
+  CoordinationStrategy
+} from "@neurocore/multi-agent";
 import { EpisodicMemoryProvider, SemanticMemoryProvider, WorkingMemoryProvider } from "@neurocore/memory-core";
 import { InMemoryCheckpointStore } from "../checkpoint/in-memory-checkpoint-store.js";
 import { CycleEngine } from "../cycle/cycle-engine.js";
@@ -70,6 +79,13 @@ export interface AgentRuntimeOptions {
   worldStateGraph?: WorldStateGraph;
   perceptionPipeline?: PerceptionPipeline;
   forwardSimulator?: ForwardSimulator;
+  agentRegistry?: MultiAgentRegistry;
+  interAgentBus?: InterAgentBus;
+  taskDelegator?: TaskDelegator;
+  distributedGoalManager?: DistributedGoalManager;
+  agentLifecycleManager?: AgentLifecycleManager;
+  sharedStateStore?: SharedStateStore;
+  coordinationStrategy?: CoordinationStrategy;
 }
 
 export interface AgentRunResult {
@@ -141,6 +157,8 @@ export class AgentRuntime {
   private readonly deviceRegistry?: DeviceRegistry;
   private readonly worldStateGraph?: WorldStateGraph;
   private readonly perceptionPipeline?: PerceptionPipeline;
+  private readonly taskDelegator?: TaskDelegator;
+  private readonly agentRegistry?: MultiAgentRegistry;
 
   public constructor(options: AgentRuntimeOptions) {
     this.reasoner = options.reasoner;
@@ -165,6 +183,8 @@ export class AgentRuntime {
     this.deviceRegistry = options.deviceRegistry;
     this.worldStateGraph = options.worldStateGraph;
     this.perceptionPipeline = options.perceptionPipeline;
+    this.taskDelegator = options.taskDelegator;
+    this.agentRegistry = options.agentRegistry;
     if (options.forwardSimulator && options.worldStateGraph) {
       this.predictors = [
         ...this.predictors,
@@ -228,7 +248,9 @@ export class AgentRuntime {
       predictionErrorRate,
       deviceRegistry: this.deviceRegistry,
       perceptionPipeline: this.perceptionPipeline,
-      worldStateGraph: this.worldStateGraph
+      worldStateGraph: this.worldStateGraph,
+      taskDelegator: this.taskDelegator,
+      agentRegistry: this.agentRegistry
     });
 
     for (const prediction of result.predictions) {
@@ -1129,6 +1151,10 @@ export class AgentRuntime {
       };
     }
 
+    if (selectedAction.action_type === "delegate") {
+      return this.executeDelegateAction(profile, session, input, startedAt, cycle, selectedAction);
+    }
+
     const targetState = deriveSessionState(selectedAction.action_type);
     const observation = buildSyntheticObservation(session, cycle.cycleId, selectedAction);
     const execution = buildRuntimeActionExecution(session, cycle.cycleId, selectedAction, "succeeded");
@@ -1175,6 +1201,135 @@ export class AgentRuntime {
       actionExecution: execution,
       observation,
       outputText: selectedAction.description ?? selectedAction.title,
+      trace,
+      cycle: toAgentCycleState(cycle),
+      predictionErrors
+    };
+  }
+
+  private async executeDelegateAction(
+    profile: AgentProfile,
+    session: AgentSession,
+    input: UserInput,
+    startedAt: string,
+    cycle: ExecutionCycleState,
+    selectedAction: CandidateAction
+  ): Promise<AgentRunResult> {
+    const sessionId = session.session_id;
+    const execution = buildRuntimeActionExecution(session, cycle.cycleId, selectedAction, "running");
+    execution.started_at = nowIso();
+
+    let observation: Observation;
+    if (this.taskDelegator) {
+      const args = selectedAction.tool_args ?? {};
+      const request: import("@neurocore/multi-agent").DelegationRequest = {
+        delegation_id: generateId("del"),
+        source_agent_id: profile.agent_id,
+        source_session_id: sessionId,
+        source_cycle_id: cycle.cycleId,
+        source_goal_id: "",
+        mode: (args.delegation_mode as import("@neurocore/multi-agent").DelegationMode) ?? "unicast",
+        target_agent_id: args.target_agent_id as string | undefined,
+        target_capabilities: args.target_capabilities as string[] | undefined,
+        target_domains: args.target_domains as string[] | undefined,
+        goal: (args.goal as import("@neurocore/multi-agent").DelegationRequest["goal"]) ?? {
+          title: selectedAction.title,
+          goal_type: "task",
+          priority: 1
+        },
+        timeout_ms: (args.timeout_ms as number) ?? profile.multi_agent_config?.delegation_timeout_ms ?? 60_000,
+        max_depth: profile.multi_agent_config?.max_delegation_depth ?? 3,
+        current_depth: (args.current_depth as number) ?? 0,
+        context: args.context as Record<string, unknown> | undefined,
+        created_at: nowIso()
+      };
+
+      try {
+        const response = await this.taskDelegator.delegate(request);
+        execution.status = response.status === "completed" || response.status === "accepted" ? "succeeded" : "failed";
+        execution.ended_at = nowIso();
+
+        observation = {
+          observation_id: generateId("obs"),
+          session_id: sessionId,
+          cycle_id: cycle.cycleId,
+          source_action_id: selectedAction.action_id,
+          source_type: "runtime",
+          status: response.result?.status === "success" ? "success" : response.status === "completed" || response.status === "accepted" ? "partial" : "failure",
+          summary: response.result?.summary ?? `Delegation ${response.status}: ${response.error ?? ""}`,
+          structured_payload: {
+            delegation_id: response.delegation_id,
+            delegation_status: response.status,
+            assigned_agent_id: response.assigned_agent_id,
+            result: response.result,
+            bids: response.bids,
+            selected_bid: response.selected_bid
+          },
+          created_at: nowIso()
+        };
+      } catch (err) {
+        execution.status = "failed";
+        execution.ended_at = nowIso();
+        observation = {
+          observation_id: generateId("obs"),
+          session_id: sessionId,
+          cycle_id: cycle.cycleId,
+          source_action_id: selectedAction.action_id,
+          source_type: "runtime",
+          status: "failure",
+          summary: `Delegation failed: ${err instanceof Error ? err.message : String(err)}`,
+          created_at: nowIso()
+        };
+      }
+    } else {
+      execution.status = "failed";
+      execution.ended_at = nowIso();
+      observation = {
+        observation_id: generateId("obs"),
+        session_id: sessionId,
+        cycle_id: cycle.cycleId,
+        source_action_id: selectedAction.action_id,
+        source_type: "runtime",
+        status: "failure",
+        summary: "Delegate action unavailable: no TaskDelegator configured in runtime",
+        created_at: nowIso()
+      };
+    }
+
+    this.emitEvent(session, "action.executed", execution, cycle.cycleId);
+    const predictionErrors = await this.recordObservation(
+      profile, session, input, cycle.cycleId, selectedAction, observation,
+      observation.status === "failure" ? "failure" : "partial",
+      cycle.predictions, execution
+    );
+
+    const sessionState = this.updateSessionState(sessionId, "waiting").state;
+    const trace = this.recordTrace({
+      sessionId,
+      cycleId: cycle.cycleId,
+      input,
+      proposals: cycle.proposals,
+      candidateActions: cycle.actions,
+      predictions: cycle.predictions,
+      policyDecisions: cycle.workspace.policy_decisions ?? [],
+      predictionErrors,
+      selectedAction,
+      selectedActionId: selectedAction.action_id,
+      actionExecution: execution,
+      observation,
+      workspace: cycle.workspace,
+      startedAt
+    });
+    this.maybeCreateCheckpoint(profile, sessionId);
+    this.persistSessionState(sessionId);
+    return {
+      sessionId,
+      cycleId: cycle.cycleId,
+      sessionState,
+      selectedAction,
+      actionExecution: execution,
+      observation,
+      outputText: observation.summary,
       trace,
       cycle: toAgentCycleState(cycle),
       predictionErrors

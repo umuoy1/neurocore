@@ -1,5 +1,5 @@
 {
-  "name": "@neurocore-ai/runtime-core",
+  "name": "@neurocore/runtime-core",
   "version": "0.1.0",
   "type": "module",
   "description": "Stateful agent runtime kernel with cycle engine, checkpoints, and session management",
@@ -24,10 +24,11 @@
     "access": "public"
   },
   "dependencies": {
-    "@neurocore-ai/protocol": "^0.1.0",
-    "@neurocore-ai/memory-core": "^0.1.0",
-    "@neurocore-ai/policy-core": "^0.1.0",
-    "@neurocore-ai/device-core": "^0.1.0",
-    "@neurocore-ai/world-model": "^0.1.0"
+    "@neurocore/protocol": "^0.1.0",
+    "@neurocore/memory-core": "^0.1.0",
+    "@neurocore/policy-core": "^0.1.0",
+    "@neurocore/device-core": "^0.1.0",
+    "@neurocore/world-model": "^0.1.0",
+    "@neurocore/multi-agent": "^0.1.0"
   }
 }

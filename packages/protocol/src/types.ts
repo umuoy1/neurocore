@@ -184,6 +184,20 @@ export interface AgentProfile {
     default_entity_ttl_ms?: number;
     forward_simulation_enabled?: boolean;
   };
+  multi_agent_config?: {
+    enabled: boolean;
+    heartbeat_interval_ms?: number;
+    heartbeat_timeout_multiplier?: number;
+    heartbeat_max_misses?: number;
+    delegation_timeout_ms?: number;
+    auction_timeout_ms?: number;
+    max_delegation_depth?: number;
+    coordination_strategy?: "hierarchical" | "peer_to_peer" | "market_based";
+    capabilities?: Array<{ name: string; domain?: string; proficiency: number; max_concurrent_tasks?: number }>;
+    domains?: string[];
+    max_capacity?: number;
+    auto_accept_delegation?: boolean;
+  };
   metadata?: Record<string, unknown>;
 }
 

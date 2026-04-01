@@ -25,7 +25,8 @@
       "@neurocore/policy-core": ["packages/policy-core/src/index.ts"],
       "@neurocore/memory-core": ["packages/memory-core/src/index.ts"],
       "@neurocore/device-core": ["packages/device-core/src/index.ts"],
-      "@neurocore/world-model": ["packages/world-model/src/index.ts"]
+      "@neurocore/world-model": ["packages/world-model/src/index.ts"],
+      "@neurocore/multi-agent": ["packages/multi-agent/src/index.ts"]
     }
   }
 }

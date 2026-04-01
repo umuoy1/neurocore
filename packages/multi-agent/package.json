@@ -1,15 +1,15 @@
 {
-  "name": "@neurocore/eval-core",
+  "name": "@neurocore/multi-agent",
   "version": "0.1.0",
   "type": "module",
-  "description": "Evaluation framework for replay, comparison and testing of NeuroCore agents",
-  "keywords": ["agent", "runtime", "ai", "llm", "eval", "testing"],
+  "description": "Multi-agent distributed scheduling: registry, bus, delegation, coordination, shared state",
+  "keywords": ["agent", "multi-agent", "distributed", "scheduling", "coordination"],
   "license": "MIT",
   "author": "neurocore",
   "repository": {
     "type": "git",
     "url": "https://github.com/umuoy1/neurocore.git",
-    "directory": "packages/eval-core"
+    "directory": "packages/multi-agent"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -25,6 +25,6 @@
   },
   "dependencies": {
     "@neurocore/protocol": "^0.1.0",
-    "@neurocore/sdk-core": "^0.1.0"
+    "@neurocore/world-model": "^0.1.0"
   }
 }

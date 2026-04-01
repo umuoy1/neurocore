@@ -3,7 +3,7 @@
   "changelog": "@changesets/cli/changelog",
   "commit": false,
   "fixed": [],
-  "linked": [["@neurocore-ai/protocol", "@neurocore-ai/memory-core", "@neurocore-ai/policy-core", "@neurocore-ai/runtime-core", "@neurocore-ai/sdk-core", "@neurocore-ai/sdk-node", "@neurocore-ai/runtime-server", "@neurocore-ai/eval-core"]],
+  "linked": [["@neurocore/protocol", "@neurocore/memory-core", "@neurocore/policy-core", "@neurocore/runtime-core", "@neurocore/sdk-core", "@neurocore/sdk-node", "@neurocore/runtime-server", "@neurocore/eval-core", "@neurocore/device-core", "@neurocore/world-model", "@neurocore/multi-agent"]],
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",

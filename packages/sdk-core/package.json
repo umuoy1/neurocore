@@ -1,5 +1,5 @@
 {
-  "name": "@neurocore-ai/sdk-core",
+  "name": "@neurocore/sdk-core",
   "version": "0.1.0",
   "type": "module",
   "description": "Developer-facing SDK for building agents with NeuroCore runtime",
@@ -24,8 +24,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@neurocore-ai/policy-core": "^0.1.0",
-    "@neurocore-ai/protocol": "^0.1.0",
-    "@neurocore-ai/runtime-core": "^0.1.0"
+    "@neurocore/policy-core": "^0.1.0",
+    "@neurocore/protocol": "^0.1.0",
+    "@neurocore/runtime-core": "^0.1.0"
   }
 }

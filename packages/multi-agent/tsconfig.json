@@ -6,12 +6,7 @@
   },
   "references": [
     { "path": "../protocol" },
-    { "path": "../memory-core" },
-    { "path": "../policy-core" },
-    { "path": "../device-core" },
-    { "path": "../world-model" },
-    { "path": "../multi-agent" }
+    { "path": "../world-model" }
   ],
   "include": ["src/**/*.ts"]
 }
-

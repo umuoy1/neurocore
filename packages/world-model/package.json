@@ -1,5 +1,5 @@
 {
-  "name": "@neurocore-ai/world-model",
+  "name": "@neurocore/world-model",
   "version": "0.1.0",
   "type": "module",
   "description": "World state graph, forward simulation, and simulation-based prediction",
@@ -24,7 +24,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@neurocore-ai/protocol": "^0.1.0",
-    "@neurocore-ai/device-core": "^0.1.0"
+    "@neurocore/protocol": "^0.1.0",
+    "@neurocore/device-core": "^0.1.0"
   }
 }

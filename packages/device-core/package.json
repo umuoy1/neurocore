@@ -1,5 +1,5 @@
 {
-  "name": "@neurocore-ai/device-core",
+  "name": "@neurocore/device-core",
   "version": "0.1.0",
   "type": "module",
   "description": "Device abstraction layer: Sensor/Actuator SPI, DeviceRegistry, PerceptionPipeline",
@@ -24,6 +24,6 @@
     "access": "public"
   },
   "dependencies": {
-    "@neurocore-ai/protocol": "^0.1.0"
+    "@neurocore/protocol": "^0.1.0"
   }
 }

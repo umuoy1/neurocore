@@ -1,5 +1,5 @@
 {
-  "name": "@neurocore-ai/sdk-node",
+  "name": "@neurocore/sdk-node",
   "version": "0.1.0",
   "type": "module",
   "description": "Node.js adapter with OpenAI-compatible reasoner for NeuroCore SDK",
@@ -24,7 +24,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@neurocore-ai/protocol": "^0.1.0",
-    "@neurocore-ai/sdk-core": "^0.1.0"
+    "@neurocore/protocol": "^0.1.0",
+    "@neurocore/sdk-core": "^0.1.0"
   }
 }

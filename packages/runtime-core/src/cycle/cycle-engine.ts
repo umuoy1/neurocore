@@ -22,6 +22,7 @@ import type {
 } from "@neurocore/protocol";
 import type { DeviceRegistry, PerceptionPipeline } from "@neurocore/device-core";
 import type { WorldStateGraph } from "@neurocore/world-model";
+import type { TaskDelegator, AgentRegistry } from "@neurocore/multi-agent";
 import { GradedContextCompressor } from "../context/graded-compressor.js";
 import { DefaultTokenEstimator } from "../context/token-estimator.js";
 import { debugLog } from "../utils/debug.js";
@@ -45,6 +46,8 @@ export interface CycleExecutionInput {
   deviceRegistry?: DeviceRegistry;
   perceptionPipeline?: PerceptionPipeline;
   worldStateGraph?: WorldStateGraph;
+  taskDelegator?: TaskDelegator;
+  agentRegistry?: AgentRegistry;
 }
 
 export interface CycleExecutionResult {

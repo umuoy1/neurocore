@@ -39,7 +39,25 @@ export type NeuroCoreEventType =
   | "world_state.updated"
   | "simulation.completed"
   | "device.registered"
-  | "device.error";
+  | "device.error"
+  | "agent.registered"
+  | "agent.deregistered"
+  | "agent.status_changed"
+  | "agent.heartbeat_lost"
+  | "delegation.requested"
+  | "delegation.accepted"
+  | "delegation.rejected"
+  | "delegation.completed"
+  | "delegation.failed"
+  | "delegation.timeout"
+  | "auction.started"
+  | "auction.bid_received"
+  | "auction.completed"
+  | "coordination.started"
+  | "coordination.assignment_created"
+  | "coordination.completed"
+  | "world_state.conflict_detected"
+  | "world_state.conflict_resolved";
 
 export interface EventEnvelope<T> {
   event_id: string;

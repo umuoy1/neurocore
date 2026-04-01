@@ -1,5 +1,5 @@
 {
-  "name": "@neurocore-ai/memory-core",
+  "name": "@neurocore/memory-core",
   "version": "0.1.0",
   "type": "module",
   "description": "Memory providers (working, episodic, semantic) for NeuroCore agent runtime",
@@ -24,6 +24,6 @@
     "access": "public"
   },
   "dependencies": {
-    "@neurocore-ai/protocol": "^0.1.0"
+    "@neurocore/protocol": "^0.1.0"
   }
 }

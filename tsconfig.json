@@ -10,6 +10,7 @@
     { "path": "./packages/sdk-node" },
     { "path": "./packages/eval-core" },
     { "path": "./packages/device-core" },
-    { "path": "./packages/world-model" }
+    { "path": "./packages/world-model" },
+    { "path": "./packages/multi-agent" }
   ]
 }

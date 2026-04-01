@@ -1,12 +1,12 @@
 ---
-"@neurocore-ai/protocol": patch
-"@neurocore-ai/memory-core": patch
-"@neurocore-ai/policy-core": patch
-"@neurocore-ai/runtime-core": patch
-"@neurocore-ai/sdk-core": patch
-"@neurocore-ai/sdk-node": patch
-"@neurocore-ai/runtime-server": patch
-"@neurocore-ai/eval-core": patch
+"@neurocore/protocol": patch
+"@neurocore/memory-core": patch
+"@neurocore/policy-core": patch
+"@neurocore/runtime-core": patch
+"@neurocore/sdk-core": patch
+"@neurocore/sdk-node": patch
+"@neurocore/runtime-server": patch
+"@neurocore/eval-core": patch
 ---
 
 Setup npm publishing with changesets
