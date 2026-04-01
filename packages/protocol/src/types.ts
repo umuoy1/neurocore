@@ -95,6 +95,7 @@ export interface RuntimeConfig {
   allow_async_tools?: boolean;
   checkpoint_interval?: "cycle" | "action" | "manual";
   tool_execution?: ToolExecutionPolicy;
+  auto_approve?: boolean;
 }
 
 export interface ToolExecutionPolicy {

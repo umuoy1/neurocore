@@ -16,7 +16,7 @@ interface ScoredCandidate {
 }
 
 export class DefaultMetaController implements IMetaController {
-  public constructor(private readonly options?: { approvalThreshold?: number }) {}
+  public constructor(private readonly options?: { approvalThreshold?: number; autoApprove?: boolean }) {}
 
   public async evaluate(
     ctx: ModuleContext,
@@ -65,12 +65,14 @@ export class DefaultMetaController implements IMetaController {
 
     const errorRateThreshold = 0.5;
     const approvalThreshold = this.options?.approvalThreshold ?? 0.7;
-    const requiresApproval =
+    const autoApprove = this.options?.autoApprove ?? ctx.profile?.runtime_config?.auto_approve ?? false;
+    const requiresApproval = !autoApprove && (
       top.action.side_effect_level === "high" ||
       warnedActionIds.has(top.action.action_id) ||
       top.risk > approvalThreshold ||
       conflict.hasConflict ||
-      (predictionErrorRate != null && predictionErrorRate >= errorRateThreshold);
+      (predictionErrorRate != null && predictionErrorRate >= errorRateThreshold)
+    );
 
     const riskSummary = this.buildRiskSummary(top, conflict, warnedActionIds, policies, predictionErrorRate);
 

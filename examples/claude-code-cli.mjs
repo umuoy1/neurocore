@@ -36,6 +36,7 @@ const IGNORED_NAMES = new Set([
 ]);
 const AT_REFERENCE_PATTERN = /(^|\s)@(?:"([^"]+)"|'([^']+)'|([^\s]+))/g;
 const USER_APPROVER_ID = "cli-user";
+const AUTO_APPROVE = process.argv.includes("--auto-approve");
 
 const workspaceRoot = await realpath(process.cwd());
 let workspaceBootstrap = await renderWorkspaceTree(workspaceRoot, {
@@ -62,7 +63,8 @@ const agent = defineAgent({
   .useReasoner(createInteractiveCodingReasoner(config))
   .configureRuntime({
     max_cycles: 12,
-    default_sync_timeout_ms: 60_000
+    default_sync_timeout_ms: 60_000,
+    auto_approve: AUTO_APPROVE
   })
   .registerTool(createListFilesTool(workspaceRoot))
   .registerTool(createReadFileTool(workspaceRoot))
@@ -78,6 +80,9 @@ let session = null;
 console.log("[claude-code] NeuroCore coding CLI");
 console.log("[claude-code] Workspace:", workspaceRoot);
 console.log("[claude-code] Model:", config.model);
+if (AUTO_APPROVE) {
+  console.log("[claude-code] Auto-approve: ON (all tool actions will execute without confirmation)");
+}
 console.log("[claude-code] Commands: /help /tools /files /reset /exit");
 
 try {
