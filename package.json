@@ -40,11 +40,14 @@
     "demo:webhooks": "npm run build && node examples/demo-runtime-webhooks.mjs",
     "demo:runtime-parity": "npm run build && node examples/demo-runtime-parity.mjs",
     "demo:runtime-recovery": "npm run build && node examples/demo-runtime-recovery.mjs",
-    "demo:world-model": "npm run build && node examples/demo-world-model.mjs"
+    "demo:world-model": "npm run build && node examples/demo-world-model.mjs",
+    "console:backend": "npm run build && node examples/console-backend.mjs",
+    "console:dev": "npm run build && concurrently \"node examples/console-backend.mjs\" \"npm --workspace @neurocore/console run dev\""
   },
   "devDependencies": {
     "@changesets/cli": "^2.30.0",
     "@types/node": "^24.5.2",
+    "concurrently": "^9.2.1",
     "typescript": "^5.8.2"
   }
 }

@@ -14,6 +14,10 @@ import { EvalRunner, createSessionExecutor, type EvalCase, type EvalRunReport, c
 import type { Authenticator, AuthContext } from "./auth.js";
 import { InMemoryEvalStore, type EvalStore } from "./eval-store.js";
 import { Logger } from "./logger.js";
+import { InMemoryMetricsStore, type MetricsStore } from "./metrics-store.js";
+import { InMemoryAuditStore, type AuditStore } from "./audit-store.js";
+import { InMemoryConfigStore, type ConfigStore } from "./config-store.js";
+import { WsServer } from "./ws-server.js";
 
 export interface RuntimeServerOptions {
   host?: string;
@@ -23,6 +27,9 @@ export interface RuntimeServerOptions {
   fetch?: typeof fetch;
   authenticator?: Authenticator;
   evalStore?: EvalStore;
+  metricsStore?: MetricsStore;
+  auditStore?: AuditStore;
+  configStore?: ConfigStore;
   logLevel?: "debug" | "info" | "warn" | "error";
 }
 
@@ -76,6 +83,9 @@ export class NeuroRuntimeServer {
   private readonly sessions = new Map<string, ManagedSession>();
   private readonly activeOperations = new Map<string, string>();
   private readonly evalStore: EvalStore;
+  private readonly metricsStore: MetricsStore;
+  private readonly auditStore: AuditStore;
+  private readonly configStore: ConfigStore;
   private readonly server: HttpServer;
   private readonly webhookTargets: RuntimeWebhookTarget[];
   private readonly fetchImpl: typeof fetch;
@@ -84,6 +94,7 @@ export class NeuroRuntimeServer {
   private readonly startedAt = Date.now();
   private readonly sseConnections = new Set<ServerResponse>();
   private readonly webhookDeliveryLog: WebhookDeliveryRecord[] = [];
+  private wsServer: WsServer | null = null;
   private static readonly MAX_DELIVERY_LOG = 1000;
   private totalSessionsCreated = 0;
   private totalCyclesExecuted = 0;
@@ -95,6 +106,9 @@ export class NeuroRuntimeServer {
     this.fetchImpl = options.fetch ?? fetch;
     this.authenticator = options.authenticator;
     this.evalStore = options.evalStore ?? new InMemoryEvalStore();
+    this.metricsStore = options.metricsStore ?? new InMemoryMetricsStore();
+    this.auditStore = options.auditStore ?? new InMemoryAuditStore();
+    this.configStore = options.configStore ?? new InMemoryConfigStore();
     this.logger = new Logger({ minLevel: options.logLevel ?? "info" });
     for (const agent of options.agents ?? []) {
       this.registerAgent(agent);
@@ -167,6 +181,7 @@ export class NeuroRuntimeServer {
   }
 
   public async close(): Promise<void> {
+    this.wsServer?.stop();
     for (const record of this.sessions.values()) {
       record.webhook_unsubscribe?.();
       record.webhook_unsubscribe = undefined;
@@ -224,13 +239,188 @@ export class NeuroRuntimeServer {
     }
 
     if (method === "GET" && path.length === 2 && path[0] === "v1" && path[1] === "metrics") {
+      const pkg = { version: "0.0.0" };
+      try {
+        const fs = await import("node:fs");
+        const p = await import("node:path");
+        const raw = fs.readFileSync(p.resolve(import.meta.dirname ?? ".", "..", "package.json"), "utf8");
+        Object.assign(pkg, JSON.parse(raw));
+      } catch {}
+      writeJson(response, 200, this.metricsStore.getSnapshot(
+        this.sessions.size,
+        Math.floor((Date.now() - this.startedAt) / 1000),
+        pkg.version,
+        this.sseConnections.size
+      ) as unknown as Record<string, unknown>);
+      return;
+    }
+
+    if (method === "GET" && path.length === 3 && path[0] === "v1" && path[1] === "metrics" && path[2] === "timeseries") {
+      const metric = url.searchParams.get("metric") ?? "cycles_executed";
+      const windowMs = parseInt(url.searchParams.get("window_ms") ?? "3600000", 10);
+      const intervalMs = parseInt(url.searchParams.get("interval_ms") ?? "60000", 10);
       writeJson(response, 200, {
-        total_sessions_created: this.totalSessionsCreated,
-        total_cycles_executed: this.totalCyclesExecuted,
-        total_eval_runs: this.evalStore.list().length,
-        active_sessions: this.sessions.size,
-        active_sse_connections: this.sseConnections.size
+        metric,
+        points: this.metricsStore.queryTimeseries(metric, windowMs, intervalMs)
       });
+      return;
+    }
+
+    if (method === "GET" && path.length === 3 && path[0] === "v1" && path[1] === "metrics" && path[2] === "latency") {
+      const windowMs = parseInt(url.searchParams.get("window_ms") ?? "3600000", 10);
+      writeJson(response, 200, this.metricsStore.getLatencyPercentiles(windowMs) as unknown as Record<string, unknown>);
+      return;
+    }
+
+    if (method === "GET" && path.length === 2 && path[0] === "v1" && path[1] === "agents") {
+      const profiles = this.configStore.listProfiles();
+      const runtime = Array.from(this.agents.entries()).map(([id, builder]) => {
+        const p = builder.getProfile();
+        const stored = this.configStore.getProfile(id);
+        return {
+          agent_id: id,
+          name: (stored?.name as string) ?? p.name ?? id,
+          version: (stored?.version as string) ?? p.version ?? "0.0.0",
+          has_runtime: true,
+        };
+      });
+      for (const sp of profiles) {
+        if (!runtime.find((r) => r.agent_id === sp.agent_id)) {
+          runtime.push({ ...sp, has_runtime: false });
+        }
+      }
+      writeJson(response, 200, { agents: runtime });
+      return;
+    }
+
+    if (path.length >= 3 && path[0] === "v1" && path[1] === "agents" && path[2] !== "sessions") {
+      const agentId = path[2] ?? "";
+
+      if (method === "GET" && path.length === 4 && path[3] === "profile") {
+        const profile = this.configStore.getProfile(agentId);
+        if (!profile) {
+          const builder = this.agents.get(agentId);
+          if (builder) {
+            writeJson(response, 200, { profile: builder.getProfile() as unknown as Record<string, unknown> });
+            return;
+          }
+          throw new HttpError(404, "agent_not_found", `Unknown agent: ${agentId}`);
+        }
+        writeJson(response, 200, { profile });
+        return;
+      }
+
+      if (method === "PUT" && path.length === 4 && path[3] === "profile") {
+        const body = await readJson(request);
+        this.configStore.setProfile(agentId, body);
+        this.auditStore.record({
+          tenant_id: authContext?.tenant_id ?? "system",
+          user_id: authContext?.tenant_id ?? "system",
+          action: "config.update",
+          target_type: "agent_profile",
+          target_id: agentId,
+          details: { fields: Object.keys(body) },
+        });
+        writeJson(response, 200, { agent_id: agentId, updated: true });
+        return;
+      }
+    }
+
+    if (path.length >= 2 && path[0] === "v1" && path[1] === "policies") {
+      if (method === "GET" && path.length === 2) {
+        const tenantFilter = url.searchParams.get("tenant_id") ?? authContext?.tenant_id;
+        writeJson(response, 200, { policies: this.configStore.listPolicies(tenantFilter) });
+        return;
+      }
+      if (method === "POST" && path.length === 2) {
+        const body = await readJson(request);
+        const policy = this.configStore.createPolicy({
+          name: getRequiredString(body.name, "name"),
+          description: getOptionalString(body.description) ?? "",
+          tenant_id: authContext?.tenant_id ?? "default",
+          affected_tools: Array.isArray(body.affected_tools) ? body.affected_tools as string[] : [],
+          risk_levels: Array.isArray(body.risk_levels) ? body.risk_levels as string[] : [],
+          rules: (body.rules ?? {}) as Record<string, unknown>,
+        });
+        writeJson(response, 201, policy as unknown as Record<string, unknown>);
+        return;
+      }
+      if (path.length >= 3) {
+        const policyId = path[2] ?? "";
+        if (method === "GET" && path.length === 3) {
+          const policy = this.configStore.getPolicy(policyId);
+          if (!policy) throw new HttpError(404, "policy_not_found", `Unknown policy: ${policyId}`);
+          writeJson(response, 200, policy as unknown as Record<string, unknown>);
+          return;
+        }
+        if (method === "PUT" && path.length === 3) {
+          const body = await readJson(request);
+          const updated = this.configStore.updatePolicy(policyId, body as Partial<import("./config-store.js").PolicyTemplate>);
+          if (!updated) throw new HttpError(404, "policy_not_found", `Unknown policy: ${policyId}`);
+          writeJson(response, 200, updated as unknown as Record<string, unknown>);
+          return;
+        }
+        if (method === "DELETE" && path.length === 3) {
+          const deleted = this.configStore.deletePolicy(policyId);
+          writeJson(response, deleted ? 200 : 404, { policy_id: policyId, deleted });
+          return;
+        }
+      }
+    }
+
+    if (path.length >= 2 && path[0] === "v1" && path[1] === "api-keys") {
+      if (method === "GET" && path.length === 2) {
+        const tenantFilter = url.searchParams.get("tenant_id") ?? authContext?.tenant_id;
+        writeJson(response, 200, { keys: this.configStore.listApiKeys(tenantFilter) });
+        return;
+      }
+      if (method === "POST" && path.length === 2) {
+        const body = await readJson(request);
+        const result = this.configStore.createApiKey({
+          tenant_id: getRequiredString(body.tenant_id, "tenant_id"),
+          role: getOptionalString(body.role) ?? "viewer",
+          expiration: getOptionalString(body.expiration),
+        });
+        this.auditStore.record({
+          tenant_id: authContext?.tenant_id ?? "system",
+          user_id: authContext?.tenant_id ?? "system",
+          action: "key.create",
+          target_type: "api_key",
+          target_id: result.key_id,
+          details: {},
+        });
+        writeJson(response, 201, result as unknown as Record<string, unknown>);
+        return;
+      }
+      if (method === "DELETE" && path.length === 3) {
+        const keyId = path[2] ?? "";
+        const revoked = this.configStore.revokeApiKey(keyId);
+        if (revoked) {
+          this.auditStore.record({
+            tenant_id: authContext?.tenant_id ?? "system",
+            user_id: authContext?.tenant_id ?? "system",
+            action: "key.revoke",
+            target_type: "api_key",
+            target_id: keyId,
+            details: {},
+          });
+        }
+        writeJson(response, revoked ? 200 : 404, { key_id: keyId, revoked });
+        return;
+      }
+    }
+
+    if (method === "GET" && path.length === 2 && path[0] === "v1" && path[1] === "audit-logs") {
+      const filter: import("./audit-store.js").AuditQueryFilter = {
+        tenant_id: url.searchParams.get("tenant_id") ?? authContext?.tenant_id,
+        user_id: url.searchParams.get("user_id") ?? undefined,
+        action: url.searchParams.get("action") ?? undefined,
+        from: url.searchParams.get("from") ?? undefined,
+        to: url.searchParams.get("to") ?? undefined,
+        limit: parseInt(url.searchParams.get("limit") ?? "100", 10),
+        offset: parseInt(url.searchParams.get("offset") ?? "0", 10),
+      };
+      writeJson(response, 200, this.auditStore.query(filter) as unknown as Record<string, unknown>);
       return;
     }
 

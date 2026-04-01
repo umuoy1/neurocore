@@ -3,7 +3,15 @@
   "version": "0.1.0",
   "type": "module",
   "description": "HTTP server exposing NeuroCore agent runtime via REST API and SSE",
-  "keywords": ["agent", "runtime", "ai", "llm", "server", "http", "sse"],
+  "keywords": [
+    "agent",
+    "runtime",
+    "ai",
+    "llm",
+    "server",
+    "http",
+    "sse"
+  ],
   "license": "MIT",
   "author": "neurocore",
   "repository": {
@@ -19,7 +27,9 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "publishConfig": {
     "access": "public"
   },
@@ -27,6 +37,10 @@
     "@neurocore/eval-core": "^0.1.0",
     "@neurocore/protocol": "^0.1.0",
     "@neurocore/runtime-core": "^0.1.0",
-    "@neurocore/sdk-core": "^0.1.0"
+    "@neurocore/sdk-core": "^0.1.0",
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.0"
   }
 }
