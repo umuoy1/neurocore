@@ -169,6 +169,6 @@
 这次校准后的结论是：
 
 - **MVP 已功能完成，所有 post-MVP 目标已全部交付**
-- P0 执行正确性硬化、P1 预测闭环 + 技能系统、P2 产品化补齐、P3 运营能力增强、M7 CI/CD 自动化均已完成
-- 132 个测试全部通过，覆盖全部新增功能
+- P0 执行正确性硬化、P1 预测闭环 + 技能系统、P2 产品化补齐、P3 运营能力增强、M7 CI/CD 自动化、M8 世界模型与设备接入均已完成
+- 169 个测试全部通过（M8 新增 38 个：sensor/actuator/registry/pipeline/graph/simulation/integration），覆盖全部新增功能
 - 当前阶段边界外的工作保持在 `02_gap-analysis-and-roadmap.md` §4 中

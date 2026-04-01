@@ -1,15 +1,15 @@
 {
-  "name": "@neurocore-ai/runtime-core",
+  "name": "@neurocore-ai/world-model",
   "version": "0.1.0",
   "type": "module",
-  "description": "Stateful agent runtime kernel with cycle engine, checkpoints, and session management",
-  "keywords": ["agent", "runtime", "ai", "llm", "stateful", "checkpoint"],
+  "description": "World state graph, forward simulation, and simulation-based prediction",
+  "keywords": ["agent", "world-model", "simulation", "knowledge-graph"],
   "license": "MIT",
   "author": "neurocore",
   "repository": {
     "type": "git",
     "url": "https://github.com/umuoy1/neurocore.git",
-    "directory": "packages/runtime-core"
+    "directory": "packages/world-model"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -25,9 +25,6 @@
   },
   "dependencies": {
     "@neurocore-ai/protocol": "^0.1.0",
-    "@neurocore-ai/memory-core": "^0.1.0",
-    "@neurocore-ai/policy-core": "^0.1.0",
-    "@neurocore-ai/device-core": "^0.1.0",
-    "@neurocore-ai/world-model": "^0.1.0"
+    "@neurocore-ai/device-core": "^0.1.0"
   }
 }

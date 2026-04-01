@@ -32,7 +32,14 @@ export type NeuroCoreEventType =
   | "skill.promoted"
   | "budget.exceeded"
   | "session.completed"
-  | "session.failed";
+  | "session.failed"
+  | "sensor.reading"
+  | "actuator.command"
+  | "actuator.result"
+  | "world_state.updated"
+  | "simulation.completed"
+  | "device.registered"
+  | "device.error";
 
 export interface EventEnvelope<T> {
   event_id: string;

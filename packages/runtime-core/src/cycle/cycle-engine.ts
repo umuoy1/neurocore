@@ -17,8 +17,11 @@ import type {
   SkillProvider,
   TokenEstimator,
   UserInput,
+  WorldStateDigest,
   WorkspaceSnapshot
 } from "@neurocore/protocol";
+import type { DeviceRegistry, PerceptionPipeline } from "@neurocore/device-core";
+import type { WorldStateGraph } from "@neurocore/world-model";
 import { GradedContextCompressor } from "../context/graded-compressor.js";
 import { DefaultTokenEstimator } from "../context/token-estimator.js";
 import { debugLog } from "../utils/debug.js";
@@ -39,6 +42,9 @@ export interface CycleExecutionInput {
   skillProviders?: SkillProvider[];
   tokenEstimator?: TokenEstimator;
   predictionErrorRate?: number;
+  deviceRegistry?: DeviceRegistry;
+  perceptionPipeline?: PerceptionPipeline;
+  worldStateGraph?: WorldStateGraph;
 }
 
 export interface CycleExecutionResult {
@@ -79,6 +85,51 @@ export class CycleEngine {
       services,
       memory_config: input.profile.memory_config
     };
+
+    let worldStateDigest: WorldStateDigest | undefined;
+    if (input.deviceRegistry && input.perceptionPipeline && input.worldStateGraph) {
+      try {
+        const now = nowIso();
+        const onlineSensors = input.deviceRegistry
+          .query({ device_type: "sensor", status: "online" })
+          .map((d) => d.device_id);
+
+        if (onlineSensors.length > 0) {
+          const readings = await Promise.all(
+            onlineSensors.map((id) => {
+              const sensor = input.deviceRegistry!.getSensor(id);
+              return sensor ? sensor.read() : Promise.resolve(null);
+            })
+          );
+          const validReadings = readings.filter((r) => r !== null);
+
+          if (validReadings.length > 0) {
+            const percepts = await input.perceptionPipeline.ingest(validReadings);
+            input.worldStateGraph.decayConfidence(now);
+            input.worldStateGraph.pruneExpired(now);
+            if (percepts.length > 0) {
+              input.worldStateGraph.applyPercepts(percepts);
+            }
+          }
+        } else {
+          input.worldStateGraph.decayConfidence(now);
+          input.worldStateGraph.pruneExpired(now);
+        }
+
+        worldStateDigest = input.worldStateGraph.toDigest();
+        debugLog("cycle", "Perceive phase completed", {
+          sessionId: input.session.session_id,
+          cycleId,
+          worldStateDigest: worldStateDigest.summary
+        });
+      } catch (error) {
+        debugLog("cycle", "Perceive phase failed", {
+          sessionId: input.session.session_id,
+          cycleId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
 
     const memoryState = await this.collectMemoryState(baseContext, input.memoryProviders ?? []);
     const skillState = await this.collectSkillState(baseContext, input.skillProviders ?? []);
@@ -145,7 +196,8 @@ export class CycleEngine {
       budgetState: input.session.budget_state,
       memoryDigest: memoryState.digest,
       skillDigest: skillState.digest,
-      policyDecisions: policies
+      policyDecisions: policies,
+      worldStateDigest
     });
 
     const maxTokens = input.profile.context_budget?.max_context_tokens;

@@ -34,6 +34,8 @@ import type {
   UserInput,
   WorkspaceSnapshot
 } from "@neurocore/protocol";
+import type { DeviceRegistry, PerceptionPipeline } from "@neurocore/device-core";
+import { type ForwardSimulator, type WorldStateGraph, SimulationBasedPredictor } from "@neurocore/world-model";
 import { EpisodicMemoryProvider, SemanticMemoryProvider, WorkingMemoryProvider } from "@neurocore/memory-core";
 import { InMemoryCheckpointStore } from "../checkpoint/in-memory-checkpoint-store.js";
 import { CycleEngine } from "../cycle/cycle-engine.js";
@@ -64,6 +66,10 @@ export interface AgentRuntimeOptions {
   checkpointStore?: CheckpointStore;
   stateStore?: RuntimeStateStore;
   predictionStore?: PredictionStore;
+  deviceRegistry?: DeviceRegistry;
+  worldStateGraph?: WorldStateGraph;
+  perceptionPipeline?: PerceptionPipeline;
+  forwardSimulator?: ForwardSimulator;
 }
 
 export interface AgentRunResult {
@@ -132,6 +138,9 @@ export class AgentRuntime {
   private readonly predictionStore: PredictionStore;
   private readonly approvals = new Map<string, ApprovalRequest>();
   private readonly pendingApprovals = new Map<string, PendingApprovalContext>();
+  private readonly deviceRegistry?: DeviceRegistry;
+  private readonly worldStateGraph?: WorldStateGraph;
+  private readonly perceptionPipeline?: PerceptionPipeline;
 
   public constructor(options: AgentRuntimeOptions) {
     this.reasoner = options.reasoner;
@@ -153,6 +162,15 @@ export class AgentRuntime {
     this.predictors = options.predictors ?? [];
     this.policyProviders = options.policyProviders ?? [];
     this.skillProviders = [this.proceduralMemoryProvider, ...(options.skillProviders ?? [])];
+    this.deviceRegistry = options.deviceRegistry;
+    this.worldStateGraph = options.worldStateGraph;
+    this.perceptionPipeline = options.perceptionPipeline;
+    if (options.forwardSimulator && options.worldStateGraph) {
+      this.predictors = [
+        ...this.predictors,
+        new SimulationBasedPredictor(options.forwardSimulator, options.worldStateGraph)
+      ];
+    }
   }
 
   public createSession(profile: AgentProfile, command: CreateSessionCommand) {
@@ -207,7 +225,10 @@ export class AgentRuntime {
       skillProviders: this.skillProviders,
       reasoner: this.reasoner,
       metaController: this.metaController,
-      predictionErrorRate
+      predictionErrorRate,
+      deviceRegistry: this.deviceRegistry,
+      perceptionPipeline: this.perceptionPipeline,
+      worldStateGraph: this.worldStateGraph
     });
 
     for (const prediction of result.predictions) {

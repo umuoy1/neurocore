@@ -39,7 +39,8 @@
     "demo:runtime-sqlite": "npm run build && node examples/demo-runtime-sqlite.mjs",
     "demo:webhooks": "npm run build && node examples/demo-runtime-webhooks.mjs",
     "demo:runtime-parity": "npm run build && node examples/demo-runtime-parity.mjs",
-    "demo:runtime-recovery": "npm run build && node examples/demo-runtime-recovery.mjs"
+    "demo:runtime-recovery": "npm run build && node examples/demo-runtime-recovery.mjs",
+    "demo:world-model": "npm run build && node examples/demo-world-model.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.30.0",

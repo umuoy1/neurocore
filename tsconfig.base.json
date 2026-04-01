@@ -23,7 +23,9 @@
       "@neurocore/sdk-node": ["packages/sdk-node/src/index.ts"],
       "@neurocore/eval-core": ["packages/eval-core/src/index.ts"],
       "@neurocore/policy-core": ["packages/policy-core/src/index.ts"],
-      "@neurocore/memory-core": ["packages/memory-core/src/index.ts"]
+      "@neurocore/memory-core": ["packages/memory-core/src/index.ts"],
+      "@neurocore/device-core": ["packages/device-core/src/index.ts"],
+      "@neurocore/world-model": ["packages/world-model/src/index.ts"]
     }
   }
 }

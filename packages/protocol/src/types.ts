@@ -172,6 +172,18 @@ export interface AgentProfile {
   cost_per_token?: number;
   cost_budget?: number;
   approval_policy?: { allowed_approvers?: string[] };
+  device_config?: {
+    health_check_interval_ms?: number;
+    perception_timeout_ms?: number;
+    auto_perceive?: boolean;
+  };
+  world_model_config?: {
+    confidence_decay_factor?: number;
+    confidence_decay_interval_ms?: number;
+    prune_confidence_threshold?: number;
+    default_entity_ttl_ms?: number;
+    forward_simulation_enabled?: boolean;
+  };
   metadata?: Record<string, unknown>;
 }
 

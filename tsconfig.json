@@ -8,6 +8,8 @@
     { "path": "./packages/runtime-server" },
     { "path": "./packages/sdk-core" },
     { "path": "./packages/sdk-node" },
-    { "path": "./packages/eval-core" }
+    { "path": "./packages/eval-core" },
+    { "path": "./packages/device-core" },
+    { "path": "./packages/world-model" }
   ]
 }

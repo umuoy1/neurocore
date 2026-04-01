@@ -19,7 +19,7 @@
 |---|---|
 | `docs/02_2026-03-27_sdk/06_mvp-implementation-plan.md` MVP 定义 | ~100% |
 | `docs/02_2026-03-27_sdk/01_requirements.md` 第一阶段 FR 清单 | ~98% |
-| `docs/01_2026-03-27_paradigm/04_neurocore-agent-architecture-full.md` 六模块完整目标 | ~80%~85% |
+| `docs/01_2026-03-27_paradigm/04_neurocore-agent-architecture-full.md` 六模块完整目标 | ~85%~90% |
 
 ### 1.2 六模块完成度
 
@@ -27,7 +27,7 @@
 |---|---|---|---|
 | Cortex / Reasoner | 大脑皮层 | 70% | LLM reasoner、plan/respond、OpenAI-compatible adapter 已有；多模态、结构化流式输出、高级推理策略未做 |
 | Hippocampal / Memory | 海马体 | 80% | working / episodic / semantic / procedural 已实现，支持 tenant-scoped cross-session recall 和 retrieval_top_k；ProceduralMemoryProvider 支持 episode → skill 自动提炼；TTL、negative learning 未做 |
-| Cerebellar / World Model | 小脑 | 75% | PredictionStore、PredictionErrorComputer、RuleBasedPredictor 已实现；prediction-observation-error-correction 闭环已打通；MetaController 消费误差率降低 confidence 并触发 approval；procedural model learning 未做 |
+| Cerebellar / World Model | 小脑 | 90% | PredictionStore、PredictionErrorComputer、RuleBasedPredictor 已实现；prediction-observation-error-correction 闭环已打通；MetaController 消费误差率降低 confidence 并触发 approval；**M8 新增**：device-core（Sensor/Actuator SPI、DeviceRegistry、PerceptionPipeline）+ world-model（WorldStateGraph、ForwardSimulator、SimulationBasedPredictor）已实现并集成到 CycleEngine/AgentRuntime；Active Inference、Device Coordination 未做 |
 | Amygdala / Motivation-Risk | 杏仁核 | 40% | 基础 policy / warn-block / approval / budget gate 已有；reviewer policy + allowed_approvers + tenant-aware approval audit 已实现；cost budget 跟踪已实现；更细粒度 risk model 未做 |
 | Basal Ganglia / Skill | 基底神经节 | 80% | skill match proposal 已接入 cycle；SkillStore / InMemorySkillStore、SkillExecutor、SkillPromoter、ProceduralMemoryProvider 已实现；skill 匹配-执行-积累-提炼循环已闭合；episode → skill 自动提炼已实现；skill-first 执行路径已实现；skill.matched / skill.executed / skill.promoted 事件已注册 |
 | Prefrontal / Meta | 前额叶 | 85% | policy block、warn->approval、uncertainty-based ranking、configurable threshold、multi-dimensional scoring (salience/confidence/risk)、conflict detection、risk_summary、prediction error rate 消费已有；仍缺 richer reasoning 和 explanation generation |
@@ -44,7 +44,8 @@
 - **托管 Runtime**：HTTP API、async/stream、SSE event stream、webhook（含重试 + 投递日志）、文件/SQLite 持久化、远程 client（含超时 + 重试）、API key 认证、tenant 隔离、reviewer policy + allowed_approvers、结构化日志、metrics/health 端点已实现
 - **Trace / Replay / Eval**：本地 eval runner、remote eval API、session replay、replay 浏览 API、eval 持久化（InMemory + SQLite）、eval 列表/过滤/删除/比较 API、baseline eval cases 共享模块已实现
 - **预测闭环**：PredictionStore、PredictionErrorComputer、RuleBasedPredictor 已实现；prediction-observation-error-correction 闭环已打通；trace 包含 prediction_error_refs 和 prediction_errors；Episode 基于误差填充 valence/lessons
-- **测试与 CI**：本地单元/集成测试（132 个）、GitHub Actions CI（含 test:unit 分层 + baseline-llm gated lane）、changesets 配置 + 自动发布 workflow 已存在；prediction-error 测试覆盖 store/computer/E2E/MetaController/RuleBasedPredictor
+- **设备接入与世界模型（M8）**：`device-core` 包（Sensor/Actuator SPI、MockCameraSensor、MockSpeakerActuator、InMemoryDeviceRegistry、DefaultPerceptionPipeline）+ `world-model` 包（InMemoryWorldStateGraph、RuleBasedSimulator、SimulationBasedPredictor）已实现；CycleEngine 新增 Perceive 阶段（感知-融合-衰减-裁剪）；AgentRuntime 可选注入设备组件；7 种新事件类型已注册
+- **测试与 CI**：本地单元/集成测试（169 个）、GitHub Actions CI（含 test:unit 分层 + baseline-llm gated lane）、changesets 配置 + 自动发布 workflow 已存在；prediction-error 测试覆盖 store/computer/E2E/MetaController/RuleBasedPredictor；M8 新增 38 个测试覆盖 sensor/actuator/registry/pipeline/graph/simulation/integration
 
 ### 1.4 主要差距
 
@@ -159,6 +160,30 @@
 - ~~对 hosted runtime 和 socket-bound 测试做环境分层~~ **已完成**：`test:unit`（排除 LLM）、`test:hosted`（hosted 相关）、`test:baseline`（LLM baseline）
 - ~~将 optional LLM baseline 从”本地可选”提升为可控的 gated CI lane~~ **已完成**：`baseline-llm` job，条件 `workflow_dispatch` 或 `[run-baseline]` commit message 触发
 
+### Milestone 8：世界模型与设备接入（M8）
+
+**目标**：将 Cerebellar 模块从”预测引擎”升级为”感知-预测-执行”完整世界模型，新增设备抽象层。
+
+**状态：已完成**
+
+**已完成交付物**：
+
+- `packages/device-core/`：Sensor/Actuator SPI 接口 + MockCameraSensor/MockSpeakerActuator + InMemoryDeviceRegistry（含健康检测与热插拔）+ DefaultPerceptionPipeline（多模态并行处理、超时保护、错误隔离）
+- `packages/world-model/`：WorldStateGraph 接口 + InMemoryWorldStateGraph（entity/relation CRUD、query 过滤、applyPercepts、confidence decay、TTL pruning、toDigest）+ ForwardSimulator SPI + RuleBasedSimulator + SimulationBasedPredictor
+- `packages/protocol/src/events.ts`：7 种新事件类型（sensor.reading、actuator.command/result、world_state.updated、simulation.completed、device.registered/error）
+- `packages/protocol/src/types.ts`：AgentProfile 新增 device_config / world_model_config 可选字段
+- CycleEngine 集成：Perceive 阶段（query sensors → read → pipeline → decay → prune → applyPercepts → toDigest）
+- AgentRuntime 集成：4 个可选注入字段，SimulationBasedPredictor 自动创建
+- 38 个新测试全部通过
+
+**验收标准**：
+
+- ~~注入设备组件后 perceive 阶段填充 world_state_digest~~ **已完成**
+- ~~forwardSimulator 注入后 predictions 包含 simulation-based 结果~~ **已完成**
+- ~~不注入时行为不变（向后兼容）~~ **已完成**
+
+**推迟项（P2）**：Active Inference（FR-42）、Device Coordination（FR-43）——仅定义接口，未实现
+
 ## 3. 优先级排序
 
 ```text
@@ -194,10 +219,12 @@ P3（运营能力增强）：
 ## 4. 不做的事（当前阶段边界）
 
 - 多 Agent 分布式调度
-- 高保真世界状态图（图数据库）
+- ~~高保真世界状态图（图数据库）~~ 基础 InMemoryWorldStateGraph 已实现（M8），图数据库后端推迟
 - 技能自动提炼的强化学习
 - 完整运营控制台 UI
 - 通用 AGI 式自主体能力
+- Active Inference 实现（FR-42，仅接口定义）
+- Device Coordination 实现（FR-43，仅接口定义）
 
 ## 5. 关键风险
 
@@ -212,8 +239,8 @@ P3（运营能力增强）：
 
 这次校准后的判断是：
 
-- NeuroCore 已完成 **MVP + 全部产品化补齐 + 运营能力增强**，P0/P1/P2/P3 全部交付
-- 六模块完成度显著提升：Amygdala 从 25% 升至 40%（reviewer policy + cost budget），整体架构完成度 ~80%~85%
+- NeuroCore 已完成 **MVP + 全部产品化补齐 + 运营能力增强 + M8 世界模型与设备接入**，P0/P1/P2/P3/M7/M8 全部交付
+- 六模块完成度显著提升：Cerebellar/World Model 从 75% 升至 90%（device-core + world-model 两个新包），整体架构完成度 ~85%~90%
 - 自动发布 workflow、CI 测试分层、gated LLM baseline lane 已就绪
-- 132 个测试全部通过，覆盖 replay API、reviewer policy、cost budget、webhook reliability、remote client hardening、eval comparison
-- 当前阶段边界外的工作（多 Agent 调度、图数据库、RL 自动提炼、控制台 UI）保持不做
+- 169 个测试全部通过（M8 新增 38 个），覆盖 sensor/actuator/registry/pipeline/graph/simulation/integration
+- 当前阶段边界外的工作（多 Agent 调度、图数据库后端、RL 自动提炼、控制台 UI、Active Inference、Device Coordination）保持不做
