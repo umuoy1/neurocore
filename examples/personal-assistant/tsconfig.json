@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "references": [
+    { "path": "../../packages/protocol" },
+    { "path": "../../packages/runtime-core" },
+    { "path": "../../packages/sdk-core" },
+    { "path": "../../packages/sdk-node" }
+  ],
+  "include": ["src/**/*.ts"]
+}

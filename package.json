@@ -41,6 +41,8 @@
     "demo:runtime-parity": "npm run build && node examples/demo-runtime-parity.mjs",
     "demo:runtime-recovery": "npm run build && node examples/demo-runtime-recovery.mjs",
     "demo:world-model": "npm run build && node examples/demo-world-model.mjs",
+    "demo:personal-assistant:web": "npm run build && node examples/personal-assistant/scripts/dev-web-chat.mjs",
+    "demo:personal-assistant:feishu": "npm run build && node examples/personal-assistant/scripts/dev-feishu.mjs",
     "console:backend": "npm run build && node examples/console-backend.mjs",
     "console:dev": "npm run build && concurrently \"node examples/console-backend.mjs\" \"npm --workspace @neurocore/console run dev\""
   },

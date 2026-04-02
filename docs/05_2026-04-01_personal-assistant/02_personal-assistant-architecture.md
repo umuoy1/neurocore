@@ -42,55 +42,60 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**关键约束**：个人助理层是独立的 `packages/` 包，不修改 `protocol / runtime-core / sdk-core` 等核心包。所有集成通过已有的 SPI 接口完成（`Tool`、`MemoryProvider`、`Sensor`/`Actuator`）。
+**关键约束**：个人助理首先作为 `examples/` 下的独立应用实现，不新增 workspace package；不修改 `protocol / runtime-core / sdk-core` 等核心包。所有集成通过已有的 SPI 接口完成（`Tool`、`MemoryProvider`、`Sensor`/`Actuator`）。
 
 ---
 
-## 2. 包结构
+## 2. 应用结构
 
 ```
-packages/
-├── im-gateway/                     # @neurocore/im-gateway
-│   └── src/
-│       ├── types.ts                # UnifiedMessage, IMPlatform, IMAdapterConfig
-│       ├── adapter/
-│       │   ├── im-adapter.ts       # IMAdapter SPI（多平台扩展接口）
-│       │   ├── feishu.ts           # 飞书 Bot（@larksuiteoapi/node-sdk）
-│       │   └── web-chat.ts         # 内置 WebSocket chat
-│       ├── conversation/
-│       │   ├── conversation-router.ts
-│       │   └── session-mapping-store.ts
-│       ├── notification/
-│       │   └── notification-dispatcher.ts
-│       ├── gateway.ts              # IMGateway 主类
-│       └── index.ts
-├── proactive-engine/               # @neurocore/proactive-engine
-│   └── src/
-│       ├── types.ts                # HeartbeatConfig, ScheduleConfig, ProactiveAction
-│       ├── heartbeat/
-│       │   └── heartbeat-scheduler.ts
-│       ├── scheduler/
-│       │   └── cron-scheduler.ts
-│       ├── event-source/
-│       │   └── event-source.ts
-│       ├── proactive-engine.ts     # ProactiveEngine 主类
-│       └── index.ts
-├── service-connectors/             # @neurocore/service-connectors
-│   └── src/
-│       ├── types.ts                # ServiceConnectorConfig
-│       ├── search/
-│       │   └── web-search.ts       # web_search Tool
-│       ├── browser/
-│       │   └── web-browser.ts      # web_browser Tool
-│       ├── email/
-│       │   ├── email-read.ts       # email_read Tool
-│       │   └── email-send.ts       # email_send Tool
-│       ├── calendar/
-│       │   ├── calendar-read.ts    # calendar_read Tool
-│       │   └── calendar-write.ts   # calendar_write Tool
-│       ├── files/
-│       │   └── local-files.ts      # file_read / file_write Tool
-│       └── index.ts
+examples/
+└── personal-assistant/
+    ├── README.md
+    ├── package.json                 # 如需要独立依赖与启动脚本，可在 examples 层维护
+    ├── src/
+    │   ├── app/
+    │   │   ├── create-personal-assistant.ts
+    │   │   └── assistant-config.ts
+    │   ├── im-gateway/
+    │   │   ├── types.ts
+    │   │   ├── adapter/
+    │   │   │   ├── im-adapter.ts
+    │   │   │   ├── feishu.ts
+    │   │   │   └── web-chat.ts
+    │   │   ├── conversation/
+    │   │   │   ├── conversation-router.ts
+    │   │   │   └── session-mapping-store.ts
+    │   │   ├── notification/
+    │   │   │   └── notification-dispatcher.ts
+    │   │   └── gateway.ts
+    │   ├── proactive/
+    │   │   ├── types.ts
+    │   │   ├── heartbeat/
+    │   │   │   └── heartbeat-scheduler.ts
+    │   │   ├── scheduler/
+    │   │   │   └── cron-scheduler.ts
+    │   │   ├── event-source/
+    │   │   │   └── event-source.ts
+    │   │   └── proactive-engine.ts
+    │   ├── connectors/
+    │   │   ├── types.ts
+    │   │   ├── search/
+    │   │   │   └── web-search.ts
+    │   │   ├── browser/
+    │   │   │   └── web-browser.ts
+    │   │   ├── email/
+    │   │   │   ├── email-read.ts
+    │   │   │   └── email-send.ts
+    │   │   ├── calendar/
+    │   │   │   ├── calendar-read.ts
+    │   │   │   └── calendar-write.ts
+    │   │   └── files/
+    │   │       └── local-files.ts
+    │   └── main.ts
+    └── scripts/
+        ├── dev-web-chat.mjs
+        └── dev-feishu.mjs
 ```
 
 ---
@@ -270,7 +275,53 @@ IMAdapter.onMessage(msg)
         → adapter.sendMessage(chatId, response)
 ```
 
-#### 3.1.6 Web Chat Adapter
+#### 3.1.6 主 Agent 自主编排的子 Agent 模型
+
+个人助理不应被设计成固定的 `search-agent -> writer-agent -> formatter-agent` 三段流水线。那种组合最多只能算某一次任务里的临时角色排列，而不是产品架构本身。
+
+更准确的模型是：
+
+| 概念 | 定义 |
+|---|---|
+| 主 Agent | 面向用户的统一入口，持有根 Goal、用户偏好、预算、审批责任和最终输出责任 |
+| 子 Agent | 围绕当前子 Goal 临时获得上下文和权限的工作角色 |
+| Agent Catalog | 一组按 capability / domain / tool scope 描述的可选 worker 模板或长期注册实例 |
+| Delegation Envelope | 主 Agent 下发给子 Agent 的 `goal + context slice + constraints + timeout + permission scope` |
+
+**编排原则**：
+
+- 主 Agent 自主决定是否需要委派，而不是由产品代码预设固定子 Agent 数量。
+- 子 Agent 的选择依据是能力匹配、工具域、预算、延迟、风险和当前负载，而不是角色名字本身。
+- 同一个用户请求，在不同上下文下可产生不同子 Agent 组合。
+- 主 Agent 可以先委派一个 worker，再根据返回结果继续二次分解或改派其他 worker。
+- 对子 Agent 暴露的是裁剪后的局部上下文，而不是主会话的全部记忆和全部工具权限。
+
+**运行时决策输入**：
+
+- Goal 是否可分解，以及是否存在明显独立子任务
+- 每个子任务需要的 capability / domain / tool scope
+- 任务风险级别，是否需要 verifier 或审批
+- 当前预算、延迟目标和 worker 负载
+- 结果是否需要多路交叉验证
+
+**子 Agent 生命周期（个人助理视角）**：
+
+| 阶段 | 含义 |
+|---|---|
+| available | worker 模板或注册实例可被选择 |
+| selected | 主 Agent 在当前 cycle 里选中其承担某个子 Goal |
+| delegated-session-created | 为本次子任务创建 delegated session |
+| running | 子 Agent 在自己的 session 中执行 |
+| completed / failed / timeout / rejected | 返回执行结果、错误或超时 |
+| aggregated | 主 Agent 汇总、审阅并决定是否继续委派 |
+| recycled | 本次子任务结束；长期 worker 回到 idle，临时角色退出 |
+
+**当前代码落点**：
+
+- 当前 M9 已支持主 Agent 发出 `delegate` 动作，并将子 Agent 结果作为 observation 回流到下一轮推理。
+- 当前实现最贴近“长期注册 worker + delegated session”的模型；未来个人助理层可以在此之上增加“临时角色模板”和更细的权限注入，而不改变主 Agent 的编排契约。
+
+#### 3.1.7 Web Chat Adapter
 
 内置 WebSocket 聊天，无需第三方 IM 即可使用：
 

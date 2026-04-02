@@ -11,6 +11,7 @@
     { "path": "./packages/eval-core" },
     { "path": "./packages/device-core" },
     { "path": "./packages/world-model" },
-    { "path": "./packages/multi-agent" }
+    { "path": "./packages/multi-agent" },
+    { "path": "./examples/personal-assistant" }
   ]
 }

@@ -1,0 +1,10 @@
+{
+  "name": "@examples/personal-assistant",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "dev:web-chat": "node ./scripts/dev-web-chat.mjs",
+    "dev:feishu": "node ./scripts/dev-feishu.mjs"
+  }
+}

@@ -3,6 +3,7 @@
 > 基于 `02_personal-assistant-architecture.md` 的架构设计，制定分阶段、可施工的实施计划。
 > IM 平台：仅实现飞书 Adapter + Web Chat。
 > 每个里程碑包含明确的交付物、验收标准和依赖关系。
+> 实现形态：**个人助理作为 `examples/personal-assistant/` 下的独立应用落地**，不新增 `packages/im-gateway` / `packages/proactive-engine` / `packages/service-connectors`。
 >
 > 2026-04-02 排期说明：
 > - 个人助理是当前主优先级方向。
@@ -27,6 +28,13 @@ Phase C (高级能力) ─── M-PA-9 ~ M-PA-11 ── 约 6~8 周
    依赖：Phase B 完成
 ```
 
+### 子 Agent 编排原则
+
+- 个人助理不内置固定的 `search / writer / formatter` 三类子 Agent。
+- `createPersonalAssistant()` 负责组装主 Agent、连接器和委派能力，不负责把未来任务写死成某条固定子 Agent 流程。
+- 从 Phase B 起，主 Agent 应基于 Goal 分解、capability 匹配、工具域、预算和风险，自主决定是否委派、委派几个子 Agent、以及每个子 Agent 的权限边界。
+- 产品层实现上更适合维护一个开放式 `worker catalog`，而不是硬编码少量角色名字。
+
 ---
 
 ## 2. Phase A：基础能力
@@ -37,16 +45,16 @@ Phase C (高级能力) ─── M-PA-9 ~ M-PA-11 ── 约 6~8 周
 
 | # | 文件 | 内容 |
 |---|---|---|
-| 1 | `packages/im-gateway/src/types.ts` | `UnifiedMessage`、`IMPlatform`、`MessageContent`、`IMAdapterConfig` |
-| 2 | `packages/im-gateway/src/adapter/im-adapter.ts` | `IMAdapter` SPI 接口 |
-| 3 | `packages/im-gateway/src/adapter/feishu.ts` | 飞书 Bot — 基于 `@larksuiteoapi/node-sdk` |
-| 4 | `packages/im-gateway/src/adapter/web-chat.ts` | WebSocket 聊天服务（基于 `ws`） |
-| 5 | `packages/im-gateway/src/conversation/conversation-router.ts` | `ConversationRouter` — `(platform, chat_id) → session_id` 映射 |
-| 6 | `packages/im-gateway/src/conversation/session-mapping-store.ts` | `SessionMappingStore` — 持久化映射关系（InMemory + SQLite） |
-| 7 | `packages/im-gateway/src/notification/notification-dispatcher.ts` | `NotificationDispatcher` |
-| 8 | `packages/im-gateway/src/gateway.ts` | `IMGateway` 主类 |
-| 9 | `packages/im-gateway/src/index.ts` | 公共导出 |
-| 10 | `packages/im-gateway/package.json` | 包配置 |
+| 1 | `examples/personal-assistant/src/im-gateway/types.ts` | `UnifiedMessage`、`IMPlatform`、`MessageContent`、`IMAdapterConfig` |
+| 2 | `examples/personal-assistant/src/im-gateway/adapter/im-adapter.ts` | `IMAdapter` SPI 接口 |
+| 3 | `examples/personal-assistant/src/im-gateway/adapter/feishu.ts` | 飞书 Bot — 基于 `@larksuiteoapi/node-sdk` |
+| 4 | `examples/personal-assistant/src/im-gateway/adapter/web-chat.ts` | WebSocket 聊天服务（基于 `ws`） |
+| 5 | `examples/personal-assistant/src/im-gateway/conversation/conversation-router.ts` | `ConversationRouter` — `(platform, chat_id) → session_id` 映射 |
+| 6 | `examples/personal-assistant/src/im-gateway/conversation/session-mapping-store.ts` | `SessionMappingStore` — 持久化映射关系（InMemory + SQLite） |
+| 7 | `examples/personal-assistant/src/im-gateway/notification/notification-dispatcher.ts` | `NotificationDispatcher` |
+| 8 | `examples/personal-assistant/src/im-gateway/gateway.ts` | `IMGateway` 主类 |
+| 9 | `examples/personal-assistant/src/main.ts` | 应用入口与装配 |
+| 10 | `examples/personal-assistant/package.json` | 独立示例应用配置 |
 
 **飞书 Adapter 实现要点**：
 
@@ -90,11 +98,11 @@ Phase C (高级能力) ─── M-PA-9 ~ M-PA-11 ── 约 6~8 周
 
 | # | 文件 | 内容 |
 |---|---|---|
-| 1 | `packages/service-connectors/src/types.ts` | `ServiceConnectorConfig` 类型 |
-| 2 | `packages/service-connectors/src/search/web-search.ts` | `web_search` Tool — Brave Search API |
-| 3 | `packages/service-connectors/src/browser/web-browser.ts` | `web_browser` Tool — URL → Markdown |
-| 4 | `packages/service-connectors/src/index.ts` | 公共导出 |
-| 5 | `packages/service-connectors/package.json` | 包配置 |
+| 1 | `examples/personal-assistant/src/connectors/types.ts` | `ServiceConnectorConfig` 类型 |
+| 2 | `examples/personal-assistant/src/connectors/search/web-search.ts` | `web_search` Tool — Brave Search API |
+| 3 | `examples/personal-assistant/src/connectors/browser/web-browser.ts` | `web_browser` Tool — URL → Markdown |
+| 4 | `examples/personal-assistant/src/app/create-personal-assistant.ts` | 连接器注册与主 Agent 装配 |
+| 5 | `examples/personal-assistant/package.json` | 应用依赖配置 |
 
 **`web_search` 实现细节**：
 
@@ -129,7 +137,7 @@ Phase C (高级能力) ─── M-PA-9 ~ M-PA-11 ── 约 6~8 周
 
 | # | 文件 | 内容 |
 |---|---|---|
-| 1 | `packages/service-connectors/src/agent/personal-assistant.ts` | Agent 组装函数 |
+| 1 | `examples/personal-assistant/src/app/create-personal-assistant.ts` | Agent 组装函数 |
 | 2 | `tests/personal-assistant-e2e.test.ts` | 端到端测试 |
 
 **组装函数**：
@@ -149,6 +157,12 @@ export function createPersonalAssistant(config: PersonalAssistantConfig): AgentB
   return agent;
 }
 ```
+
+**组装原则**：
+
+- Phase A 先把主 Agent、IM Gateway 和基础 connectors 跑通。
+- 不在组装函数里硬编码 `search-agent`、`writer-agent`、`formatter-agent` 这类固定 worker 流程。
+- 为 Phase B 预留 `delegation` 配置和 `worker catalog` 注入口；真正的子 Agent 选择由主 Agent 在运行时完成。
 
 **E2E 测试场景**：
 
@@ -175,19 +189,25 @@ export function createPersonalAssistant(config: PersonalAssistantConfig): AgentB
 
 ## 3. Phase B：进阶能力
 
+**Phase B 的多 Agent 目标**：
+
+- 引入开放式 `worker catalog`，用 capability / domain / tool scope 描述候选子 Agent。
+- 主 Agent 在复杂任务、主动任务、长时任务里按需动态编排子 Agent，而不是只支持单一固定组合。
+- 支持根据任务类型编排不同 worker，例如 research / verifier / inbox / calendar / reminder / formatter / retrieval / drafter，但这些都只是候选能力，不是产品写死角色。
+
 ### M-PA-4: Proactive Engine
 
 **交付物**：
 
 | # | 文件 | 内容 |
 |---|---|---|
-| 1 | `packages/proactive-engine/src/types.ts` | 类型定义 |
-| 2 | `packages/proactive-engine/src/heartbeat/heartbeat-scheduler.ts` | 心跳调度器 |
-| 3 | `packages/proactive-engine/src/scheduler/cron-scheduler.ts` | Cron 定时调度 |
-| 4 | `packages/proactive-engine/src/event-source/event-source.ts` | 外部事件源 SPI |
-| 5 | `packages/proactive-engine/src/proactive-engine.ts` | ProactiveEngine 主类 |
-| 6 | `packages/proactive-engine/src/index.ts` | 公共导出 |
-| 7 | `packages/proactive-engine/package.json` | 包配置 |
+| 1 | `examples/personal-assistant/src/proactive/types.ts` | 类型定义 |
+| 2 | `examples/personal-assistant/src/proactive/heartbeat/heartbeat-scheduler.ts` | 心跳调度器 |
+| 3 | `examples/personal-assistant/src/proactive/scheduler/cron-scheduler.ts` | Cron 定时调度 |
+| 4 | `examples/personal-assistant/src/proactive/event-source/event-source.ts` | 外部事件源 SPI |
+| 5 | `examples/personal-assistant/src/proactive/proactive-engine.ts` | ProactiveEngine 主类 |
+| 6 | `examples/personal-assistant/src/main.ts` | 与 gateway / agent 的接线 |
+| 7 | `examples/personal-assistant/package.json` | 独立示例应用配置 |
 
 **HeartbeatScheduler 细节**：
 
@@ -237,10 +257,10 @@ class HeartbeatScheduler {
 
 | # | 文件 | 内容 |
 |---|---|---|
-| 1 | `packages/service-connectors/src/email/email-read.ts` | `email_read` Tool |
-| 2 | `packages/service-connectors/src/email/email-send.ts` | `email_send` Tool |
-| 3 | `packages/service-connectors/src/calendar/calendar-read.ts` | `calendar_read` Tool |
-| 4 | `packages/service-connectors/src/calendar/calendar-write.ts` | `calendar_write` Tool |
+| 1 | `examples/personal-assistant/src/connectors/email/email-read.ts` | `email_read` Tool |
+| 2 | `examples/personal-assistant/src/connectors/email/email-send.ts` | `email_send` Tool |
+| 3 | `examples/personal-assistant/src/connectors/calendar/calendar-read.ts` | `calendar_read` Tool |
+| 4 | `examples/personal-assistant/src/connectors/calendar/calendar-write.ts` | `calendar_write` Tool |
 
 **Email Read 细节**：
 
@@ -277,8 +297,8 @@ class HeartbeatScheduler {
 
 | # | 文件 | 内容 |
 |---|---|---|
-| 1 | `packages/im-gateway/src/conversation/cross-platform-linker.ts` | 跨通道 user_id 关联 |
-| 2 | `packages/im-gateway/src/command/command-handler.ts` | 命令拦截与处理 |
+| 1 | `examples/personal-assistant/src/im-gateway/conversation/cross-platform-linker.ts` | 跨通道 user_id 关联 |
+| 2 | `examples/personal-assistant/src/im-gateway/command/command-handler.ts` | 命令拦截与处理 |
 
 **跨通道关联**：
 
@@ -324,7 +344,7 @@ class HeartbeatScheduler {
 
 **交付物**：
 
-- `packages/service-connectors/src/knowledge-base/`
+- `examples/personal-assistant/src/connectors/knowledge-base/`
   - `knowledge-base-tool.ts` — `knowledge_search` Tool
   - `document-ingester.ts` — PDF/Markdown/TXT 文档摄入
   - `vector-store.ts` — 向量存储（基于 SQLite + embedding API）
@@ -341,7 +361,7 @@ class HeartbeatScheduler {
 
 **交付物**：
 
-- `packages/service-connectors/src/skills/` — 预置技能包
+- `examples/personal-assistant/src/skills/` — 预置技能包
   - `daily-briefing.ts` — 每日简报技能（新闻 + 日程 + 天气）
   - `email-digest.ts` — 邮件摘要技能
   - `meeting-notes.ts` — 会议纪要技能
@@ -417,10 +437,10 @@ M-PA-1 (Gateway 核心 + 飞书 + Web Chat)
 
 Phase A 的最小可行路径：
 
-1. **创建 `packages/im-gateway/`**：定义 `IMAdapter` SPI + `IMGateway` 主类
+1. **创建 `examples/personal-assistant/`**：作为独立示例应用目录
 2. **实现飞书 Adapter**：`@larksuiteoapi/node-sdk` 长连接模式
 3. **实现 Web Chat Adapter**：`ws` 库，用于本地开发测试
-4. **创建 `packages/service-connectors/`**：实现 `web_search` Tool
+4. **实现 `examples/personal-assistant/src/connectors/`**：先做 `web_search` Tool
 5. **组装 Agent**：`defineAgent()` + `registerTool(web_search)` + `registerTool(web_browser)`
 6. **跑通 E2E-1**：飞书消息 → Agent → 飞书回复
 
