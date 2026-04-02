@@ -1,4 +1,6 @@
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import type { OpenAICompatibleConfig } from "@neurocore/sdk-node";
 import type { Reasoner } from "@neurocore/protocol";
 import type { HeartbeatCheck, ScheduleEntry } from "../proactive/types.js";
 import type { ServiceConnectorConfig } from "../connectors/types.js";
@@ -46,49 +48,204 @@ export interface PersonalAssistantAppConfig {
   };
 }
 
+const ROOT_CONFIG_DIR = ".neurocore";
+const PERSONAL_ASSISTANT_CONFIG_DIR = join(ROOT_CONFIG_DIR, ".personal-assistant");
+const ROOT_LLM_CONFIG_PATH = join(ROOT_CONFIG_DIR, "llm.local.json");
+const PERSONAL_ASSISTANT_APP_CONFIG_FILES = [
+  join(PERSONAL_ASSISTANT_CONFIG_DIR, "app.local.json"),
+  join(PERSONAL_ASSISTANT_CONFIG_DIR, "config.local.json"),
+  join(PERSONAL_ASSISTANT_CONFIG_DIR, "config.json")
+] as const;
+const PERSONAL_ASSISTANT_LLM_CONFIG_FILES = [
+  join(PERSONAL_ASSISTANT_CONFIG_DIR, "llm.local.json"),
+  join(PERSONAL_ASSISTANT_CONFIG_DIR, "openai.local.json")
+] as const;
+
 export function createPersonalAssistantConfigFromEnv(
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  options: {
+    cwd?: string;
+  } = {}
 ): PersonalAssistantAppConfig {
+  const cwd = options.cwd ?? process.cwd();
+  const localConfig = loadLocalPersonalAssistantConfig(cwd);
+  const appConfig = localConfig.appConfig;
+  const openaiConfig = resolveOpenAIConfig(env, mergeOpenAIConfig(localConfig.llmConfig, appConfig.openai));
+  const feishuAppId = env.FEISHU_APP_ID ?? appConfig.feishu?.app_id;
+  const feishuAppSecret = env.FEISHU_APP_SECRET ?? appConfig.feishu?.app_secret;
+
   return {
-    db_path: env.PERSONAL_ASSISTANT_DB_PATH ?? join(process.cwd(), ".neurocore", "personal-assistant.sqlite"),
-    tenant_id: env.PERSONAL_ASSISTANT_TENANT_ID ?? "local",
+    db_path: env.PERSONAL_ASSISTANT_DB_PATH ?? appConfig.db_path ?? join(cwd, ROOT_CONFIG_DIR, "personal-assistant.sqlite"),
+    tenant_id: env.PERSONAL_ASSISTANT_TENANT_ID ?? appConfig.tenant_id ?? "local",
+    idle_timeout_ms: parseOptionalInt(env.PERSONAL_ASSISTANT_IDLE_TIMEOUT_MS) ?? appConfig.idle_timeout_ms,
+    reasoner: appConfig.reasoner,
     agent: {
-      id: env.PERSONAL_ASSISTANT_AGENT_ID ?? "personal-assistant",
-      name: env.PERSONAL_ASSISTANT_AGENT_NAME ?? "NeuroCore Assistant",
-      role: env.PERSONAL_ASSISTANT_AGENT_ROLE ?? "Personal assistant for messaging, search, and lightweight task execution.",
-      token_budget: parseOptionalInt(env.PERSONAL_ASSISTANT_TOKEN_BUDGET),
-      max_cycles: parseOptionalInt(env.PERSONAL_ASSISTANT_MAX_CYCLES),
-      approvers: env.PERSONAL_ASSISTANT_APPROVERS?.split(",").map((item) => item.trim()).filter(Boolean),
-      blocked_tools: env.PERSONAL_ASSISTANT_BLOCKED_TOOLS?.split(",").map((item) => item.trim()).filter(Boolean),
-      required_approval_tools: env.PERSONAL_ASSISTANT_APPROVAL_TOOLS?.split(",").map((item) => item.trim()).filter(Boolean)
+      id: env.PERSONAL_ASSISTANT_AGENT_ID ?? appConfig.agent?.id ?? "personal-assistant",
+      name: env.PERSONAL_ASSISTANT_AGENT_NAME ?? appConfig.agent?.name ?? "NeuroCore Assistant",
+      role: env.PERSONAL_ASSISTANT_AGENT_ROLE ?? appConfig.agent?.role ?? "Personal assistant for messaging, search, and lightweight task execution.",
+      token_budget: parseOptionalInt(env.PERSONAL_ASSISTANT_TOKEN_BUDGET) ?? appConfig.agent?.token_budget,
+      max_cycles: parseOptionalInt(env.PERSONAL_ASSISTANT_MAX_CYCLES) ?? appConfig.agent?.max_cycles,
+      approvers: parseOptionalList(env.PERSONAL_ASSISTANT_APPROVERS) ?? appConfig.agent?.approvers,
+      blocked_tools: parseOptionalList(env.PERSONAL_ASSISTANT_BLOCKED_TOOLS) ?? appConfig.agent?.blocked_tools,
+      required_approval_tools: parseOptionalList(env.PERSONAL_ASSISTANT_APPROVAL_TOOLS) ?? appConfig.agent?.required_approval_tools
     },
-    openai: env.OPENAI_API_KEY && env.OPENAI_BASE_URL && env.OPENAI_MODEL
-      ? {
-          apiUrl: env.OPENAI_BASE_URL,
-          bearerToken: env.OPENAI_API_KEY,
-          model: env.OPENAI_MODEL
-        }
-      : undefined,
+    openai: openaiConfig,
     connectors: {
       search: env.BRAVE_SEARCH_API_KEY
         ? {
             apiKey: env.BRAVE_SEARCH_API_KEY
           }
-        : undefined,
-      browser: {}
+        : appConfig.connectors?.search,
+      browser: appConfig.connectors?.browser ?? {},
+      email: appConfig.connectors?.email,
+      calendar: appConfig.connectors?.calendar
     },
     web_chat: {
-      enabled: env.WEB_CHAT_ENABLED !== "false",
-      host: env.WEB_CHAT_HOST ?? "127.0.0.1",
-      port: parseOptionalInt(env.WEB_CHAT_PORT) ?? 3301,
-      path: env.WEB_CHAT_PATH ?? "/chat"
+      enabled: parseOptionalBoolean(env.WEB_CHAT_ENABLED) ?? appConfig.web_chat?.enabled ?? true,
+      host: env.WEB_CHAT_HOST ?? appConfig.web_chat?.host ?? "127.0.0.1",
+      port: parseOptionalInt(env.WEB_CHAT_PORT) ?? appConfig.web_chat?.port ?? 3301,
+      path: env.WEB_CHAT_PATH ?? appConfig.web_chat?.path ?? "/chat"
     },
     feishu: {
-      enabled: Boolean(env.FEISHU_APP_ID && env.FEISHU_APP_SECRET),
-      app_id: env.FEISHU_APP_ID,
-      app_secret: env.FEISHU_APP_SECRET,
-      ws_url: env.FEISHU_WS_URL
+      enabled: parseOptionalBoolean(env.FEISHU_ENABLED) ?? appConfig.feishu?.enabled ?? Boolean(feishuAppId && feishuAppSecret),
+      app_id: feishuAppId,
+      app_secret: feishuAppSecret,
+      ws_url: env.FEISHU_WS_URL ?? appConfig.feishu?.ws_url
+    },
+    proactive: appConfig.proactive
+  };
+}
+
+function loadLocalPersonalAssistantConfig(cwd: string): {
+  appConfig: Partial<PersonalAssistantAppConfig>;
+  llmConfig?: PersonalAssistantAppConfig["openai"];
+} {
+  const appConfig = readFirstJsonObject<Partial<PersonalAssistantAppConfig>>(cwd, PERSONAL_ASSISTANT_APP_CONFIG_FILES) ?? {};
+  const llmConfig = readFirstOpenAICompatibleConfig(cwd, [
+    ...PERSONAL_ASSISTANT_LLM_CONFIG_FILES,
+    ROOT_LLM_CONFIG_PATH
+  ]);
+
+  return {
+    appConfig,
+    llmConfig
+  };
+}
+
+function resolveOpenAIConfig(
+  env: NodeJS.ProcessEnv,
+  fallback: PersonalAssistantAppConfig["openai"]
+): PersonalAssistantAppConfig["openai"] | undefined {
+  const apiUrl = env.OPENAI_BASE_URL ?? fallback?.apiUrl;
+  const bearerToken = env.OPENAI_API_KEY ?? fallback?.bearerToken;
+  const model = env.OPENAI_MODEL ?? fallback?.model;
+
+  if (!apiUrl || !bearerToken || !model) {
+    return undefined;
+  }
+
+  return {
+    apiUrl,
+    bearerToken,
+    model,
+    timeoutMs: parseOptionalInt(env.OPENAI_TIMEOUT_MS) ?? fallback?.timeoutMs,
+    headers: fallback?.headers
+  };
+}
+
+function mergeOpenAIConfig(
+  base: PersonalAssistantAppConfig["openai"],
+  override: PersonalAssistantAppConfig["openai"]
+): PersonalAssistantAppConfig["openai"] | undefined {
+  if (!base && !override) {
+    return undefined;
+  }
+
+  return {
+    apiUrl: override?.apiUrl ?? base?.apiUrl ?? "",
+    bearerToken: override?.bearerToken ?? base?.bearerToken ?? "",
+    model: override?.model ?? base?.model ?? "",
+    timeoutMs: override?.timeoutMs ?? base?.timeoutMs,
+    headers: override?.headers ?? base?.headers
+  };
+}
+
+function readFirstJsonObject<T>(cwd: string, relativePaths: readonly string[]): T | undefined {
+  for (const relativePath of relativePaths) {
+    const resolvedPath = resolve(cwd, relativePath);
+    if (!existsSync(resolvedPath)) {
+      continue;
     }
+
+    return readJsonObject<T>(resolvedPath);
+  }
+
+  return undefined;
+}
+
+function readFirstOpenAICompatibleConfig(
+  cwd: string,
+  relativePaths: readonly string[]
+): PersonalAssistantAppConfig["openai"] | undefined {
+  for (const relativePath of relativePaths) {
+    const resolvedPath = resolve(cwd, relativePath);
+    if (!existsSync(resolvedPath)) {
+      continue;
+    }
+
+    return readOpenAICompatibleConfig(resolvedPath);
+  }
+
+  return undefined;
+}
+
+function readJsonObject<T>(filePath: string): T {
+  let raw: string;
+  try {
+    raw = readFileSync(filePath, "utf8");
+  } catch (error) {
+    throw new Error(
+      `Failed to read personal assistant config at ${filePath}: ${formatErrorMessage(error)}`
+    );
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("top-level value must be an object");
+    }
+    return parsed as T;
+  } catch (error) {
+    throw new Error(
+      `Failed to parse personal assistant config at ${filePath}: ${formatErrorMessage(error)}`
+    );
+  }
+}
+
+function readOpenAICompatibleConfig(filePath: string): PersonalAssistantAppConfig["openai"] {
+  const parsed = readJsonObject<Partial<OpenAICompatibleConfig> & { provider?: string }>(filePath);
+
+  if (parsed.provider !== "openai-compatible") {
+    throw new Error(
+      `Invalid model config at ${filePath}: "provider" must be "openai-compatible".`
+    );
+  }
+  if (!parsed.apiUrl) {
+    throw new Error(`Invalid model config at ${filePath}: "apiUrl" is required.`);
+  }
+  if (!parsed.bearerToken) {
+    throw new Error(`Invalid model config at ${filePath}: "bearerToken" is required.`);
+  }
+  if (!parsed.model) {
+    throw new Error(`Invalid model config at ${filePath}: "model" is required.`);
+  }
+
+  return {
+    apiUrl: parsed.apiUrl,
+    bearerToken: parsed.bearerToken,
+    model: parsed.model,
+    timeoutMs: parsed.timeoutMs,
+    headers: parsed.headers
   };
 }
 
@@ -98,4 +255,31 @@ function parseOptionalInt(value: string | undefined): number | undefined {
   }
   const parsed = parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseOptionalBoolean(value: string | undefined): boolean | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+
+  return undefined;
+}
+
+function parseOptionalList(value: string | undefined): string[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

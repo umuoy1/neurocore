@@ -1,7 +1,9 @@
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import type { IMAdapter } from "./im-adapter.js";
 import type { IMAdapterConfig, IMPlatform, MessageContent, UnifiedMessage } from "../types.js";
+import { WEB_CHAT_PAGE_HTML } from "./web-chat-page.js";
 
 interface WebChatConfig {
   host: string;
@@ -12,6 +14,7 @@ interface WebChatConfig {
 export class WebChatAdapter implements IMAdapter {
   public readonly platform: IMPlatform = "web";
 
+  private httpServer?: Server;
   private server?: WebSocketServer;
   private handler?: (msg: UnifiedMessage) => void;
   private readonly socketsByChatId = new Map<string, WebSocket>();
@@ -23,9 +26,12 @@ export class WebChatAdapter implements IMAdapter {
 
   public async start(config: IMAdapterConfig): Promise<void> {
     const resolved = this.resolveConfig(config);
+    this.httpServer = createServer((request, response) => {
+      this.handleHttpRequest(request, response, resolved);
+    });
+
     this.server = new WebSocketServer({
-      host: resolved.host,
-      port: resolved.port,
+      server: this.httpServer,
       path: resolved.path
     });
 
@@ -47,6 +53,14 @@ export class WebChatAdapter implements IMAdapter {
         this.chatIdBySocket.delete(socket);
       });
     });
+
+    await new Promise<void>((resolve, reject) => {
+      this.httpServer?.once("error", reject);
+      this.httpServer?.listen(resolved.port, resolved.host, () => {
+        this.httpServer?.off("error", reject);
+        resolve();
+      });
+    });
   }
 
   public async stop(): Promise<void> {
@@ -63,6 +77,15 @@ export class WebChatAdapter implements IMAdapter {
       }
       this.server.close(() => resolve());
       this.server = undefined;
+    });
+
+    await new Promise<void>((resolve) => {
+      if (!this.httpServer) {
+        resolve();
+        return;
+      }
+      this.httpServer.close(() => resolve());
+      this.httpServer = undefined;
     });
   }
 
@@ -117,6 +140,44 @@ export class WebChatAdapter implements IMAdapter {
     const port = parseInt(config.auth.port ?? "3301", 10);
     const path = config.auth.path ?? "/chat";
     return { host, port, path };
+  }
+
+  private handleHttpRequest(
+    request: IncomingMessage,
+    response: ServerResponse,
+    config: WebChatConfig
+  ): void {
+    const requestUrl = new URL(request.url ?? "/", `http://${request.headers.host ?? `${config.host}:${config.port}`}`);
+
+    if (request.method !== "GET") {
+      response.writeHead(405, { "content-type": "text/plain; charset=utf-8" });
+      response.end("Method Not Allowed");
+      return;
+    }
+
+    if (requestUrl.pathname === "/" || requestUrl.pathname === "/index.html") {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(WEB_CHAT_PAGE_HTML);
+      return;
+    }
+
+    if (requestUrl.pathname === "/health") {
+      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.end(JSON.stringify({ ok: true, platform: "web", path: config.path }));
+      return;
+    }
+
+    if (requestUrl.pathname === config.path) {
+      response.writeHead(426, {
+        "content-type": "text/plain; charset=utf-8",
+        "sec-websocket-version": "13"
+      });
+      response.end(`Upgrade Required. Connect via WebSocket at ${config.path}.`);
+      return;
+    }
+
+    response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    response.end("Not Found");
   }
 
   private toUnifiedMessage(chatId: string, senderId: string, raw: RawData): UnifiedMessage {
