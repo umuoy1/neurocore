@@ -9,7 +9,7 @@ import type {
   UserInput
 } from "@neurocore/protocol";
 import { SessionStateConflictError } from "@neurocore/runtime-core";
-import type { AgentBuilder, AgentSessionHandle } from "@neurocore/sdk-core";
+import { InProcessAgentMesh, type AgentBuilder, type AgentSessionHandle } from "@neurocore/sdk-core";
 import { EvalRunner, createSessionExecutor, type EvalCase, type EvalRunReport, compareEvalRuns } from "@neurocore/eval-core";
 import type { Authenticator, AuthContext } from "./auth.js";
 import { InMemoryEvalStore, type EvalStore } from "./eval-store.js";
@@ -95,6 +95,8 @@ export class NeuroRuntimeServer {
   private readonly sseConnections = new Set<ServerResponse>();
   private readonly webhookDeliveryLog: WebhookDeliveryRecord[] = [];
   private wsServer: WsServer | null = null;
+  private multiAgentMesh: InProcessAgentMesh | null = null;
+  private multiAgentConfigured = false;
   private static readonly MAX_DELIVERY_LOG = 1000;
   private totalSessionsCreated = 0;
   private totalCyclesExecuted = 0;
@@ -156,10 +158,12 @@ export class NeuroRuntimeServer {
 
   public registerAgent(agent: AgentBuilder): this {
     this.agents.set(agent.getProfile().agent_id, agent);
+    this.multiAgentConfigured = false;
     return this;
   }
 
   public async listen(): Promise<{ host: string; port: number; url: string }> {
+    await this.ensureMultiAgentMesh();
     await new Promise<void>((resolve, reject) => {
       this.server.once("error", reject);
       this.server.listen(this.port, this.host, () => {
@@ -196,6 +200,9 @@ export class NeuroRuntimeServer {
         resolve();
       });
     });
+    await this.multiAgentMesh?.close();
+    this.multiAgentMesh = null;
+    this.multiAgentConfigured = false;
   }
 
   private async authenticateRequest(req: IncomingMessage, url: URL): Promise<AuthContext | undefined> {
@@ -750,6 +757,7 @@ export class NeuroRuntimeServer {
   }
 
   private async createSession(agentId: string, payload: Record<string, unknown>, authContext?: AuthContext): Promise<ManagedSession> {
+    await this.ensureMultiAgentMesh();
     const agent = this.agents.get(agentId);
     if (!agent) {
       throw new HttpError(404, "agent_not_found", `Unknown agent: ${agentId}`);
@@ -793,6 +801,7 @@ export class NeuroRuntimeServer {
   }
 
   private async runEval(agentId: string, cases: EvalCase[], authContext?: AuthContext): Promise<EvalRunReport> {
+    await this.ensureMultiAgentMesh();
     const agent = this.agents.get(agentId);
     if (!agent) {
       throw new HttpError(404, "agent_not_found", `Unknown agent: ${agentId}`);
@@ -847,6 +856,30 @@ export class NeuroRuntimeServer {
     }
 
     return undefined;
+  }
+
+  private async ensureMultiAgentMesh(): Promise<void> {
+    if (this.multiAgentConfigured) {
+      return;
+    }
+
+    if (this.agents.size === 0) {
+      this.multiAgentConfigured = true;
+      return;
+    }
+
+    const shouldEnableMesh =
+      this.agents.size > 1 ||
+      [...this.agents.values()].some((agent) => agent.getProfile().multi_agent_config?.enabled);
+
+    if (!shouldEnableMesh) {
+      this.multiAgentConfigured = true;
+      return;
+    }
+
+    this.multiAgentMesh ??= new InProcessAgentMesh();
+    await this.multiAgentMesh.registerAgents(this.agents.values());
+    this.multiAgentConfigured = true;
   }
 
   private requireApproval(approvalId: string): ApprovalRequest {

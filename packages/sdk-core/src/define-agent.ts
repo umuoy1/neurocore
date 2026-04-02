@@ -11,7 +11,7 @@ import type {
   UserInput,
   Tool
 } from "@neurocore/protocol";
-import { AgentRuntime } from "@neurocore/runtime-core";
+import { AgentRuntime, type AgentRuntimeOptions } from "@neurocore/runtime-core";
 import { ToolPolicyProvider } from "@neurocore/policy-core";
 import { AgentSessionHandle } from "./session-handle.js";
 
@@ -24,6 +24,24 @@ export interface DefineAgentOptions {
   domain?: string;
 }
 
+export interface AgentRuntimeInfrastructure
+  extends Partial<
+    Pick<
+      AgentRuntimeOptions,
+      | "deviceRegistry"
+      | "worldStateGraph"
+      | "perceptionPipeline"
+      | "forwardSimulator"
+      | "agentRegistry"
+      | "interAgentBus"
+      | "taskDelegator"
+      | "distributedGoalManager"
+      | "agentLifecycleManager"
+      | "sharedStateStore"
+      | "coordinationStrategy"
+    >
+  > {}
+
 export class AgentBuilder {
   private readonly profile: AgentProfile;
   private reasoner?: Reasoner;
@@ -33,6 +51,7 @@ export class AgentBuilder {
   private readonly skillProviders: SkillProvider[] = [];
   private readonly tools: Tool[] = [];
   private runtimeStateStoreFactory?: () => RuntimeStateStore;
+  private runtimeInfrastructure: AgentRuntimeInfrastructure = {};
 
   public constructor(options: DefineAgentOptions) {
     this.profile = {
@@ -84,6 +103,15 @@ export class AgentBuilder {
       ...this.profile.runtime_config,
       ...config,
       ...(nextToolExecution ? { tool_execution: nextToolExecution } : {})
+    };
+    return this;
+  }
+
+  public configureMultiAgent(options: Partial<NonNullable<AgentProfile["multi_agent_config"]>>): this {
+    this.profile.multi_agent_config = {
+      enabled: this.profile.multi_agent_config?.enabled ?? false,
+      ...this.profile.multi_agent_config,
+      ...options
     };
     return this;
   }
@@ -171,6 +199,14 @@ export class AgentBuilder {
     return this;
   }
 
+  public useRuntimeInfrastructure(infrastructure: AgentRuntimeInfrastructure): this {
+    this.runtimeInfrastructure = {
+      ...this.runtimeInfrastructure,
+      ...infrastructure
+    };
+    return this;
+  }
+
   public createSession(command: CreateSessionCommand): AgentSessionHandle {
     const runtime = this.createRuntime();
     const session = runtime.createSession(this.profile, command);
@@ -213,7 +249,8 @@ export class AgentBuilder {
       predictors: this.predictors,
       policyProviders: this.policyProviders,
       skillProviders: this.skillProviders,
-      stateStore: this.runtimeStateStoreFactory?.()
+      stateStore: this.runtimeStateStoreFactory?.(),
+      ...this.runtimeInfrastructure
     });
     for (const tool of this.tools) {
       runtime.tools.register(tool);

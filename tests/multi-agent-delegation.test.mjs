@@ -158,6 +158,121 @@ test("DefaultTaskDelegator", async (t) => {
     await bus.close();
   });
 
+  await t.test("auction executes selected winner", async () => {
+    const registry = new InMemoryAgentRegistry();
+    const bus = new LocalInterAgentBus();
+
+    await registry.register(makeDescriptor({
+      instance_id: "inst-b",
+      agent_id: "agent-b",
+      capabilities: [{ name: "data_analysis", proficiency: 0.75 }]
+    }));
+    await registry.register(makeDescriptor({
+      instance_id: "inst-c",
+      agent_id: "agent-c",
+      capabilities: [{ name: "data_analysis", proficiency: 0.95 }]
+    }));
+
+    bus.registerHandler("inst-b", async (msg) => {
+      if (msg.payload.type === "auction_request") {
+        return {
+          ...msg,
+          message_id: "resp-auction-b",
+          pattern: "response",
+          source_agent_id: "agent-b",
+          source_instance_id: "inst-b",
+          target_agent_id: msg.source_instance_id,
+          payload: {
+            bid: {
+              agent_id: "agent-b",
+              instance_id: "inst-b",
+              estimated_duration_ms: 3000,
+              estimated_cost: 0.05,
+              confidence: 0.7
+            }
+          }
+        };
+      }
+
+      return {
+        ...msg,
+        message_id: "resp-b",
+        pattern: "response",
+        source_agent_id: "agent-b",
+        source_instance_id: "inst-b",
+        target_agent_id: msg.source_instance_id,
+        payload: {
+          response: {
+            delegation_id: msg.correlation_id,
+            status: "completed",
+            assigned_agent_id: "agent-b",
+            assigned_instance_id: "inst-b",
+            result: {
+              status: "success",
+              summary: "B done"
+            }
+          }
+        }
+      };
+    });
+
+    bus.registerHandler("inst-c", async (msg) => {
+      if (msg.payload.type === "auction_request") {
+        return {
+          ...msg,
+          message_id: "resp-auction-c",
+          pattern: "response",
+          source_agent_id: "agent-c",
+          source_instance_id: "inst-c",
+          target_agent_id: msg.source_instance_id,
+          payload: {
+            bid: {
+              agent_id: "agent-c",
+              instance_id: "inst-c",
+              estimated_duration_ms: 1500,
+              estimated_cost: 0.03,
+              confidence: 0.95
+            }
+          }
+        };
+      }
+
+      return {
+        ...msg,
+        message_id: "resp-c",
+        pattern: "response",
+        source_agent_id: "agent-c",
+        source_instance_id: "inst-c",
+        target_agent_id: msg.source_instance_id,
+        payload: {
+          response: {
+            delegation_id: msg.correlation_id,
+            status: "completed",
+            assigned_agent_id: "agent-c",
+            assigned_instance_id: "inst-c",
+            result: {
+              status: "success",
+              summary: "C done"
+            }
+          }
+        }
+      };
+    });
+
+    const delegator = new DefaultTaskDelegator(registry, bus);
+    const response = await delegator.delegate(makeRequest({
+      mode: "auction",
+      target_agent_id: undefined,
+      target_capabilities: ["data_analysis"]
+    }));
+
+    assert.equal(response.status, "completed");
+    assert.equal(response.assigned_agent_id, "agent-c");
+    assert.equal(response.selected_bid?.agent_id, "agent-c");
+    assert.equal(response.result?.summary, "C done");
+    await bus.close();
+  });
+
   await t.test("cancel does not throw", async () => {
     const registry = new InMemoryAgentRegistry();
     const bus = new LocalInterAgentBus();

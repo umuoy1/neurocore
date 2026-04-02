@@ -36,14 +36,47 @@ export class AuctionManager {
       return { delegation_id: request.delegation_id, status: "timeout", error: "No valid bids", bids };
     }
 
-    return {
-      delegation_id: request.delegation_id,
-      status: "accepted",
-      assigned_agent_id: winner.agent_id,
-      assigned_instance_id: winner.instance_id,
-      bids,
-      selected_bid: winner
-    };
+    try {
+      const response = await this.bus.send({
+        message_id: `msg-auction-exec-${request.delegation_id}-${winner.instance_id}`,
+        correlation_id: request.delegation_id,
+        trace_id: request.delegation_id,
+        pattern: "request",
+        source_agent_id: request.source_agent_id,
+        source_instance_id: request.source_agent_id,
+        target_agent_id: winner.instance_id,
+        payload: { type: "delegation_request", request },
+        created_at: new Date().toISOString(),
+        ttl_ms: request.timeout_ms
+      });
+
+      const delegated = (response.payload as { response?: DelegationResponse }).response;
+      if (delegated) {
+        return {
+          ...delegated,
+          bids,
+          selected_bid: winner
+        };
+      }
+
+      return {
+        delegation_id: request.delegation_id,
+        status: "completed",
+        assigned_agent_id: winner.agent_id,
+        assigned_instance_id: winner.instance_id,
+        bids,
+        selected_bid: winner,
+        result: response.payload.result as DelegationResponse["result"]
+      };
+    } catch {
+      return {
+        delegation_id: request.delegation_id,
+        status: "timeout",
+        error: "Winning agent did not complete the delegated task in time",
+        bids,
+        selected_bid: winner
+      };
+    }
   }
 
   private async collectBids(

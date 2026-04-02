@@ -44,7 +44,7 @@ export class DefaultTaskDelegator implements TaskDelegator {
     if (!request.target_agent_id) {
       return { delegation_id: request.delegation_id, status: "rejected", error: "No target_agent_id for unicast" };
     }
-    const agent = await this.registry.get(request.target_agent_id);
+    const agent = await this.resolveTarget(request.target_agent_id);
     if (!agent || (agent.status !== "idle" && agent.status !== "busy")) {
       return { delegation_id: request.delegation_id, status: "rejected", error: "Target agent unavailable" };
     }
@@ -56,7 +56,7 @@ export class DefaultTaskDelegator implements TaskDelegator {
         pattern: "request",
         source_agent_id: request.source_agent_id,
         source_instance_id: request.source_agent_id,
-        target_agent_id: request.target_agent_id,
+        target_agent_id: agent.instance_id,
         payload: { type: "delegation_request", request },
         created_at: new Date().toISOString(),
         ttl_ms: request.timeout_ms
@@ -64,7 +64,8 @@ export class DefaultTaskDelegator implements TaskDelegator {
       return (response.payload as { response: DelegationResponse }).response ?? {
         delegation_id: request.delegation_id,
         status: "completed",
-        assigned_agent_id: request.target_agent_id,
+        assigned_agent_id: agent.agent_id,
+        assigned_instance_id: agent.instance_id,
         result: response.payload.result as DelegationResponse["result"]
       };
     } catch {
@@ -103,6 +104,10 @@ export class DefaultTaskDelegator implements TaskDelegator {
     if (!first) {
       return { delegation_id: request.delegation_id, status: "timeout", error: "No agent accepted" };
     }
+    const delegated = (first.response.payload as { response?: DelegationResponse }).response;
+    if (delegated) {
+      return delegated;
+    }
     return {
       delegation_id: request.delegation_id,
       status: "completed",
@@ -116,5 +121,15 @@ export class DefaultTaskDelegator implements TaskDelegator {
     const { AuctionManager } = await import("./auction-manager.js");
     const auctionManager = new AuctionManager(this.registry, this.bus);
     return auctionManager.runAuction(request);
+  }
+
+  private async resolveTarget(target: string): Promise<AgentDescriptor | undefined> {
+    const direct = await this.registry.get(target);
+    if (direct) {
+      return direct;
+    }
+
+    const all = await this.registry.listAll();
+    return all.find((agent) => agent.agent_id === target);
   }
 }

@@ -437,7 +437,7 @@ export class AgentRuntime {
         };
       }
 
-      currentInput = observationToInput(step.observation);
+      currentInput = observationToInput(step.observation, step.selectedAction?.action_type);
     }
 
     const finalSession = this.updateSessionState(sessionId, "failed");
@@ -1227,7 +1227,8 @@ export class AgentRuntime {
         source_agent_id: profile.agent_id,
         source_session_id: sessionId,
         source_cycle_id: cycle.cycleId,
-        source_goal_id: "",
+        source_goal_id: this.goals.active(sessionId)[0]?.goal_id ?? "",
+        tenant_id: session.tenant_id,
         mode: (args.delegation_mode as import("@neurocore/multi-agent").DelegationMode) ?? "unicast",
         target_agent_id: args.target_agent_id as string | undefined,
         target_capabilities: args.target_capabilities as string[] | undefined,
@@ -1237,9 +1238,17 @@ export class AgentRuntime {
           goal_type: "task",
           priority: 1
         },
-        timeout_ms: (args.timeout_ms as number) ?? profile.multi_agent_config?.delegation_timeout_ms ?? 60_000,
-        max_depth: profile.multi_agent_config?.max_delegation_depth ?? 3,
-        current_depth: (args.current_depth as number) ?? 0,
+        timeout_ms:
+          (args.timeout_ms as number) ??
+          ((args.delegation_mode as import("@neurocore/multi-agent").DelegationMode) === "auction"
+            ? profile.multi_agent_config?.auction_timeout_ms
+            : profile.multi_agent_config?.delegation_timeout_ms) ??
+          60_000,
+        max_depth: (args.max_depth as number) ?? profile.multi_agent_config?.max_delegation_depth ?? 3,
+        current_depth:
+          (args.current_depth as number) ??
+          getMetadataNumber(input.metadata, "delegation_depth") ??
+          0,
         context: args.context as Record<string, unknown> | undefined,
         created_at: nowIso()
       };
@@ -1713,27 +1722,60 @@ function buildRuntimeActionExecution(
 }
 
 function shouldContinue(step: AgentRunResult): boolean {
-  return step.sessionState === "waiting" && step.selectedAction?.action_type === "call_tool" && Boolean(step.observation);
+  if (step.sessionState !== "waiting" || !step.observation) {
+    return false;
+  }
+
+  if (step.selectedAction?.action_type === "call_tool") {
+    return true;
+  }
+
+  if (step.selectedAction?.action_type === "delegate") {
+    const status = step.observation.structured_payload?.delegation_status;
+    return (
+      status === "completed" ||
+      status === "failed" ||
+      status === "rejected" ||
+      status === "timeout"
+    );
+  }
+
+  return false;
 }
 
-function observationToInput(observation?: Observation): UserInput {
+function observationToInput(
+  observation?: Observation,
+  actionType: CandidateAction["action_type"] = "call_tool"
+): UserInput {
   if (!observation) {
     throw new Error("Cannot continue without an observation to feed into the next cycle.");
   }
 
+  const isDelegation = actionType === "delegate";
+  const delegationPayload = observation.structured_payload;
+
   return {
     input_id: `inp_${observation.observation_id}`,
-    content: `Tool observation: ${observation.summary}`,
+    content: `${isDelegation ? "Delegation" : "Tool"} observation: ${observation.summary}`,
     created_at: observation.created_at,
     metadata: {
       sourceObservationId: observation.observation_id,
       sourceType: observation.source_type,
       sourceObservationStatus: observation.status,
+      sourceActionType: actionType,
       sourceToolName:
-        typeof observation.structured_payload?.tool_name === "string"
-          ? observation.structured_payload.tool_name
+        typeof delegationPayload?.tool_name === "string"
+          ? delegationPayload.tool_name
           : undefined,
-      sourceActionId: observation.source_action_id
+      sourceActionId: observation.source_action_id,
+      delegation_status:
+        typeof delegationPayload?.delegation_status === "string"
+          ? delegationPayload.delegation_status
+          : undefined,
+      assigned_agent_id:
+        typeof delegationPayload?.assigned_agent_id === "string"
+          ? delegationPayload.assigned_agent_id
+          : undefined
     }
   };
 }
@@ -1747,11 +1789,23 @@ function derivePendingInput(
   }
 
   const lastRecord = records.at(-1);
-  if (!lastRecord?.observation || lastRecord.selected_action?.action_type !== "call_tool") {
+  const lastActionType = lastRecord?.selected_action?.action_type;
+  if (
+    !lastRecord?.observation ||
+    (lastActionType !== "call_tool" && lastActionType !== "delegate")
+  ) {
     return undefined;
   }
 
-  return observationToInput(lastRecord.observation);
+  return observationToInput(lastRecord.observation, lastActionType);
+}
+
+function getMetadataNumber(
+  metadata: Record<string, unknown> | undefined,
+  key: string
+): number | undefined {
+  const value = metadata?.[key];
+  return typeof value === "number" ? value : undefined;
 }
 
 function buildMemoryContext(

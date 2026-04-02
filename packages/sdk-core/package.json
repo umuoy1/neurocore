@@ -24,6 +24,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@neurocore/multi-agent": "^0.1.0",
     "@neurocore/policy-core": "^0.1.0",
     "@neurocore/protocol": "^0.1.0",
     "@neurocore/runtime-core": "^0.1.0"

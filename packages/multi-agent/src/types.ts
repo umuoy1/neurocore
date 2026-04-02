@@ -67,6 +67,7 @@ export interface DelegationRequest {
   source_session_id: string;
   source_cycle_id: string;
   source_goal_id: string;
+  tenant_id?: string;
   mode: DelegationMode;
   target_agent_id?: string;
   target_capabilities?: string[];

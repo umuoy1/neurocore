@@ -1,10 +1,15 @@
 # MVP 交付记录
 
 > 当前进度跟踪已迁移至 [`docs/README.md`](../README.md)，本文档为历史交付记录。
+>
+> 2026-04-02 说明：
+> - 本文只保留对 MVP 阶段的历史验收记录，不再作为当前项目状态判断依据。
+> - “测试全部通过”与“全部 post-MVP 目标已交付”等表述已失效。
+> - 当前真实代码状态请参见 [`docs/README.md`](../README.md) 与 [`03_code-audit-checklist.md`](./03_code-audit-checklist.md)。
 
 ## 交付总结
 
-MVP 及全部 post-MVP 目标已全部交付。255 个测试全部通过，六模块整体完成度 ~90%。
+MVP 核心验收条件已满足：开发者可定义 Agent，Session 可创建/恢复/完成，Runtime 可执行标准认知周期，并具备基础工具、记忆、门控、回放与评估能力。
 
 ## MVP 验收条件
 
