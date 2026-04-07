@@ -184,18 +184,32 @@ CREATE TABLE procedural_skill_triggers (
 
 ## 5. 当前代码批次范围
 
+当前进展：
+
+- 已完成 `Phase 0`：设计文档、`SQLite Working / Episodic / Semantic / Skill` store 骨架、最小 CRUD 验证
+- 已开始并完成 `Phase 1` 第一批：`WorkingMemoryProvider` 与 `EpisodicMemoryProvider` 的内存主读 + SQL 双写写路径
+- 已开始并完成 `Phase 1` 第二批 / `Phase 2` 最小版本：`AgentRuntime` / `defineAgent()` 已可显式注入 SQLite memory persistence，且配置后 `working / episodic` 读路径切换为优先读取 SQL
+- 已开始并完成 `Phase 2` 扩展：`SemanticMemoryProvider` 已可直接复用 SQLite persistence；`createSqliteMemoryPersistence()` 现已同时提供 `semantic` 与 `skillStore`，`AgentRuntime` 可在不显式传入 `skillStore` 的情况下恢复 SQLite-backed procedural skills
+- 已开始并完成 `Phase 4` 第一批：配置 SQLite memory persistence 时，`RuntimeSessionSnapshot` 已不再强制携带 `working_memory / episodes / semantic_memory`，session reload 会优先从 SQL 记忆库恢复
+- 已开始并完成 `Phase 4` 第二批：当 `episodic + skillStore` 都走 SQLite persistence 时，`RuntimeSessionSnapshot` 也不再携带 `procedural_memory`；lazy hydrate 会重建 procedural 的 session/pattern 索引，但不会在恢复阶段错误下调 tenant 级 skill
+- 已开始并完成 `Phase 5` 第一批：新增 legacy `runtime_sessions.snapshot_json` 到 normalized memory tables 的 backfill helper，并通过 `memory_backfill_status` 保证只执行一次，不会在后续 runtime 初始化时反复覆盖 SQL 记忆库
+- 已开始并完成 `Phase 6` 第一批：配置 SQLite memory persistence 时，`SessionCheckpoint` 也允许省略 `working / episodic / semantic / procedural` 四层记忆；`restoreSession()` 会优先读取 checkpoint 自身，缺失时回退到 SQL memory store
+- 已开始并完成 `Phase 6` 第二批：新增独立 `SqliteCheckpointStore`；配置后 `RuntimeSessionSnapshot` 不再携带 `checkpoints`，checkpoint 资产改为独立 SQLite 表持久化，runtime / SDK 均已可显式接线并在重启后恢复 checkpoint 列表
+
 本批次只做：
 
 - 设计文档定稿
 - `SQLite Working / Episodic / Semantic / Skill` store 骨架
 - 对外导出与最小 CRUD 验证
-
-本批次不做：
-
-- runtime 主链路切读
-- provider 双写
-- snapshot 瘦身
-- migration backfill
+- `working / episodic` provider 的 `append/write/replace/delete` 双写
+- runtime / SDK 对 SQLite memory persistence 的显式接线
+- 配置 persistence 时 `working / episodic` provider 的 SQL 读路径
+- `semantic` provider 的 SQLite persistence 接线
+- `procedural` 的 SQLite `skillStore` 接线与 runtime 重载验证
+- `RuntimeSessionSnapshot` 的进一步瘦身，去除 `working / episodic / semantic / procedural` 的冗余快照字段
+- legacy snapshot 到 normalized SQL memory tables 的一次性 backfill
+- `SessionCheckpoint` 的首批瘦身，以及基于 SQL memory store 的 slim checkpoint restore
+- 独立 `SqliteCheckpointStore` 与 `RuntimeSessionSnapshot.checkpoints` 的瘦身
 
 ---
 
@@ -205,11 +219,14 @@ CREATE TABLE procedural_skill_triggers (
 - `SqliteSkillStore` 可完成 `save / get / list / findByTrigger / delete`
 - 现有 `npm run build` 不回退
 - 现有记忆系统主链路行为保持不变
+- 配置 SQLite memory persistence 时，`RuntimeSessionSnapshot` 与 `SessionCheckpoint` 都可省略四层记忆字段且仍能完成 restore
+- 配置独立 `SqliteCheckpointStore` 时，`RuntimeSessionSnapshot` 可省略 `checkpoints` 字段，且 runtime / SDK 重启后仍可读取 checkpoint 列表
 
 ---
 
 ## 7. 风险与约束
 
-- 当前 `semantic` 和 `procedural` 仍保留部分过渡态 JSON 字段，这是为了兼容现有 restore 语义，不是最终形态
+- 当前 `semantic` 和 `procedural` 在未启用 SQL persistence 的路径上仍保留 JSON 快照，这是兼容旧 restore 语义的过渡形态
+- `SessionCheckpoint` 已支持 slim 形态，且可选迁移到独立 SQLite 表；但默认 `InMemoryCheckpointStore` 路径仍会把 checkpoint 资产挂在 runtime snapshot 下，旧快照兼容路径暂未删除
 - 多 runtime 并发写同一 SQL 记忆库仍是后续问题，本设计暂不引入 CAS 或分布式锁
 - 记忆库 schema 已开始替代 snapshot 责任，但切读前仍属于“并存态”

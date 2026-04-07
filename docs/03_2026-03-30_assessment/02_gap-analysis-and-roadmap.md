@@ -58,7 +58,7 @@
 - Console API 基础层未完全统一，存在 `/v1/v1/*` 路径重复和若干返回结构不一致问题；当前只做整理和校准，不把其视为 M11 全量交付。
 - `WsServer` 已实现但仍需完成 `runtime-server` 启动接线、鉴权协商与前端订阅联调，这部分作为未来 M11 的输入资产保留。
 - 多 Agent 的 `delegate` 结果回流尚未与 `call_tool` 路径形成等价自动续跑闭环，这一点影响 M9 的“完成”口径。
-- `docs/05_2026-04-01_memory-evolution/` 是下一阶段主线，当前已启动 SQL 记忆库迁移设计与首批 SQLite store 骨架落地，后续继续推进双写、切读和 snapshot 瘦身。
+- `docs/05_2026-04-01_memory-evolution/` 是下一阶段主线，当前已启动 SQL 记忆库迁移设计与首批 SQLite store 骨架落地，并已打通四层记忆的 SQLite persistence 接线、runtime/SDK 显式接线、procedural skillStore 重载、`RuntimeSessionSnapshot` 与 `SessionCheckpoint` 的四层记忆瘦身、legacy snapshot 一次性 backfill，以及独立 `SqliteCheckpointStore`，后续继续推进默认路径切换到 SQL-first restore 和旧 JSON 恢复分支收口。
 
 ## 关键风险（历史记录）
 
