@@ -112,6 +112,7 @@ export interface MemoryConfig {
   procedural_memory_enabled?: boolean;
   write_policy: "immediate" | "deferred" | "hybrid";
   retrieval_top_k?: number;
+  working_memory_max_entries?: number;
   consolidation_enabled?: boolean;
 }
 
@@ -503,6 +504,9 @@ export interface InputContract {
 export interface SkillExecutionTemplate {
   kind: "reasoning" | "workflow" | "toolchain";
   steps?: string[];
+  tool_name?: string;
+  action_type?: ActionType;
+  default_args?: JsonObject;
 }
 
 export interface FallbackPolicy {
@@ -610,12 +614,31 @@ export interface SessionReplay {
   final_output?: string;
 }
 
+export interface ProceduralMemorySnapshot {
+  skills: SkillDefinition[];
+}
+
+export interface SemanticMemoryContribution {
+  tenant_id: string;
+  session_id: string;
+  pattern_key: string;
+  summary: string;
+  source_episode_ids: string[];
+  last_updated_at: Timestamp;
+}
+
+export interface SemanticMemorySnapshot {
+  contributions: SemanticMemoryContribution[];
+}
+
 export interface SessionCheckpoint {
   checkpoint_id: string;
   session: AgentSession;
   goals: Goal[];
   working_memory: WorkingMemoryRecord[];
   episodes: Episode[];
+  semantic_memory?: SemanticMemorySnapshot;
+  procedural_memory?: ProceduralMemorySnapshot;
   traces: CycleTraceRecord[];
   pending_input?: UserInput;
   created_at: Timestamp;
@@ -638,6 +661,8 @@ export interface RuntimeSessionSnapshot {
   goals: Goal[];
   working_memory: WorkingMemoryRecord[];
   episodes: Episode[];
+  semantic_memory?: SemanticMemorySnapshot;
+  procedural_memory?: ProceduralMemorySnapshot;
   trace_records: CycleTraceRecord[];
   approvals: ApprovalRequest[];
   pending_approvals: PendingApprovalContextSnapshot[];

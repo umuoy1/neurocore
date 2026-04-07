@@ -15,11 +15,12 @@ export class WorkingMemoryStore {
 
   public constructor(private readonly maxEntries?: number) {}
 
-  public append(sessionId: string, entry: WorkingMemoryEntry): void {
+  public append(sessionId: string, entry: WorkingMemoryEntry, maxEntriesOverride?: number): void {
     const current = this.entries.get(sessionId) ?? [];
     current.push(entry);
-    if (this.maxEntries && current.length > this.maxEntries) {
-      current.splice(0, current.length - this.maxEntries);
+    const limit = maxEntriesOverride ?? this.maxEntries;
+    if (limit && current.length > limit) {
+      current.splice(0, current.length - limit);
     }
     this.entries.set(sessionId, current);
   }
@@ -55,16 +56,16 @@ export class WorkingMemoryProvider implements MemoryProvider {
     this.store = new WorkingMemoryStore(maxEntries);
   }
 
-  public append(sessionId: string, entry: WorkingMemoryEntry): void {
-    this.store.append(sessionId, entry);
+  public append(sessionId: string, entry: WorkingMemoryEntry, maxEntriesOverride?: number): void {
+    this.store.append(sessionId, entry, maxEntriesOverride);
   }
 
-  public appendObservation(sessionId: string, observation: Observation): void {
+  public appendObservation(sessionId: string, observation: Observation, maxEntriesOverride?: number): void {
     this.append(sessionId, {
       memory_id: observation.observation_id,
       summary: observation.summary,
       relevance: 1
-    });
+    }, maxEntriesOverride);
   }
 
   public list(sessionId: string): WorkingMemoryEntry[] {
@@ -84,10 +85,18 @@ export class WorkingMemoryProvider implements MemoryProvider {
   }
 
   public async getDigest(ctx: ModuleContext): Promise<MemoryDigest[]> {
+    if (ctx.profile.memory_config.working_memory_enabled === false) {
+      return [];
+    }
+
     return this.digest(ctx.session.session_id);
   }
 
   public async retrieve(ctx: ModuleContext): Promise<Proposal[]> {
+    if (ctx.profile.memory_config.working_memory_enabled === false) {
+      return [];
+    }
+
     const entries = this.list(ctx.session.session_id);
     if (entries.length === 0) {
       return [];
