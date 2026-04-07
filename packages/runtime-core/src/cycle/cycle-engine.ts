@@ -175,6 +175,10 @@ export class CycleEngine {
         error: error instanceof Error ? error.message : String(error)
       });
     }
+    actions = [
+      ...actions,
+      ...synthesizeSkillActions(skillState.proposals, actions, enrichedContext)
+    ];
     debugLog("cycle", "Collected candidate actions", {
       sessionId: input.session.session_id,
       cycleId,
@@ -305,7 +309,9 @@ export class CycleEngine {
     });
 
     return {
-      proposals: results.flatMap((result) => result.proposals),
+      proposals: results.flatMap((result) =>
+        result.proposals.filter((proposal) => proposal.proposal_type === "memory_recall")
+      ),
       digest: results
         .flatMap((result) => result.digest)
         .sort((left, right) => right.relevance - left.relevance)
@@ -422,4 +428,173 @@ function toSkillDigest(providerName: string, proposal: Proposal): SkillDigest {
     name,
     relevance: proposal.salience_score
   };
+}
+
+function synthesizeSkillActions(
+  proposals: Proposal[],
+  existingActions: CandidateAction[],
+  ctx: ModuleContext
+): CandidateAction[] {
+  const next: CandidateAction[] = [];
+
+  for (const proposal of proposals) {
+    if (proposal.proposal_type !== "skill_match") {
+      continue;
+    }
+
+    const sourceProposalId = proposal.proposal_id;
+    if (
+      existingActions.some((action) => action.source_proposal_id === sourceProposalId) ||
+      next.some((action) => action.source_proposal_id === sourceProposalId)
+    ) {
+      continue;
+    }
+
+    const action = toSkillCandidateAction(proposal, ctx);
+    if (action) {
+      next.push(action);
+    }
+  }
+
+  return next;
+}
+
+function toSkillCandidateAction(
+  proposal: Proposal,
+  ctx: ModuleContext
+): CandidateAction | null {
+  const executionTemplate =
+    proposal.payload.execution_template &&
+    typeof proposal.payload.execution_template === "object"
+      ? (proposal.payload.execution_template as Record<string, unknown>)
+      : undefined;
+  const kind = executionTemplate?.kind;
+  const steps = Array.isArray(executionTemplate?.steps)
+    ? executionTemplate.steps.filter((step): step is string => typeof step === "string")
+    : [];
+  const title =
+    typeof proposal.payload.skill_name === "string" && proposal.payload.skill_name.trim().length > 0
+      ? proposal.payload.skill_name
+      : typeof proposal.payload.name === "string" && proposal.payload.name.trim().length > 0
+        ? proposal.payload.name
+        : "Apply matched skill";
+  const description = steps[0] ?? proposal.explanation ?? title;
+  const sourceProposalId = proposal.proposal_id;
+  const sideEffectLevel = toActionSideEffectLevel(proposal.payload.risk_level);
+
+  if (kind === "toolchain") {
+    const toolName = readSkillToolName(proposal, steps);
+    if (!toolName) {
+      return null;
+    }
+
+    return {
+      action_id: ctx.services.generateId("act"),
+      action_type: "call_tool",
+      title,
+      description,
+      tool_name: toolName,
+      tool_args: readSkillToolArgs(proposal, ctx),
+      side_effect_level: sideEffectLevel,
+      source_proposal_id: sourceProposalId
+    };
+  }
+
+  if (kind === "reasoning" || kind === "workflow") {
+    return {
+      action_id: ctx.services.generateId("act"),
+      action_type: "respond",
+      title,
+      description,
+      side_effect_level: sideEffectLevel ?? "none",
+      source_proposal_id: sourceProposalId
+    };
+  }
+
+  return null;
+}
+
+function readSkillToolName(proposal: Proposal, steps: string[]): string | undefined {
+  if (typeof proposal.payload.tool_name === "string" && proposal.payload.tool_name.trim().length > 0) {
+    return proposal.payload.tool_name;
+  }
+
+  const firstStep = steps[0];
+  if (!firstStep) {
+    return undefined;
+  }
+
+  const match = firstStep.match(/call tool:\s*([a-z0-9_\-]+)/i);
+  return match?.[1];
+}
+
+function readSkillToolArgs(
+  proposal: Proposal,
+  ctx: ModuleContext
+): Record<string, unknown> | undefined {
+  const templateArgs = readTemplateDefaultArgs(proposal);
+  const inputMetadata =
+    ctx.runtime_state.current_input_metadata &&
+    typeof ctx.runtime_state.current_input_metadata === "object"
+      ? (ctx.runtime_state.current_input_metadata as Record<string, unknown>)
+      : undefined;
+
+  if (
+    inputMetadata?.sourceToolArgs &&
+    typeof inputMetadata.sourceToolArgs === "object" &&
+    !Array.isArray(inputMetadata.sourceToolArgs)
+  ) {
+    return {
+      ...(templateArgs ?? {}),
+      ...(structuredClone(inputMetadata.sourceToolArgs as Record<string, unknown>))
+    };
+  }
+
+  if (
+    inputMetadata?.tool_args &&
+    typeof inputMetadata.tool_args === "object" &&
+    !Array.isArray(inputMetadata.tool_args)
+  ) {
+    return {
+      ...(templateArgs ?? {}),
+      ...(structuredClone(inputMetadata.tool_args as Record<string, unknown>))
+    };
+  }
+
+  return templateArgs;
+}
+
+function readTemplateDefaultArgs(proposal: Proposal): Record<string, unknown> | undefined {
+  const template =
+    proposal.payload.execution_template &&
+    typeof proposal.payload.execution_template === "object"
+      ? (proposal.payload.execution_template as Record<string, unknown>)
+      : undefined;
+
+  if (
+    template?.default_args &&
+    typeof template.default_args === "object" &&
+    !Array.isArray(template.default_args)
+  ) {
+    return structuredClone(template.default_args as Record<string, unknown>);
+  }
+
+  if (
+    proposal.payload.default_tool_args &&
+    typeof proposal.payload.default_tool_args === "object" &&
+    !Array.isArray(proposal.payload.default_tool_args)
+  ) {
+    return structuredClone(proposal.payload.default_tool_args as Record<string, unknown>);
+  }
+
+  return undefined;
+}
+
+function toActionSideEffectLevel(
+  riskLevel: unknown
+): CandidateAction["side_effect_level"] | undefined {
+  if (riskLevel === "medium" || riskLevel === "high" || riskLevel === "low") {
+    return riskLevel;
+  }
+  return undefined;
 }

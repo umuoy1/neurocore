@@ -1,4 +1,4 @@
-import type { Episode, SkillDefinition, SideEffectLevel } from "@neurocore/protocol";
+import type { Episode, JsonObject, JsonValue, SkillDefinition, SideEffectLevel } from "@neurocore/protocol";
 
 export function derivePatternKey(episode: Episode): string {
   const toolName =
@@ -67,7 +67,13 @@ export function compileSkillFromEpisodes(
     trigger_conditions: triggerConditions,
     execution_template: {
       kind: kind === "toolchain_skill" ? "toolchain" : "reasoning",
-      steps: uniqueSteps
+      steps: uniqueSteps,
+      tool_name: hasToolName ? toolName : undefined,
+      action_type:
+        matching[0]?.metadata?.action_type && typeof matching[0].metadata.action_type === "string"
+          ? matching[0].metadata.action_type as SkillDefinition["execution_template"]["action_type"]
+          : undefined,
+      default_args: inferStableToolArgs(matching)
     },
     risk_level: riskLevel,
     fallback_policy: { on_failure: "reason" },
@@ -78,4 +84,44 @@ export function compileSkillFromEpisodes(
       pattern_key: patternKey
     }
   };
+}
+
+function inferStableToolArgs(episodes: Episode[]): JsonObject | undefined {
+  const candidates = episodes
+    .map((episode) => normalizeJsonObject(episode.metadata?.tool_args))
+    .filter((value): value is JsonObject => value !== undefined);
+
+  if (candidates.length === 0) {
+    return undefined;
+  }
+
+  const baseline = stableJsonStringify(candidates[0]);
+  if (!baseline) {
+    return undefined;
+  }
+
+  const allMatch = candidates.every((candidate) => stableJsonStringify(candidate) === baseline);
+  return allMatch ? candidates[0] : undefined;
+}
+
+function normalizeJsonObject(value: unknown): JsonObject | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value as JsonObject;
+}
+
+function stableJsonStringify(value: JsonValue | JsonObject): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJsonStringify(item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableJsonStringify(entryValue as JsonValue)}`);
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
