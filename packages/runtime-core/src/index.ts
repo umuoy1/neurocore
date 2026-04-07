@@ -1,4 +1,5 @@
 export * from "./checkpoint/in-memory-checkpoint-store.js";
+export * from "./checkpoint/sqlite-checkpoint-store.js";
 export * from "./context/graded-compressor.js";
 export * from "./context/token-estimator.js";
 export * from "./cycle/cycle-engine.js";
@@ -7,6 +8,8 @@ export * from "./execution/tool-gateway.js";
 export * from "./goal/goal-manager.js";
 export * from "./meta/meta-controller.js";
 export * from "./persistence/file-runtime-state-store.js";
+export * from "./persistence/sqlite-memory-backfill.js";
+export * from "./persistence/sqlite-memory-persistence.js";
 export * from "./persistence/sqlite-runtime-state-store.js";
 export * from "./prediction/in-memory-prediction-store.js";
 export * from "./prediction/prediction-error-computer.js";

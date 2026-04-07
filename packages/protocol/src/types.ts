@@ -635,8 +635,8 @@ export interface SessionCheckpoint {
   checkpoint_id: string;
   session: AgentSession;
   goals: Goal[];
-  working_memory: WorkingMemoryRecord[];
-  episodes: Episode[];
+  working_memory?: WorkingMemoryRecord[];
+  episodes?: Episode[];
   semantic_memory?: SemanticMemorySnapshot;
   procedural_memory?: ProceduralMemorySnapshot;
   traces: CycleTraceRecord[];
@@ -659,12 +659,12 @@ export interface PendingApprovalContextSnapshot {
 export interface RuntimeSessionSnapshot {
   session: AgentSession;
   goals: Goal[];
-  working_memory: WorkingMemoryRecord[];
-  episodes: Episode[];
+  working_memory?: WorkingMemoryRecord[];
+  episodes?: Episode[];
   semantic_memory?: SemanticMemorySnapshot;
   procedural_memory?: ProceduralMemorySnapshot;
   trace_records: CycleTraceRecord[];
   approvals: ApprovalRequest[];
   pending_approvals: PendingApprovalContextSnapshot[];
-  checkpoints: SessionCheckpoint[];
+  checkpoints?: SessionCheckpoint[];
 }

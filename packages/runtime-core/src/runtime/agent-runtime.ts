@@ -45,8 +45,13 @@ import type {
   SharedStateStore,
   CoordinationStrategy
 } from "@neurocore/multi-agent";
+import type {
+  EpisodicMemoryPersistenceStore,
+  WorkingMemoryPersistenceStore
+} from "@neurocore/memory-core";
 import { EpisodicMemoryProvider, SemanticMemoryProvider, WorkingMemoryProvider } from "@neurocore/memory-core";
 import { InMemoryCheckpointStore } from "../checkpoint/in-memory-checkpoint-store.js";
+import { SqliteCheckpointStore } from "../checkpoint/sqlite-checkpoint-store.js";
 import { CycleEngine } from "../cycle/cycle-engine.js";
 import { InMemoryEventBus } from "../events/in-memory-event-bus.js";
 import { ToolGateway } from "../execution/tool-gateway.js";
@@ -62,6 +67,7 @@ import { InMemoryTraceStore } from "../trace/in-memory-trace-store.js";
 import { TraceRecorder } from "../trace/trace-recorder.js";
 import { debugLog } from "../utils/debug.js";
 import { generateId, nowIso } from "../utils/ids.js";
+import type { AgentMemoryPersistence } from "../persistence/sqlite-memory-persistence.js";
 
 export interface AgentRuntimeOptions {
   reasoner: Reasoner;
@@ -74,6 +80,7 @@ export interface AgentRuntimeOptions {
   traceStore?: TraceStore;
   checkpointStore?: CheckpointStore;
   stateStore?: RuntimeStateStore;
+  memoryPersistence?: AgentMemoryPersistence;
   predictionStore?: PredictionStore;
   deviceRegistry?: DeviceRegistry;
   worldStateGraph?: WorldStateGraph;
@@ -137,9 +144,9 @@ export class AgentRuntime {
 
   private readonly cycleEngine = new CycleEngine();
   private readonly eventBus = new InMemoryEventBus();
-  private readonly workingMemoryProvider = new WorkingMemoryProvider();
-  private readonly episodicMemoryProvider = new EpisodicMemoryProvider();
-  private readonly semanticMemoryProvider = new SemanticMemoryProvider();
+  private readonly workingMemoryProvider: WorkingMemoryProvider;
+  private readonly episodicMemoryProvider: EpisodicMemoryProvider;
+  private readonly semanticMemoryProvider: SemanticMemoryProvider;
   private readonly proceduralMemoryProvider: ProceduralMemoryProvider;
   private readonly memoryProviders: MemoryProvider[];
   private readonly predictors: Predictor[];
@@ -151,6 +158,7 @@ export class AgentRuntime {
   private readonly replayRunner: ReplayRunner;
   private readonly checkpointStore: CheckpointStore;
   private readonly stateStore?: RuntimeStateStore;
+  private readonly memoryPersistence?: AgentMemoryPersistence;
   private readonly predictionStore: PredictionStore;
   private readonly approvals = new Map<string, ApprovalRequest>();
   private readonly pendingApprovals = new Map<string, PendingApprovalContext>();
@@ -166,10 +174,24 @@ export class AgentRuntime {
     const traceStore = options.traceStore ?? new InMemoryTraceStore();
     this.checkpointStore = options.checkpointStore ?? new InMemoryCheckpointStore();
     this.stateStore = options.stateStore;
+    this.memoryPersistence = options.memoryPersistence;
     this.predictionStore = options.predictionStore ?? new InMemoryPredictionStore();
+    this.workingMemoryProvider = new WorkingMemoryProvider(
+      undefined,
+      options.memoryPersistence?.working as WorkingMemoryPersistenceStore | undefined
+    );
+    this.episodicMemoryProvider = new EpisodicMemoryProvider(
+      undefined,
+      options.memoryPersistence?.episodic as EpisodicMemoryPersistenceStore | undefined
+    );
+    this.semanticMemoryProvider = new SemanticMemoryProvider(
+      options.memoryPersistence?.semantic
+    );
     this.traceRecorder = new TraceRecorder(traceStore);
     this.replayRunner = new ReplayRunner(traceStore);
-    this.proceduralMemoryProvider = new ProceduralMemoryProvider(options.skillStore);
+    this.proceduralMemoryProvider = new ProceduralMemoryProvider(
+      options.skillStore ?? options.memoryPersistence?.skillStore
+    );
     this.memoryProviders = [
       this.workingMemoryProvider,
       this.episodicMemoryProvider,
@@ -518,14 +540,25 @@ export class AgentRuntime {
       checkpoint_id: generateId("chk"),
       session: structuredClone(session),
       goals: structuredClone(this.goals.list(sessionId)),
-      working_memory: structuredClone(this.workingMemoryProvider.list(sessionId)),
-      episodes: structuredClone(this.episodicMemoryProvider.list(sessionId)),
-      semantic_memory: structuredClone(this.semanticMemoryProvider.buildSnapshot(sessionId)),
-      procedural_memory: structuredClone(this.proceduralMemoryProvider.buildSnapshot(sessionId)),
       traces: structuredClone(this.getTraceRecords(sessionId)),
       pending_input: derivePendingInput(this.getTraceRecords(sessionId), session),
       created_at: nowIso()
     };
+
+    if (!this.memoryPersistence?.working) {
+      snapshot.working_memory = structuredClone(this.workingMemoryProvider.list(sessionId));
+    }
+    if (!this.memoryPersistence?.episodic) {
+      snapshot.episodes = structuredClone(this.episodicMemoryProvider.list(sessionId));
+    }
+    if (!this.memoryPersistence?.semantic) {
+      snapshot.semantic_memory = structuredClone(this.semanticMemoryProvider.buildSnapshot(sessionId));
+    }
+    if (!this.memoryPersistence?.episodic || !this.memoryPersistence?.skillStore) {
+      snapshot.procedural_memory = structuredClone(
+        this.proceduralMemoryProvider.buildSnapshot(sessionId)
+      );
+    }
 
     this.checkpointStore.save(snapshot);
     this.sessions.setCheckpointRef(sessionId, snapshot.checkpoint_id);
@@ -535,8 +568,8 @@ export class AgentRuntime {
       sessionId,
       checkpointId: snapshot.checkpoint_id,
       goalCount: snapshot.goals.length,
-      workingMemoryCount: snapshot.working_memory.length,
-      episodeCount: snapshot.episodes.length,
+      workingMemoryCount: snapshot.working_memory?.length ?? 0,
+      episodeCount: snapshot.episodes?.length ?? 0,
       traceCount: snapshot.traces.length,
       hasPendingInput: Boolean(snapshot.pending_input)
     });
@@ -562,6 +595,10 @@ export class AgentRuntime {
 
   public restoreSession(checkpoint: SessionCheckpoint) {
     const restoredSession = structuredClone(checkpoint.session);
+    const sessionId = restoredSession.session_id;
+    const tenantId = restoredSession.tenant_id;
+    const hydrateProceduralStateOnly =
+      this.memoryPersistence?.skillStore !== undefined && checkpoint.procedural_memory === undefined;
     if (!isTerminalState(restoredSession.state)) {
       restoredSession.state = "hydrated";
       restoredSession.ended_at = undefined;
@@ -569,44 +606,67 @@ export class AgentRuntime {
     restoredSession.checkpoint_ref = checkpoint.checkpoint_id;
 
     this.sessions.hydrate(restoredSession);
-    this.goals.hydrate(restoredSession.session_id, structuredClone(checkpoint.goals));
-    this.workingMemoryProvider.replace(
-      restoredSession.session_id,
-      structuredClone(checkpoint.working_memory)
-    );
-    this.episodicMemoryProvider.replace(
-      restoredSession.session_id,
-      restoredSession.tenant_id,
-      structuredClone(checkpoint.episodes)
-    );
-    this.semanticMemoryProvider.replaceSession(
-      restoredSession.session_id,
-      restoredSession.tenant_id,
-      structuredClone(checkpoint.episodes)
-    );
-    this.semanticMemoryProvider.restoreSnapshot(
-      restoredSession.session_id,
-      restoredSession.tenant_id,
-      structuredClone(checkpoint.semantic_memory)
-    );
-    this.proceduralMemoryProvider.replaceSession(
-      restoredSession.session_id,
-      restoredSession.tenant_id,
-      structuredClone(checkpoint.episodes)
-    );
-    this.proceduralMemoryProvider.restoreSnapshot(
-      restoredSession.tenant_id,
-      structuredClone(checkpoint.procedural_memory)
-    );
+    this.goals.hydrate(sessionId, structuredClone(checkpoint.goals));
+    if (checkpoint.working_memory !== undefined) {
+      this.workingMemoryProvider.replace(
+        sessionId,
+        structuredClone(checkpoint.working_memory)
+      );
+    }
+
+    if (checkpoint.episodes !== undefined) {
+      this.episodicMemoryProvider.replace(
+        sessionId,
+        tenantId,
+        structuredClone(checkpoint.episodes)
+      );
+      this.semanticMemoryProvider.replaceSession(
+        sessionId,
+        tenantId,
+        structuredClone(checkpoint.episodes)
+      );
+      if (hydrateProceduralStateOnly) {
+        this.proceduralMemoryProvider.hydrateSession(
+          sessionId,
+          tenantId,
+          structuredClone(checkpoint.episodes)
+        );
+      } else {
+        this.proceduralMemoryProvider.replaceSession(
+          sessionId,
+          tenantId,
+          structuredClone(checkpoint.episodes)
+        );
+      }
+    } else if (this.memoryPersistence?.episodic && this.memoryPersistence?.skillStore) {
+      const episodes = this.episodicMemoryProvider.list(sessionId);
+      if (episodes.length > 0) {
+        this.proceduralMemoryProvider.hydrateSession(sessionId, tenantId, structuredClone(episodes));
+      }
+    }
+
+    if (checkpoint.semantic_memory !== undefined) {
+      this.semanticMemoryProvider.restoreSnapshot(
+        sessionId,
+        tenantId,
+        structuredClone(checkpoint.semantic_memory)
+      );
+    }
+    if (checkpoint.procedural_memory !== undefined) {
+      this.proceduralMemoryProvider.restoreSnapshot(
+        tenantId,
+        structuredClone(checkpoint.procedural_memory)
+      );
+    }
     this.traceRecorder.getStore().replaceSession(
-      restoredSession.session_id,
+      sessionId,
       structuredClone(checkpoint.traces)
     );
     this.checkpointStore.save(structuredClone(checkpoint));
-    this.persistSessionState(restoredSession.session_id);
+    this.persistSessionState(sessionId);
 
     debugLog("runtime", "Restored session from checkpoint", {
-      sessionId: restoredSession.session_id,
+      sessionId,
       checkpointId: checkpoint.checkpoint_id,
       restoredState: restoredSession.state,
       traceCount: checkpoint.traces.length
@@ -1632,32 +1692,56 @@ export class AgentRuntime {
   private hydratePersistedSession(snapshot: RuntimeSessionSnapshot): void {
     validateRuntimeSessionSnapshot(snapshot);
     const sessionId = snapshot.session.session_id;
+    const tenantId = snapshot.session.tenant_id;
+    const hydrateProceduralStateOnly =
+      this.memoryPersistence?.skillStore !== undefined && snapshot.procedural_memory === undefined;
     this.sessions.hydrate(structuredClone(snapshot.session));
     this.goals.hydrate(sessionId, structuredClone(snapshot.goals));
-    this.workingMemoryProvider.replace(sessionId, structuredClone(snapshot.working_memory));
-    this.episodicMemoryProvider.replace(sessionId, snapshot.session.tenant_id, structuredClone(snapshot.episodes));
-    this.semanticMemoryProvider.replaceSession(
-      sessionId,
-      snapshot.session.tenant_id,
-      structuredClone(snapshot.episodes)
-    );
-    this.semanticMemoryProvider.restoreSnapshot(
-      sessionId,
-      snapshot.session.tenant_id,
-      structuredClone(snapshot.semantic_memory)
-    );
-    this.proceduralMemoryProvider.replaceSession(
-      sessionId,
-      snapshot.session.tenant_id,
-      structuredClone(snapshot.episodes)
-    );
-    this.proceduralMemoryProvider.restoreSnapshot(
-      snapshot.session.tenant_id,
-      structuredClone(snapshot.procedural_memory)
-    );
+    if (snapshot.working_memory !== undefined) {
+      this.workingMemoryProvider.replace(sessionId, structuredClone(snapshot.working_memory));
+    }
+    if (snapshot.episodes !== undefined) {
+      this.episodicMemoryProvider.replace(sessionId, tenantId, structuredClone(snapshot.episodes));
+      this.semanticMemoryProvider.replaceSession(
+        sessionId,
+        tenantId,
+        structuredClone(snapshot.episodes)
+      );
+      if (hydrateProceduralStateOnly) {
+        this.proceduralMemoryProvider.hydrateSession(
+          sessionId,
+          tenantId,
+          structuredClone(snapshot.episodes)
+        );
+      } else {
+        this.proceduralMemoryProvider.replaceSession(
+          sessionId,
+          tenantId,
+          structuredClone(snapshot.episodes)
+        );
+      }
+    } else if (this.memoryPersistence?.episodic && this.memoryPersistence?.skillStore) {
+      const episodes = this.episodicMemoryProvider.list(sessionId);
+      if (episodes.length > 0) {
+        this.proceduralMemoryProvider.hydrateSession(sessionId, tenantId, structuredClone(episodes));
+      }
+    }
+    if (snapshot.semantic_memory !== undefined) {
+      this.semanticMemoryProvider.restoreSnapshot(
+        sessionId,
+        tenantId,
+        structuredClone(snapshot.semantic_memory)
+      );
+    }
+    if (snapshot.procedural_memory !== undefined) {
+      this.proceduralMemoryProvider.restoreSnapshot(
+        tenantId,
+        structuredClone(snapshot.procedural_memory)
+      );
+    }
     this.traceRecorder.getStore().replaceSession(sessionId, structuredClone(snapshot.trace_records));
 
-    for (const checkpoint of snapshot.checkpoints) {
+    for (const checkpoint of snapshot.checkpoints ?? []) {
       this.checkpointStore.save(structuredClone(checkpoint));
     }
 
@@ -1685,10 +1769,6 @@ export class AgentRuntime {
     const snapshot: RuntimeSessionSnapshot = {
       session: structuredClone(session),
       goals: structuredClone(this.goals.list(sessionId)),
-      working_memory: structuredClone(this.workingMemoryProvider.list(sessionId)),
-      episodes: structuredClone(this.episodicMemoryProvider.list(sessionId)),
-      semantic_memory: structuredClone(this.semanticMemoryProvider.buildSnapshot(sessionId)),
-      procedural_memory: structuredClone(this.proceduralMemoryProvider.buildSnapshot(sessionId)),
       trace_records: structuredClone(this.traceRecorder.listRecords(sessionId)),
       approvals: structuredClone(
         [...this.approvals.values()].filter((approval) => approval.session_id === sessionId)
@@ -1697,12 +1777,33 @@ export class AgentRuntime {
         [...this.pendingApprovals.values()]
           .filter((pending) => this.approvals.get(pending.approval_id)?.session_id === sessionId)
           .map(toPendingApprovalSnapshot)
-      ),
-      checkpoints: structuredClone(this.checkpointStore.list(sessionId))
+      )
     };
+
+    if (!this.memoryPersistence?.working) {
+      snapshot.working_memory = structuredClone(this.workingMemoryProvider.list(sessionId));
+    }
+    if (!this.memoryPersistence?.episodic) {
+      snapshot.episodes = structuredClone(this.episodicMemoryProvider.list(sessionId));
+    }
+    if (!this.memoryPersistence?.semantic) {
+      snapshot.semantic_memory = structuredClone(this.semanticMemoryProvider.buildSnapshot(sessionId));
+    }
+    if (!this.memoryPersistence?.episodic || !this.memoryPersistence?.skillStore) {
+      snapshot.procedural_memory = structuredClone(
+        this.proceduralMemoryProvider.buildSnapshot(sessionId)
+      );
+    }
+    if (!usesIndependentCheckpointStore(this.checkpointStore)) {
+      snapshot.checkpoints = structuredClone(this.checkpointStore.list(sessionId));
+    }
 
     this.stateStore.saveSession(snapshot);
   }
+}
+
+function usesIndependentCheckpointStore(store: CheckpointStore): boolean {
+  return store instanceof SqliteCheckpointStore;
 }
 
 function isTerminalState(state: SessionState): boolean {

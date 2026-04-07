@@ -32,6 +32,8 @@ export interface AgentRuntimeInfrastructure
       | "worldStateGraph"
       | "perceptionPipeline"
       | "forwardSimulator"
+      | "memoryPersistence"
+      | "checkpointStore"
       | "agentRegistry"
       | "interAgentBus"
       | "taskDelegator"
