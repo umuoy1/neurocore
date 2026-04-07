@@ -8,7 +8,7 @@ import type {
   SemanticMemorySnapshot
 } from "@neurocore/protocol";
 
-interface SemanticMemoryRecord {
+export interface SemanticMemoryRecord {
   memory_id: string;
   tenant_id: string;
   summary: string;
@@ -18,6 +18,15 @@ interface SemanticMemoryRecord {
   session_ids: string[];
   pattern_key: string;
   last_updated_at: string;
+}
+
+export interface SemanticMemoryPersistenceStore {
+  appendEpisode(sessionId: string, tenantId: string, episode: Episode): void;
+  replaceSession(sessionId: string, tenantId: string, episodes: Episode[]): void;
+  restoreSnapshot(sessionId: string, tenantId: string, snapshot?: SemanticMemorySnapshot): void;
+  buildSnapshot(sessionId: string): SemanticMemorySnapshot;
+  deleteSession(sessionId: string): void;
+  list(tenantId: string, excludeSessionId?: string): SemanticMemoryRecord[];
 }
 
 class SemanticMemoryStore {
@@ -161,7 +170,9 @@ class SemanticMemoryStore {
 export class SemanticMemoryProvider implements MemoryProvider {
   public readonly name = "semantic-memory-provider";
 
-  public constructor(private readonly store = new SemanticMemoryStore()) {}
+  public constructor(
+    private readonly store: SemanticMemoryStore | SemanticMemoryPersistenceStore = new SemanticMemoryStore()
+  ) {}
 
   public replaceSession(sessionId: string, tenantId: string, episodes: Episode[]): void {
     this.store.replaceSession(sessionId, tenantId, episodes);

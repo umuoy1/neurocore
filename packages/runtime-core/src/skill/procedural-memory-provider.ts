@@ -171,6 +171,20 @@ export class ProceduralMemoryProvider implements MemoryProvider, SkillProvider {
     }
   }
 
+  public hydrateSession(sessionId: string, tenantId: string, episodes: Episode[]): void {
+    this.removeSessionEpisodes(sessionId);
+    this.tenantBySession.set(sessionId, tenantId);
+
+    for (const episode of episodes) {
+      if (episode.outcome !== "success") {
+        continue;
+      }
+
+      this.addEpisodeToSession(sessionId, episode);
+      this.addEpisodeToPatternGroup(tenantId, episode);
+    }
+  }
+
   public buildSnapshot(sessionId: string): ProceduralMemorySnapshot {
     const tenantId = this.tenantBySession.get(sessionId);
     if (!tenantId) {

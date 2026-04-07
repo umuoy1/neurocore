@@ -10,6 +10,13 @@ import type {
 
 export interface WorkingMemoryEntry extends WorkingMemoryRecord {}
 
+export interface WorkingMemoryPersistenceStore {
+  append(sessionId: string, entry: WorkingMemoryEntry, maxEntriesOverride?: number): void;
+  list(sessionId: string): WorkingMemoryEntry[];
+  replace(sessionId: string, entries: WorkingMemoryEntry[]): void;
+  deleteSession(sessionId: string): void;
+}
+
 export class WorkingMemoryStore {
   private readonly entries = new Map<string, WorkingMemoryEntry[]>();
 
@@ -51,13 +58,19 @@ export class WorkingMemoryProvider implements MemoryProvider {
   public readonly name = "working-memory-provider";
 
   private readonly store: WorkingMemoryStore;
+  private readonly persistenceStore?: WorkingMemoryPersistenceStore;
 
-  public constructor(maxEntries?: number) {
+  public constructor(
+    maxEntries?: number,
+    persistenceStore?: WorkingMemoryPersistenceStore
+  ) {
     this.store = new WorkingMemoryStore(maxEntries);
+    this.persistenceStore = persistenceStore;
   }
 
   public append(sessionId: string, entry: WorkingMemoryEntry, maxEntriesOverride?: number): void {
     this.store.append(sessionId, entry, maxEntriesOverride);
+    this.persistenceStore?.append(sessionId, entry, maxEntriesOverride);
   }
 
   public appendObservation(sessionId: string, observation: Observation, maxEntriesOverride?: number): void {
@@ -69,19 +82,29 @@ export class WorkingMemoryProvider implements MemoryProvider {
   }
 
   public list(sessionId: string): WorkingMemoryEntry[] {
+    if (this.persistenceStore) {
+      return this.persistenceStore.list(sessionId);
+    }
     return this.store.list(sessionId);
   }
 
   public replace(sessionId: string, entries: WorkingMemoryEntry[]): void {
     this.store.replace(sessionId, entries);
+    this.persistenceStore?.replace(sessionId, entries);
   }
 
   public deleteSession(sessionId: string): void {
     this.store.deleteSession(sessionId);
+    this.persistenceStore?.deleteSession(sessionId);
   }
 
   public digest(sessionId: string): MemoryDigest[] {
-    return this.store.digest(sessionId);
+    return this.list(sessionId).map((entry) => ({
+      memory_id: entry.memory_id,
+      memory_type: "working",
+      summary: entry.summary,
+      relevance: entry.relevance
+    }));
   }
 
   public async getDigest(ctx: ModuleContext): Promise<MemoryDigest[]> {

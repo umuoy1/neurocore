@@ -6,6 +6,14 @@ import type {
   Proposal
 } from "@neurocore/protocol";
 
+export interface EpisodicMemoryPersistenceStore {
+  write(sessionId: string, tenantId: string, episode: Episode): void;
+  list(sessionId: string): Episode[];
+  listByTenant(tenantId: string, excludeSessionId?: string): Episode[];
+  replace(sessionId: string, tenantId: string, episodes: Episode[]): void;
+  deleteSession(sessionId: string): void;
+}
+
 export class EpisodicMemoryStore {
   private readonly episodes = new Map<string, Episode[]>();
   private readonly sessionTenants = new Map<string, string>();
@@ -45,18 +53,26 @@ export class EpisodicMemoryStore {
 export class EpisodicMemoryProvider implements MemoryProvider {
   public readonly name = "episodic-memory-provider";
 
-  public constructor(private readonly store = new EpisodicMemoryStore()) {}
+  public constructor(
+    private readonly store = new EpisodicMemoryStore(),
+    private readonly persistenceStore?: EpisodicMemoryPersistenceStore
+  ) {}
 
   public list(sessionId: string): Episode[] {
+    if (this.persistenceStore) {
+      return this.persistenceStore.list(sessionId);
+    }
     return this.store.list(sessionId);
   }
 
   public replace(sessionId: string, tenantId: string, episodes: Episode[]): void {
     this.store.replace(sessionId, tenantId, episodes);
+    this.persistenceStore?.replace(sessionId, tenantId, episodes);
   }
 
   public deleteSession(sessionId: string): void {
     this.store.deleteSession(sessionId);
+    this.persistenceStore?.deleteSession(sessionId);
   }
 
   public async getDigest(ctx: ModuleContext): Promise<MemoryDigest[]> {
@@ -76,8 +92,7 @@ export class EpisodicMemoryProvider implements MemoryProvider {
         relevance: episode.outcome === "success" ? 0.85 : episode.outcome === "partial" ? 0.75 : 0.65
       }));
     const crossDigestK = Math.max(1, Math.ceil(digestK * 0.66));
-    const relatedEpisodes = this.store
-      .listByTenant(ctx.tenant_id, ctx.session.session_id)
+    const relatedEpisodes = this.listByTenant(ctx.tenant_id, ctx.session.session_id)
       .sort((left, right) => compareEpisodeByRelevance(left, right, ctx))
       .slice(0, crossDigestK)
       .map((episode) => ({
@@ -102,8 +117,7 @@ export class EpisodicMemoryProvider implements MemoryProvider {
       .slice()
       .sort((left, right) => compareEpisodeByRelevance(left, right, ctx))
       .slice(0, topK);
-    const relatedEpisodes = this.store
-      .listByTenant(ctx.tenant_id, ctx.session.session_id)
+    const relatedEpisodes = this.listByTenant(ctx.tenant_id, ctx.session.session_id)
       .filter((episode) => episode.outcome === "success" || episode.outcome === "partial")
       .sort((left, right) => compareEpisodeByRelevance(left, right, ctx))
       .slice(0, Math.max(1, Math.ceil(topK * 0.6)));
@@ -170,6 +184,14 @@ export class EpisodicMemoryProvider implements MemoryProvider {
     }
 
     this.store.write(episode.session_id, ctx.tenant_id, episode);
+    this.persistenceStore?.write(episode.session_id, ctx.tenant_id, episode);
+  }
+
+  private listByTenant(tenantId: string, excludeSessionId?: string): Episode[] {
+    if (this.persistenceStore) {
+      return this.persistenceStore.listByTenant(tenantId, excludeSessionId);
+    }
+    return this.store.listByTenant(tenantId, excludeSessionId);
   }
 }
 
