@@ -162,25 +162,32 @@ export class IMGateway {
       return true;
     }
 
-    const handle = this.options.builder.connectSession(binding.session_id);
-    const result = decision === "approved"
-      ? await handle.approve({
-          approval_id: binding.approval_id,
-          approver_id: message.sender_id
-        })
-      : await handle.reject({
-          approval_id: binding.approval_id,
-          approver_id: message.sender_id
-        });
+    try {
+      const handle = this.options.builder.connectSession(binding.session_id);
+      const result = decision === "approved"
+        ? await handle.approve({
+            approval_id: binding.approval_id,
+            approver_id: message.sender_id
+          })
+        : await handle.reject({
+            approval_id: binding.approval_id,
+            approver_id: message.sender_id
+          });
 
-    this.options.approvalBindingStore.deleteByApprovalId(binding.approval_id);
-    const text = result.run?.outputText
-      ?? (decision === "approved" ? "Approval granted." : "Approval rejected.");
+      this.options.approvalBindingStore.deleteByApprovalId(binding.approval_id);
+      const text = result.run?.outputText
+        ?? (decision === "approved" ? "Approval granted." : "Approval rejected.");
 
-    await this.options.dispatcher.sendToChat(message.platform, message.chat_id, {
-      type: "text",
-      text
-    });
+      await this.options.dispatcher.sendToChat(message.platform, message.chat_id, {
+        type: "text",
+        text
+      });
+    } catch (error) {
+      await this.options.dispatcher.sendToChat(message.platform, message.chat_id, {
+        type: "text",
+        text: error instanceof Error ? error.message : String(error)
+      });
+    }
     return true;
   }
 }

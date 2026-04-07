@@ -45,7 +45,8 @@ export function createPersonalAssistantAgent(config: PersonalAssistantAppConfig)
     })
     .configureRuntime({
       max_cycles: config.agent?.max_cycles ?? 8,
-      checkpoint_interval: "cycle"
+      checkpoint_interval: "cycle",
+      auto_approve: config.agent?.auto_approve ?? false
     })
     .configurePolicy({
       blockedTools: config.agent?.blocked_tools,

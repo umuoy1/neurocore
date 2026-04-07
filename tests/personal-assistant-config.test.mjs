@@ -17,7 +17,8 @@ test("createPersonalAssistantConfigFromEnv loads config from .neurocore/.persona
       tenant_id: "team-local",
       agent: {
         name: "Team Assistant",
-        approvers: ["owner"]
+        approvers: ["owner"],
+        auto_approve: true
       },
       connectors: {
         browser: {
@@ -53,6 +54,7 @@ test("createPersonalAssistantConfigFromEnv loads config from .neurocore/.persona
   assert.equal(config.db_path, "data/personal-assistant.sqlite");
   assert.equal(config.tenant_id, "team-local");
   assert.equal(config.agent?.name, "Team Assistant");
+  assert.equal(config.agent?.auto_approve, true);
   assert.deepEqual(config.agent?.approvers, ["owner"]);
   assert.equal(config.openai?.model, "pa-local-model");
   assert.equal(config.openai?.apiUrl, "https://pa.example.com/v1");
@@ -110,7 +112,8 @@ test("createPersonalAssistantConfigFromEnv lets env override local config", asyn
     {
       OPENAI_MODEL: "env-model",
       WEB_CHAT_PORT: "5501",
-      PERSONAL_ASSISTANT_APPROVERS: "alice,bob"
+      PERSONAL_ASSISTANT_APPROVERS: "alice,bob",
+      PERSONAL_ASSISTANT_AUTO_APPROVE: "true"
     },
     { cwd: directory }
   );
@@ -120,5 +123,6 @@ test("createPersonalAssistantConfigFromEnv lets env override local config", asyn
   assert.equal(config.openai?.bearerToken, "local-token");
   assert.equal(config.openai?.timeoutMs, 9000);
   assert.equal(config.web_chat?.port, 5501);
+  assert.equal(config.agent?.auto_approve, true);
   assert.deepEqual(config.agent?.approvers, ["alice", "bob"]);
 });

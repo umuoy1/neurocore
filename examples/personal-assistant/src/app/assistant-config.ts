@@ -23,6 +23,7 @@ export interface PersonalAssistantAppConfig {
     role?: string;
     token_budget?: number;
     max_cycles?: number;
+    auto_approve?: boolean;
     approvers?: string[];
     blocked_tools?: string[];
     required_approval_tools?: string[];
@@ -85,6 +86,7 @@ export function createPersonalAssistantConfigFromEnv(
       role: env.PERSONAL_ASSISTANT_AGENT_ROLE ?? appConfig.agent?.role ?? "Personal assistant for messaging, search, and lightweight task execution.",
       token_budget: parseOptionalInt(env.PERSONAL_ASSISTANT_TOKEN_BUDGET) ?? appConfig.agent?.token_budget,
       max_cycles: parseOptionalInt(env.PERSONAL_ASSISTANT_MAX_CYCLES) ?? appConfig.agent?.max_cycles,
+      auto_approve: parseOptionalBoolean(env.PERSONAL_ASSISTANT_AUTO_APPROVE) ?? appConfig.agent?.auto_approve,
       approvers: parseOptionalList(env.PERSONAL_ASSISTANT_APPROVERS) ?? appConfig.agent?.approvers,
       blocked_tools: parseOptionalList(env.PERSONAL_ASSISTANT_BLOCKED_TOOLS) ?? appConfig.agent?.blocked_tools,
       required_approval_tools: parseOptionalList(env.PERSONAL_ASSISTANT_APPROVAL_TOOLS) ?? appConfig.agent?.required_approval_tools

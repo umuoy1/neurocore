@@ -29,6 +29,9 @@
 {
   "db_path": ".neurocore/personal-assistant.sqlite",
   "tenant_id": "local",
+  "agent": {
+    "auto_approve": true
+  },
   "web_chat": {
     "host": "127.0.0.1",
     "port": 3301,
@@ -36,6 +39,8 @@
   }
 }
 ```
+
+`agent.auto_approve: true` 会在启动时关闭人工审批升级，让高副作用动作直接执行，适合本地调试或受控环境。
 
 其中模型配置文件继续沿用仓库现有的 OpenAI Compatible JSON 格式：
 
@@ -53,6 +58,7 @@
 
 - `PERSONAL_ASSISTANT_DB_PATH`
 - `PERSONAL_ASSISTANT_TENANT_ID`
+- `PERSONAL_ASSISTANT_AUTO_APPROVE`
 - `OPENAI_API_KEY`
 - `OPENAI_BASE_URL`
 - `OPENAI_MODEL`

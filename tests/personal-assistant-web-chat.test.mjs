@@ -76,14 +76,74 @@ test("personal assistant web chat reconnects the same chat to the same waiting s
   }
 });
 
-async function createWebChatFixture({ reasoner }) {
+test("personal assistant web chat resumes high-risk approval actions after approve", async (t) => {
+  const emailSendCalls = [];
+  const fixture = await createFixtureOrSkip(t, {
+    reasoner: createApprovalReasoner(),
+    agent: {
+      approvers: ["approved-user"],
+      required_approval_tools: ["email_send"]
+    },
+    connectors: {
+      email: {
+        sender: {
+          async send(args) {
+            emailSendCalls.push(args);
+            return {
+              message_id: `email-${emailSendCalls.length}`,
+              sent_at: new Date().toISOString()
+            };
+          }
+        }
+      }
+    }
+  });
+
+  if (!fixture) {
+    return;
+  }
+
+  try {
+    const client = await connectWebSocket(fixture.port, "chat-approval", "approved-user");
+
+    client.socket.send("please send the email");
+    const approvalMessage = await client.nextMessage();
+    assert.equal(approvalMessage.type, "message");
+    assert.equal(approvalMessage.content.type, "approval_request");
+    assert.ok(approvalMessage.content.approval_id);
+
+    client.socket.send(JSON.stringify({
+      type: "action",
+      action: "approve",
+      params: {
+        approval_id: approvalMessage.content.approval_id
+      },
+      reply_to: approvalMessage.message_id
+    }));
+
+    const finalMessage = await client.nextMessage();
+    assert.equal(finalMessage.type, "message");
+    assert.equal(finalMessage.content.type, "text");
+    assert.match(finalMessage.content.text, /Email sent with id email-1/i);
+    assert.equal(emailSendCalls.length, 1);
+
+    client.socket.close();
+    await client.closed;
+  } finally {
+    await fixture.close();
+  }
+});
+
+async function createWebChatFixture(config) {
   const tempDir = mkdtempSync(join(tmpdir(), "neurocore-pa-web-chat-"));
   const port = await getAvailablePort();
   const dbPath = join(tempDir, "assistant.sqlite");
   const app = await startPersonalAssistantApp({
     db_path: dbPath,
     tenant_id: "test-tenant",
-    reasoner,
+    reasoner: config.reasoner,
+    agent: config.agent,
+    connectors: config.connectors,
     web_chat: {
       enabled: true,
       host: "127.0.0.1",
@@ -236,6 +296,60 @@ function createAskUserReasoner() {
           title: "Ask a follow-up",
           description: "What should I do next?",
           side_effect_level: "none"
+        }
+      ];
+    }
+  };
+}
+
+function createApprovalReasoner() {
+  return {
+    name: "approval-reasoner",
+    async plan(ctx) {
+      return [
+        {
+          proposal_id: ctx.services.generateId("prp"),
+          schema_version: ctx.profile.schema_version,
+          session_id: ctx.session.session_id,
+          cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+          module_name: "approval-reasoner",
+          proposal_type: "plan",
+          salience_score: 0.9,
+          confidence: 0.95,
+          risk: 0.2,
+          payload: { summary: "Send the email after approval." }
+        }
+      ];
+    },
+    async respond(ctx) {
+      const input = typeof ctx.runtime_state.current_input_content === "string"
+        ? ctx.runtime_state.current_input_content
+        : "";
+
+      if (input.startsWith("Tool observation:")) {
+        return [
+          {
+            action_id: ctx.services.generateId("act"),
+            action_type: "respond",
+            title: "Email sent",
+            description: input.replace(/^Tool observation:\s*/, "").trim(),
+            side_effect_level: "none"
+          }
+        ];
+      }
+
+      return [
+        {
+          action_id: ctx.services.generateId("act"),
+          action_type: "call_tool",
+          title: "Send email",
+          tool_name: "email_send",
+          tool_args: {
+            to: ["demo@example.com"],
+            subject: "Demo",
+            body: input
+          },
+          side_effect_level: "high"
         }
       ];
     }
