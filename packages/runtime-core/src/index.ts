@@ -18,6 +18,7 @@ export * from "./skill/in-memory-skill-store.js";
 export * from "./skill/procedural-memory-provider.js";
 export * from "./skill/skill-executor.js";
 export * from "./skill/skill-promoter.js";
+export * from "./skill/sqlite-skill-store.js";
 export * from "./trace/in-memory-trace-store.js";
 export * from "./trace/trace-recorder.js";
 export * from "./workspace/workspace-coordinator.js";

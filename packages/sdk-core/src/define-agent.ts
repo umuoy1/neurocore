@@ -52,6 +52,7 @@ export class AgentBuilder {
   private readonly tools: Tool[] = [];
   private runtimeStateStoreFactory?: () => RuntimeStateStore;
   private runtimeInfrastructure: AgentRuntimeInfrastructure = {};
+  private runtime?: AgentRuntime;
 
   public constructor(options: DefineAgentOptions) {
     this.profile = {
@@ -80,6 +81,7 @@ export class AgentBuilder {
 
   public useReasoner(reasoner: Reasoner): this {
     this.reasoner = reasoner;
+    this.invalidateRuntime();
     return this;
   }
 
@@ -88,6 +90,7 @@ export class AgentBuilder {
       ...this.profile.memory_config,
       ...options
     };
+    this.invalidateRuntime();
     return this;
   }
 
@@ -104,6 +107,7 @@ export class AgentBuilder {
       ...config,
       ...(nextToolExecution ? { tool_execution: nextToolExecution } : {})
     };
+    this.invalidateRuntime();
     return this;
   }
 
@@ -113,6 +117,7 @@ export class AgentBuilder {
       ...this.profile.multi_agent_config,
       ...options
     };
+    this.invalidateRuntime();
     return this;
   }
 
@@ -121,11 +126,13 @@ export class AgentBuilder {
       ...this.profile.context_budget,
       max_context_tokens: maxTokens
     };
+    this.invalidateRuntime();
     return this;
   }
 
   public configurePolicy(options: { blockedTools?: string[]; requiredApprovalTools?: string[] }): this {
     this.policyProviders.push(new ToolPolicyProvider(options));
+    this.invalidateRuntime();
     return this;
   }
 
@@ -145,11 +152,13 @@ export class AgentBuilder {
         execution: tool.execution
       }
     ];
+    this.invalidateRuntime();
     return this;
   }
 
   public registerMemoryProvider(provider: MemoryProvider): this {
     this.memoryProviders.push(provider);
+    this.invalidateRuntime();
     return this;
   }
 
@@ -163,6 +172,7 @@ export class AgentBuilder {
         name: predictor.name
       }
     ];
+    this.invalidateRuntime();
     return this;
   }
 
@@ -177,6 +187,7 @@ export class AgentBuilder {
         name: provider.name
       }
     ];
+    this.invalidateRuntime();
     return this;
   }
 
@@ -191,11 +202,13 @@ export class AgentBuilder {
         name: provider.name
       }
     ];
+    this.invalidateRuntime();
     return this;
   }
 
   public useRuntimeStateStore(factory: () => RuntimeStateStore): this {
     this.runtimeStateStoreFactory = factory;
+    this.invalidateRuntime();
     return this;
   }
 
@@ -204,6 +217,7 @@ export class AgentBuilder {
       ...this.runtimeInfrastructure,
       ...infrastructure
     };
+    this.invalidateRuntime();
     return this;
   }
 
@@ -243,19 +257,27 @@ export class AgentBuilder {
       throw new Error("AgentBuilder requires a reasoner before creating a session.");
     }
 
-    const runtime = new AgentRuntime({
-      reasoner: this.reasoner,
-      memoryProviders: this.memoryProviders,
-      predictors: this.predictors,
-      policyProviders: this.policyProviders,
-      skillProviders: this.skillProviders,
-      stateStore: this.runtimeStateStoreFactory?.(),
-      ...this.runtimeInfrastructure
-    });
-    for (const tool of this.tools) {
-      runtime.tools.register(tool);
+    if (!this.runtime) {
+      const runtime = new AgentRuntime({
+        reasoner: this.reasoner,
+        memoryProviders: this.memoryProviders,
+        predictors: this.predictors,
+        policyProviders: this.policyProviders,
+        skillProviders: this.skillProviders,
+        stateStore: this.runtimeStateStoreFactory?.(),
+        ...this.runtimeInfrastructure
+      });
+      for (const tool of this.tools) {
+        runtime.tools.register(tool);
+      }
+      this.runtime = runtime;
     }
-    return runtime;
+
+    return this.runtime;
+  }
+
+  private invalidateRuntime(): void {
+    this.runtime = undefined;
   }
 }
 

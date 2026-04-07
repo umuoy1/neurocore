@@ -158,6 +158,7 @@ export class ToolGateway {
             structured_payload: {
               ...(result.payload ?? {}),
               tool_name: tool.name,
+              tool_args: action.tool_args ?? {},
               __execution: {
                 status: "succeeded",
                 attempt_count: attempt,
@@ -333,6 +334,7 @@ export class ToolGateway {
         summary,
         structured_payload: {
           tool_name: toolName,
+          tool_args: input.action.tool_args ?? {},
           __execution: {
             status: "failed",
             attempt_count: attemptCount,

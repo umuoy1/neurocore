@@ -468,6 +468,19 @@ export class AgentRuntime {
     return session ? structuredClone(session) : undefined;
   }
 
+  public getSkillProvider(): ProceduralMemoryProvider {
+    return this.proceduralMemoryProvider;
+  }
+
+  public getSemanticMemoryProvider(): SemanticMemoryProvider {
+    return this.semanticMemoryProvider;
+  }
+
+  public getWorkingMemory(sessionId: string) {
+    this.requireSession(sessionId);
+    return structuredClone(this.workingMemoryProvider.list(sessionId));
+  }
+
   public listGoals(sessionId: string): Goal[] {
     this.requireSession(sessionId);
     return structuredClone(this.goals.list(sessionId));
@@ -507,6 +520,8 @@ export class AgentRuntime {
       goals: structuredClone(this.goals.list(sessionId)),
       working_memory: structuredClone(this.workingMemoryProvider.list(sessionId)),
       episodes: structuredClone(this.episodicMemoryProvider.list(sessionId)),
+      semantic_memory: structuredClone(this.semanticMemoryProvider.buildSnapshot(sessionId)),
+      procedural_memory: structuredClone(this.proceduralMemoryProvider.buildSnapshot(sessionId)),
       traces: structuredClone(this.getTraceRecords(sessionId)),
       pending_input: derivePendingInput(this.getTraceRecords(sessionId), session),
       created_at: nowIso()
@@ -568,6 +583,20 @@ export class AgentRuntime {
       restoredSession.session_id,
       restoredSession.tenant_id,
       structuredClone(checkpoint.episodes)
+    );
+    this.semanticMemoryProvider.restoreSnapshot(
+      restoredSession.session_id,
+      restoredSession.tenant_id,
+      structuredClone(checkpoint.semantic_memory)
+    );
+    this.proceduralMemoryProvider.replaceSession(
+      restoredSession.session_id,
+      restoredSession.tenant_id,
+      structuredClone(checkpoint.episodes)
+    );
+    this.proceduralMemoryProvider.restoreSnapshot(
+      restoredSession.tenant_id,
+      structuredClone(checkpoint.procedural_memory)
     );
     this.traceRecorder.getStore().replaceSession(
       restoredSession.session_id,
@@ -1081,6 +1110,7 @@ export class AgentRuntime {
       const skillResult = await this.trySkillExecution(profile, session, input, startedAt, cycle, selectedAction);
       if (skillResult) return skillResult;
 
+      const matchedSkillProposal = findSkillProposal(cycle.proposals, selectedAction);
       const { execution, observation } = await this.tools.execute(
         selectedAction,
         {
@@ -1095,6 +1125,25 @@ export class AgentRuntime {
           }
         }
       );
+      const observationWithSkill = matchedSkillProposal
+        ? {
+            ...observation,
+            structured_payload: {
+              ...(observation.structured_payload ?? {}),
+              skill_id:
+                typeof matchedSkillProposal.payload.skill_id === "string"
+                  ? matchedSkillProposal.payload.skill_id
+                  : undefined,
+              skill_name:
+                typeof matchedSkillProposal.payload.skill_name === "string"
+                  ? matchedSkillProposal.payload.skill_name
+                  : undefined
+            }
+          }
+        : observation;
+      if (matchedSkillProposal) {
+        this.emitEvent(session, "skill.executed", execution, cycle.cycleId);
+      }
       this.emitEvent(session, "action.executed", execution, cycle.cycleId);
       this.sessions.incrementToolCallUsed(sessionId);
       const predictionErrors = await this.recordObservation(
@@ -1103,8 +1152,8 @@ export class AgentRuntime {
         input,
         cycle.cycleId,
         selectedAction,
-        observation,
-        observation.status === "failure" ? "failure" : "partial",
+        observationWithSkill,
+        observationWithSkill.status === "failure" ? "failure" : "partial",
         cycle.predictions,
         execution
       );
@@ -1122,7 +1171,7 @@ export class AgentRuntime {
         selectedAction,
         selectedActionId: selectedAction.action_id,
         actionExecution: execution,
-        observation,
+        observation: observationWithSkill,
         workspace: cycle.workspace,
         startedAt
       });
@@ -1132,8 +1181,8 @@ export class AgentRuntime {
         actionId: selectedAction.action_id,
         toolName: selectedAction.tool_name,
         executionStatus: execution.status,
-        observationStatus: observation.status,
-        observationSummary: observation.summary.slice(0, 160)
+        observationStatus: observationWithSkill.status,
+        observationSummary: observationWithSkill.summary.slice(0, 160)
       });
       this.maybeCreateCheckpoint(profile, sessionId);
       this.persistSessionState(sessionId);
@@ -1143,8 +1192,8 @@ export class AgentRuntime {
         sessionState,
         selectedAction,
         actionExecution: execution,
-        observation,
-        outputText: observation.summary,
+        observation: observationWithSkill,
+        outputText: observationWithSkill.summary,
         trace,
         cycle: toAgentCycleState(cycle),
         predictionErrors
@@ -1356,7 +1405,13 @@ export class AgentRuntime {
     predictions?: Prediction[],
     execution?: ActionExecution
   ): Promise<PredictionError[]> {
-    this.workingMemoryProvider.appendObservation(session.session_id, observation);
+    if (profile.memory_config.working_memory_enabled !== false) {
+      this.workingMemoryProvider.appendObservation(
+        session.session_id,
+        observation,
+        deriveWorkingMemoryMaxEntries(profile)
+      );
+    }
     this.emitEvent(session, "observation.recorded", observation, cycleId);
 
     let predictionErrors: PredictionError[] = [];
@@ -1586,10 +1641,19 @@ export class AgentRuntime {
       snapshot.session.tenant_id,
       structuredClone(snapshot.episodes)
     );
+    this.semanticMemoryProvider.restoreSnapshot(
+      sessionId,
+      snapshot.session.tenant_id,
+      structuredClone(snapshot.semantic_memory)
+    );
     this.proceduralMemoryProvider.replaceSession(
       sessionId,
       snapshot.session.tenant_id,
       structuredClone(snapshot.episodes)
+    );
+    this.proceduralMemoryProvider.restoreSnapshot(
+      snapshot.session.tenant_id,
+      structuredClone(snapshot.procedural_memory)
     );
     this.traceRecorder.getStore().replaceSession(sessionId, structuredClone(snapshot.trace_records));
 
@@ -1623,6 +1687,8 @@ export class AgentRuntime {
       goals: structuredClone(this.goals.list(sessionId)),
       working_memory: structuredClone(this.workingMemoryProvider.list(sessionId)),
       episodes: structuredClone(this.episodicMemoryProvider.list(sessionId)),
+      semantic_memory: structuredClone(this.semanticMemoryProvider.buildSnapshot(sessionId)),
+      procedural_memory: structuredClone(this.proceduralMemoryProvider.buildSnapshot(sessionId)),
       trace_records: structuredClone(this.traceRecorder.listRecords(sessionId)),
       approvals: structuredClone(
         [...this.approvals.values()].filter((approval) => approval.session_id === sessionId)
@@ -1673,6 +1739,21 @@ function formatAbortDecision(decision: Awaited<ReturnType<CycleEngine["run"]>>["
     return decision.explanation;
   }
   return "The runtime aborted before executing any action.";
+}
+
+function findSkillProposal(
+  proposals: Proposal[],
+  action: CandidateAction
+): Proposal | undefined {
+  if (!action.source_proposal_id) {
+    return undefined;
+  }
+
+  return proposals.find(
+    (proposal) =>
+      proposal.proposal_id === action.source_proposal_id &&
+      proposal.proposal_type === "skill_match"
+  );
 }
 
 function deriveSessionState(actionType: CandidateAction["action_type"]) {
@@ -1767,6 +1848,12 @@ function observationToInput(
         typeof delegationPayload?.tool_name === "string"
           ? delegationPayload.tool_name
           : undefined,
+      sourceToolArgs:
+        delegationPayload?.tool_args &&
+        typeof delegationPayload.tool_args === "object" &&
+        !Array.isArray(delegationPayload.tool_args)
+          ? structuredClone(delegationPayload.tool_args as Record<string, unknown>)
+          : undefined,
       sourceActionId: observation.source_action_id,
       delegation_status:
         typeof delegationPayload?.delegation_status === "string"
@@ -1828,6 +1915,19 @@ function buildMemoryContext(
       generateId
     }
   };
+}
+
+function deriveWorkingMemoryMaxEntries(profile: AgentProfile): number {
+  if (
+    typeof profile.memory_config.working_memory_max_entries === "number" &&
+    Number.isFinite(profile.memory_config.working_memory_max_entries) &&
+    profile.memory_config.working_memory_max_entries > 0
+  ) {
+    return Math.floor(profile.memory_config.working_memory_max_entries);
+  }
+
+  const topK = profile.memory_config.retrieval_top_k ?? 5;
+  return Math.max(12, Math.min(48, topK * 4));
 }
 
 function toExecutionCycleState(cycle: Awaited<ReturnType<CycleEngine["run"]>>): ExecutionCycleState {
