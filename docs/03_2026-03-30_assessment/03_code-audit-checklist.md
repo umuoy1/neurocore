@@ -1,4 +1,4 @@
-# NeuroCore 代码审计清单（2026-04-02）
+# NeuroCore 代码审计清单（2026-04-03）
 
 > 当前项目总进度以 [`docs/README.md`](../README.md) 为准。
 >
@@ -19,6 +19,7 @@
 
 - `npm run typecheck`：通过
 - M9 定向回归：`npm run build` 后执行 `tests/multi-agent-delegation.test.mjs + tests/multi-agent-runtime.test.mjs`，`20 pass / 0 fail`
+- personal-assistant 抽样回归：`tests/personal-assistant-gateway.test.mjs + tests/personal-assistant-approval.test.mjs + tests/personal-assistant-proactive.test.mjs + tests/personal-assistant-web-chat.test.mjs + tests/personal-assistant-e2e.test.mjs + tests/personal-assistant-config.test.mjs` 通过/可跳过，说明 Phase A 的本地 Web / router / search / approval resume / startup auto-approve / proactive 最小闭环已落地；其中 Web Chat socket E2E 仍需在允许本地端口监听的环境完成
 - 历史抽样中，hosted runtime 相关失败主要来自当前环境监听 `127.0.0.1` 时触发 `listen EPERM`
 - 因此，**本地纯逻辑与 M9 核心闭环已验证**，但 **hosted / socket / Console 联调** 仍需要在允许本地端口监听的环境中完成全量验证
 
@@ -34,7 +35,8 @@
 - `device/world-model` 已接入主链路
 - `multi-agent` 已具备核心原语，且本地 in-process 路径已形成闭环
 - `console` 有预实现，但还不是产品级闭环
-- `personal-assistant / memory-evolution / M10 / M12` 目前仍主要停留在设计与排期层
+- `personal-assistant` 已有 Phase A 局部落地，但完整产品层还没有收口
+- `memory-evolution / M10 / M12` 目前仍主要停留在设计与排期层
 
 ## Milestone 审计清单
 
@@ -112,6 +114,19 @@
 
 所以，当前的 Console 应被视为“**后续 M11 的输入资产**”，而不是“已完成交付”。
 
+### 3.5 personal-assistant 不再只是设计稿，但也还不是完成态
+
+当前 `examples/personal-assistant/` 已经不只是目录脚手架：
+
+- `createPersonalAssistantAgent()` 已能组装主 Agent、搜索/浏览器连接器、邮件/日历连接器、审批人配置
+- `startPersonalAssistantApp()` 已接起 `IMGateway + ConversationRouter + WebChatAdapter + FeishuAdapter + ProactiveEngine`
+- 本地 Web Chat 页面、等待态会话重连、搜索工具调用、审批恢复、proactive 最小闭环与配置覆盖链路均已有测试
+
+但仍不能把它描述为“完整产品闭环”：
+
+- 飞书真实链路、审批卡片交互、跨通道一致性、完整 E2E 仍需继续收口
+- 当前仓库中也存在正在进行中的个人助理审批相关未提交改动，说明该方向仍在活跃施工中
+
 ### 4. 架构方向是对的，但中心编排器已经偏重
 
 当前架构的优点：
@@ -143,10 +158,11 @@
 
 - hosted runtime 端到端链路
 - console 数据面与订阅面
+- personal-assistant Phase A 本地 Web / router / search / config 路径
 
 ### 未闭环
 
-- 个人助理产品层
+- 个人助理完整产品层（尤其是飞书审批、跨通道与完整 E2E）
 - 五层记忆系统演进
 - 技能强化学习
 - 通用自主体能力
@@ -158,10 +174,8 @@
 ### P0：当前主线
 
 1. 个人助理 Phase A 落地
-   - 新增 `im-gateway`
-   - 新增 `service-connectors`
-   - 新增 Web Chat / 搜索 / 浏览器连接器
-   - 完成 Agent 组装与基础运行路径
+   - 当前已具备 `im-gateway`、`service-connectors`、Web Chat、搜索/浏览器连接器与 Agent 组装基础能力
+   - 下一步应继续收口飞书接入、审批恢复路径与完整 E2E
 
 2. Console 准备项收口
    - 统一 API 基础层路径规则和 response shape
