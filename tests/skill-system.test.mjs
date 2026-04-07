@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   AgentRuntime,
+  createSqliteMemoryPersistence,
   FileRuntimeStateStore,
   InMemorySkillStore,
   ProceduralMemoryProvider,
@@ -420,6 +421,41 @@ test("ProceduralMemoryProvider deleteSession also removes promoted skills when t
   assert.equal(store.list("tenant_1").length, 0);
 });
 
+test("ProceduralMemoryProvider persists promoted skills through SQLite skill store", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "neurocore-sqlite-skill-store-"));
+  try {
+    const seedPersistence = createSqliteMemoryPersistence({
+      filename: join(stateDir, "memory.db")
+    });
+    const seedProvider = new ProceduralMemoryProvider(seedPersistence.skillStore, 3);
+
+    await seedProvider.writeEpisode(makeCtx(), makeEpisode({ episode_id: "sql_skill_1" }));
+    await seedProvider.writeEpisode(makeCtx(), makeEpisode({ episode_id: "sql_skill_2" }));
+    await seedProvider.writeEpisode(makeCtx(), makeEpisode({ episode_id: "sql_skill_3" }));
+
+    const readPersistence = createSqliteMemoryPersistence({
+      filename: join(stateDir, "memory.db")
+    });
+    const reader = new ProceduralMemoryProvider(readPersistence.skillStore, 3);
+    const proposals = await reader.match(
+      makeCtx({
+        runtime_state: {
+          current_input_content: "please fetch data",
+          current_input_metadata: {
+            sourceToolName: "fetch_data",
+            sourceActionType: "call_tool"
+          }
+        }
+      })
+    );
+
+    assert.equal(proposals.length, 1);
+    assert.equal(proposals[0].payload.tool_name, "fetch_data");
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("AgentRuntime restoreSession rebuilds procedural memory accumulation from checkpoint episodes", async () => {
   const store = new InMemorySkillStore();
 
@@ -683,6 +719,117 @@ test("persisted runtime session restores procedural skills from snapshot on rest
   }
 });
 
+test("persisted runtime session reloads procedural skills from SQLite memory persistence without procedural snapshot", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "neurocore-procedural-slim-runtime-"));
+  try {
+    const stateStore = new FileRuntimeStateStore({ directory: stateDir });
+    const memoryFilename = join(stateDir, "memory.db");
+    const profile = {
+      agent_id: "persisted-procedural-slim-runtime-agent",
+      schema_version: "1.0.0",
+      name: "Persisted Procedural Slim Runtime Agent",
+      version: "1.0.0",
+      role: "assistant",
+      mode: "runtime",
+      tool_refs: [],
+      skill_refs: [],
+      policies: { policy_ids: [] },
+      memory_config: {
+        working_memory_enabled: true,
+        episodic_memory_enabled: true,
+        semantic_memory_enabled: true,
+        procedural_memory_enabled: true,
+        write_policy: "immediate"
+      },
+      runtime_config: { max_cycles: 10 }
+    };
+    const seedReasoner = {
+      name: "persisted-procedural-slim-runtime-seed-reasoner",
+      async plan() { return []; },
+      async respond(ctx) {
+        const currentInput =
+          typeof ctx.runtime_state.current_input_content === "string"
+            ? ctx.runtime_state.current_input_content
+            : "";
+
+        if (currentInput.startsWith("Tool observation:")) {
+          return [{
+            action_id: ctx.services.generateId("act"),
+            action_type: "respond",
+            title: "Return tool observation",
+            description: currentInput.replace(/^Tool observation:\s*/, "").trim(),
+            side_effect_level: "none"
+          }];
+        }
+
+        return [{
+          action_id: ctx.services.generateId("act"),
+          action_type: "call_tool",
+          title: "Call fetch_data",
+          tool_name: "fetch_data",
+          tool_args: { query: "persisted-sql-skill" },
+          side_effect_level: "none"
+        }];
+      }
+    };
+    const seedRuntime = new AgentRuntime({
+      reasoner: seedReasoner,
+      stateStore,
+      memoryPersistence: createSqliteMemoryPersistence({
+        filename: memoryFilename
+      })
+    });
+    seedRuntime.tools.register({
+      name: "fetch_data",
+      sideEffectLevel: "none",
+      inputSchema: { type: "object", properties: { query: { type: "string" } } },
+      async invoke(input) {
+        return {
+          summary: `fetched:${typeof input.query === "string" ? input.query : "unknown"}`
+        };
+      }
+    });
+
+    const sessionIds = [];
+    for (let round = 0; round < 3; round += 1) {
+      const session = seedRuntime.createSession(profile, {
+        agent_id: profile.agent_id,
+        tenant_id: "tenant_sql_persisted_skill_runtime",
+        initial_input: { content: `seed persisted sql round ${round + 1}` }
+      });
+      sessionIds.push(session.session_id);
+      await seedRuntime.runUntilSettled(profile, session.session_id, {
+        input_id: gid("inp"),
+        content: `seed persisted sql round ${round + 1}`,
+        created_at: ts()
+      });
+    }
+
+    const snapshot = stateStore.getSession(sessionIds[0]);
+    assert.equal(snapshot.procedural_memory, undefined);
+
+    const restoredRuntime = new AgentRuntime({
+      reasoner: {
+        name: "persisted-procedural-slim-runtime-read-reasoner",
+        async plan() { return []; },
+        async respond() { return []; }
+      },
+      stateStore: new FileRuntimeStateStore({ directory: stateDir }),
+      memoryPersistence: createSqliteMemoryPersistence({
+        filename: memoryFilename
+      })
+    });
+
+    const restoredSession = restoredRuntime.getSession(sessionIds[0]);
+    assert.ok(restoredSession);
+
+    assert.equal(restoredRuntime.getSkillProvider().listSkills("tenant_sql_persisted_skill_runtime").length, 1);
+    assert.ok(restoredRuntime.getEpisodes(sessionIds[0]).length > 0);
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("E2E: matched toolchain skill synthesizes and executes tool action without reasoner action", async () => {
   const store = new InMemorySkillStore();
   store.save({
@@ -885,6 +1032,121 @@ test("E2E: skill promotion via AgentRuntime after 3 successful tool calls", asyn
   assert.ok(skill.metadata.source_episode_ids.length >= 3);
   assert.ok(skill.metadata.compiled_at);
   assert.ok(skill.metadata.pattern_key);
+});
+
+test("E2E: AgentRuntime reloads SQLite-backed procedural skills without explicit skillStore", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "neurocore-runtime-sql-skill-"));
+  try {
+    const profile = {
+      agent_id: "skill-sql-runtime-agent",
+      schema_version: "1.0.0",
+      name: "Skill SQL Runtime Agent",
+      version: "1.0.0",
+      role: "assistant",
+      mode: "runtime",
+      tool_refs: ["fetch_data"],
+      skill_refs: [],
+      policies: { policy_ids: [] },
+      memory_config: {
+        working_memory_enabled: true,
+        episodic_memory_enabled: true,
+        semantic_memory_enabled: true,
+        procedural_memory_enabled: true,
+        write_policy: "immediate"
+      },
+      runtime_config: { max_cycles: 10 }
+    };
+
+    const seedReasoner = {
+      name: "seed-sql-skill-reasoner",
+      async plan() { return []; },
+      async respond(ctx) {
+        const currentInput =
+          typeof ctx.runtime_state.current_input_content === "string"
+            ? ctx.runtime_state.current_input_content
+            : "";
+
+        if (currentInput.startsWith("Tool observation:")) {
+          return [{
+            action_id: ctx.services.generateId("act"),
+            action_type: "respond",
+            title: "Return observation",
+            description: currentInput.replace(/^Tool observation:\s*/, "").trim(),
+            side_effect_level: "none"
+          }];
+        }
+
+        return [{
+          action_id: ctx.services.generateId("act"),
+          action_type: "call_tool",
+          title: "Call fetch_data",
+          tool_name: "fetch_data",
+          tool_args: { query: "sqlite-skill" },
+          side_effect_level: "none"
+        }];
+      }
+    };
+
+    const seedRuntime = new AgentRuntime({
+      reasoner: seedReasoner,
+      memoryPersistence: createSqliteMemoryPersistence({
+        filename: join(stateDir, "memory.db")
+      })
+    });
+    seedRuntime.tools.register({
+      name: "fetch_data",
+      sideEffectLevel: "none",
+      inputSchema: { type: "object", properties: { query: { type: "string" } } },
+      async invoke(input) {
+        return { summary: `fetched:${typeof input.query === "string" ? input.query : "unknown"}` };
+      }
+    });
+
+    for (let round = 0; round < 3; round += 1) {
+      const session = seedRuntime.createSession(profile, {
+        agent_id: profile.agent_id,
+        tenant_id: "tenant_sql_skill_runtime",
+        initial_input: { content: `seed round ${round + 1}` }
+      });
+      await seedRuntime.runUntilSettled(profile, session.session_id, {
+        input_id: gid("inp"),
+        content: `seed round ${round + 1}`,
+        created_at: ts()
+      });
+    }
+
+    const readerRuntime = new AgentRuntime({
+      reasoner: {
+        name: "read-sql-skill-reasoner",
+        async plan() { return []; },
+        async respond() { return []; }
+      },
+      memoryPersistence: createSqliteMemoryPersistence({
+        filename: join(stateDir, "memory.db")
+      })
+    });
+    readerRuntime.tools.register({
+      name: "fetch_data",
+      sideEffectLevel: "none",
+      inputSchema: { type: "object", properties: { query: { type: "string" } } },
+      async invoke(input) {
+        return { summary: `fetched:${typeof input.query === "string" ? input.query : "unknown"}` };
+      }
+    });
+
+    const session = readerRuntime.createSession(profile, {
+      agent_id: profile.agent_id,
+      tenant_id: "tenant_sql_skill_runtime",
+      initial_input: { content: "use sql skill" }
+    });
+    const skillProvider = readerRuntime.getSkillProvider();
+    const skills = skillProvider.listSkills("tenant_sql_skill_runtime");
+    assert.equal(skills.length, 1);
+    assert.equal(skills[0].metadata.tenant_id, "tenant_sql_skill_runtime");
+    assert.ok(skills[0].metadata.pattern_key);
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
 });
 
 test("E2E: skill trace records and defineAgent integration", async () => {
