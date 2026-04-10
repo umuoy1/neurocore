@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import type {
   AgentProfile,
   CreateSessionCommand,
@@ -11,7 +13,13 @@ import type {
   UserInput,
   Tool
 } from "@neurocore/protocol";
-import { AgentRuntime, type AgentRuntimeOptions } from "@neurocore/runtime-core";
+import {
+  AgentRuntime,
+  SqliteCheckpointStore,
+  SqliteRuntimeStateStore,
+  createSqliteMemoryPersistence,
+  type AgentRuntimeOptions
+} from "@neurocore/runtime-core";
 import { ToolPolicyProvider } from "@neurocore/policy-core";
 import { AgentSessionHandle } from "./session-handle.js";
 
@@ -29,6 +37,7 @@ export interface AgentRuntimeInfrastructure
     Pick<
       AgentRuntimeOptions,
       | "deviceRegistry"
+      | "stateStore"
       | "worldStateGraph"
       | "perceptionPipeline"
       | "forwardSimulator"
@@ -260,13 +269,25 @@ export class AgentBuilder {
     }
 
     if (!this.runtime) {
+      const explicitStateStore = this.runtimeInfrastructure.stateStore;
+      const stateStore = explicitStateStore ?? this.runtimeStateStoreFactory?.();
+      const defaultRuntimeInfrastructure =
+        stateStore || hasExplicitPersistence(this.runtimeInfrastructure)
+          ? {}
+          : createDefaultSqliteRuntimeInfrastructure(this.profile.agent_id);
+      const derivedSqliteInfrastructure = deriveSqlitePersistenceFromStateStore(
+        stateStore,
+        this.runtimeInfrastructure
+      );
       const runtime = new AgentRuntime({
         reasoner: this.reasoner,
         memoryProviders: this.memoryProviders,
         predictors: this.predictors,
         policyProviders: this.policyProviders,
         skillProviders: this.skillProviders,
-        stateStore: this.runtimeStateStoreFactory?.(),
+        stateStore,
+        ...defaultRuntimeInfrastructure,
+        ...derivedSqliteInfrastructure,
         ...this.runtimeInfrastructure
       });
       for (const tool of this.tools) {
@@ -285,4 +306,51 @@ export class AgentBuilder {
 
 export function defineAgent(options: DefineAgentOptions): AgentBuilder {
   return new AgentBuilder(options);
+}
+
+function hasExplicitPersistence(infrastructure: AgentRuntimeInfrastructure): boolean {
+  return Boolean(
+    infrastructure.memoryPersistence ||
+      infrastructure.checkpointStore
+  );
+}
+
+function createDefaultSqliteRuntimeInfrastructure(agentId: string): AgentRuntimeInfrastructure {
+  const filename = resolveDefaultRuntimeSqlitePath(agentId);
+  return {
+    stateStore: new SqliteRuntimeStateStore({ filename }),
+    memoryPersistence: createSqliteMemoryPersistence({ filename }),
+    checkpointStore: new SqliteCheckpointStore({ filename })
+  };
+}
+
+function resolveDefaultRuntimeSqlitePath(agentId: string): string {
+  const runtimeDirectory = join(process.cwd(), ".neurocore", "runtime");
+  mkdirSync(runtimeDirectory, { recursive: true });
+  return join(runtimeDirectory, `${sanitizeFileSegment(agentId)}.sqlite`);
+}
+
+function sanitizeFileSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, "-");
+}
+
+function deriveSqlitePersistenceFromStateStore(
+  stateStore: RuntimeStateStore | undefined,
+  infrastructure: AgentRuntimeInfrastructure
+): AgentRuntimeInfrastructure {
+  if (!(stateStore instanceof SqliteRuntimeStateStore)) {
+    return {};
+  }
+
+  const filename = stateStore.getFilename();
+  const derived: AgentRuntimeInfrastructure = {};
+
+  if (!infrastructure.memoryPersistence) {
+    derived.memoryPersistence = createSqliteMemoryPersistence({ filename });
+  }
+  if (!infrastructure.checkpointStore) {
+    derived.checkpointStore = new SqliteCheckpointStore({ filename });
+  }
+
+  return derived;
 }
