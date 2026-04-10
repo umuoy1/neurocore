@@ -10,6 +10,7 @@ import {
   InMemorySkillStore,
   ProceduralMemoryProvider,
   derivePatternKey,
+  migrateFileRuntimeStateToSqlFirst,
   shouldPromoteToSkill,
   compileSkillFromEpisodes
 } from "@neurocore/runtime-core";
@@ -629,16 +630,10 @@ test("AgentRuntime restoreSession restores procedural skills from checkpoint sna
   assert.equal(proposals.length, 1);
 });
 
-test("persisted runtime session restores procedural skills from snapshot on restart", async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), "neurocore-procedural-snapshot-"));
+test("explicit file runtime migration backfills procedural skills, then runtime restores normally", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "neurocore-procedural-file-migration-"));
   try {
-    const seedStore = new InMemorySkillStore();
     const stateStore = new FileRuntimeStateStore({ directory: stateDir });
-    const reasoner = {
-      name: "persisted-procedural-snapshot-reasoner",
-      async plan() { return []; },
-      async respond() { return []; }
-    };
     const profile = {
       agent_id: "persisted-procedural-snapshot-agent",
       schema_version: "1.0.0",
@@ -659,45 +654,75 @@ test("persisted runtime session restores procedural skills from snapshot on rest
       runtime_config: { max_cycles: 3 }
     };
 
-    const seedRuntime = new AgentRuntime({ reasoner, skillStore: seedStore, stateStore });
-    const seedSession = seedRuntime.createSession(profile, {
+    const session = {
+      session_id: "ses_persisted_snapshot",
+      schema_version: "1.0.0",
+      tenant_id: "tenant_persisted_snapshot",
       agent_id: profile.agent_id,
-      tenant_id: "tenant_persisted_snapshot",
-      initial_input: { content: "seed persisted skill snapshot" }
-    });
+      state: "waiting",
+      session_mode: "sync",
+      goal_tree_ref: "goal_tree_1",
+      budget_state: {},
+      policy_state: {}
+    };
 
-    const provider = seedRuntime.getSkillProvider();
-    const ctx = makeCtx({
-      tenant_id: "tenant_persisted_snapshot",
-      session: {
-        ...seedSession,
-        tenant_id: "tenant_persisted_snapshot"
+    stateStore.saveSession({
+      session,
+      goals: [],
+      trace_records: [],
+      approvals: [],
+      pending_approvals: [],
+      procedural_memory: {
+        skills: [{
+          skill_id: "skl_persisted_snapshot_1",
+          schema_version: "1.0.0",
+          name: "fetch_data:call_tool_fetch_data",
+          version: "1.0.0",
+          kind: "toolchain_skill",
+          trigger_conditions: [
+            { field: "tool_name", operator: "eq", value: "fetch_data" },
+            { field: "action_type", operator: "eq", value: "call_tool" }
+          ],
+          execution_template: {
+            kind: "toolchain",
+            tool_name: "fetch_data",
+            action_type: "call_tool",
+            steps: ["Call tool: fetch_data"]
+          },
+          metadata: {
+            tenant_id: "tenant_persisted_snapshot",
+            pattern_key: "fetch_data:call_tool_fetch_data",
+            source_episode_ids: ["persist_ep_1", "persist_ep_2", "persist_ep_3"]
+          }
+        }]
       }
     });
-    await provider.writeEpisode(ctx, makeEpisode({
-      episode_id: "persist_ep_1",
-      session_id: seedSession.session_id
-    }));
-    await provider.writeEpisode(ctx, makeEpisode({
-      episode_id: "persist_ep_2",
-      session_id: seedSession.session_id
-    }));
-    await provider.writeEpisode(ctx, makeEpisode({
-      episode_id: "persist_ep_3",
-      session_id: seedSession.session_id
-    }));
-    seedRuntime.createCheckpoint(seedSession.session_id);
 
-    const restoredStore = new InMemorySkillStore();
+    const migration = migrateFileRuntimeStateToSqlFirst({
+      directory: stateDir,
+      filename: join(stateDir, "memory.db")
+    });
+    assert.equal(migration.memorySessionsBackfilled, 1);
+
+    const reasoner = {
+      name: "persisted-procedural-snapshot-reasoner",
+      async plan() { return []; },
+      async respond() { return []; }
+    };
     const restoredRuntime = new AgentRuntime({
       reasoner,
-      skillStore: restoredStore,
-      stateStore: new FileRuntimeStateStore({ directory: stateDir })
+      stateStore: new FileRuntimeStateStore({ directory: stateDir }),
+      memoryPersistence: createSqliteMemoryPersistence({
+        filename: join(stateDir, "memory.db")
+      })
     });
 
-    const restoredSession = restoredRuntime.getSession(seedSession.session_id);
+    const restoredSession = restoredRuntime.getSession(session.session_id);
     assert.ok(restoredSession);
-    assert.equal(restoredStore.list("tenant_persisted_snapshot").length, 1);
+    assert.equal(
+      restoredRuntime.getSkillProvider().listSkills("tenant_persisted_snapshot").length,
+      1
+    );
 
     const proposals = await restoredRuntime.getSkillProvider().match(makeCtx({
       tenant_id: "tenant_persisted_snapshot",

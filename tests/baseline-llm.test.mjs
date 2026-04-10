@@ -532,8 +532,14 @@ test("LLM Baseline Suite", { concurrency: false, timeout: 600_000 }, async (t) =
     assert.ok(cp.checkpoint_id, "checkpoint should have id");
     assert.ok(cp.session, "checkpoint should contain session");
     assert.ok(Array.isArray(cp.goals), "checkpoint should contain goals");
-    assert.ok(Array.isArray(cp.working_memory), "checkpoint should contain working memory");
-    assert.ok(Array.isArray(cp.episodes), "checkpoint should contain episodes");
+    assert.ok(
+      cp.working_memory === undefined || Array.isArray(cp.working_memory),
+      "checkpoint should contain working memory when not slimmed"
+    );
+    assert.ok(
+      cp.episodes === undefined || Array.isArray(cp.episodes),
+      "checkpoint should contain episodes when not slimmed"
+    );
     assert.ok(Array.isArray(cp.traces), "checkpoint should contain traces");
 
     const replay = session.replay();
@@ -740,16 +746,23 @@ test("LLM Baseline Suite", { concurrency: false, timeout: 600_000 }, async (t) =
     assert.ok(cp.checkpoint_id, "checkpoint should have an id");
     assert.ok(cp.session, "checkpoint should contain session state");
     assert.ok(Array.isArray(cp.goals), "checkpoint should contain goals");
-    assert.ok(Array.isArray(cp.working_memory), "checkpoint should contain working memory");
-    assert.ok(Array.isArray(cp.episodes), "checkpoint should contain episodes");
+    assert.ok(
+      cp.working_memory === undefined || Array.isArray(cp.working_memory),
+      "checkpoint should contain working memory when not slimmed"
+    );
+    assert.ok(
+      cp.episodes === undefined || Array.isArray(cp.episodes),
+      "checkpoint should contain episodes when not slimmed"
+    );
     assert.ok(Array.isArray(cp.traces), "checkpoint should contain traces");
 
-    assert.ok(cp.episodes.length >= 1,
+    const checkpointEpisodes = cp.episodes ?? session.getEpisodes();
+    assert.ok(checkpointEpisodes.length >= 1,
       "checkpoint should capture episodes from the session");
     assert.ok(cp.goals.length >= 1,
       "checkpoint should capture goals from the session");
 
-    console.log(`  G13 done: ${result.finalState}, ${cp.episodes.length} episodes, ${cp.goals.length} goals`);
+    console.log(`  G13 done: ${result.finalState}, ${checkpointEpisodes.length} episodes, ${cp.goals.length} goals`);
   });
 
   await sleep(API_COOLDOWN_MS);

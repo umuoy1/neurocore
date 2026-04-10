@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -14,13 +14,14 @@ import {
 } from "@neurocore/memory-core";
 import {
   AgentRuntime,
-  backfillSqliteMemoryFromRuntimeState,
   SqliteCheckpointStore,
   SqliteRuntimeStateStore,
   createSqliteMemoryPersistence,
   CycleEngine,
   DefaultMetaController,
-  FileRuntimeStateStore
+  FileRuntimeStateStore,
+  migrateFileRuntimeStateToSqlFirst,
+  migrateSqliteRuntimeStateToSqlFirst
 } from "@neurocore/runtime-core";
 import { defineAgent } from "@neurocore/sdk-core";
 
@@ -111,6 +112,17 @@ function makeEpisode(overrides = {}) {
       action_type: "call_tool",
       tool_name: "fetch_data"
     },
+    ...overrides
+  };
+}
+
+function makeCheckpoint(overrides = {}) {
+  return {
+    checkpoint_id: gid("chk"),
+    session: makeSession(),
+    goals: [],
+    traces: [],
+    created_at: ts(),
     ...overrides
   };
 }
@@ -435,6 +447,398 @@ test("defineAgent runtime infrastructure passes SQLite checkpoint store into run
 
     session.cleanup({ force: true });
     checkpointStore.close();
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("defineAgent defaults to SQL-first persistence when no runtime persistence is configured", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "neurocore-default-sql-first-"));
+  const previousCwd = process.cwd();
+  try {
+    process.chdir(stateDir);
+
+    const agent = defineAgent({
+      id: "default-sql-first-agent",
+      role: "Default SQL-first persistence test agent"
+    }).useReasoner({
+      name: "default-sql-first-reasoner",
+      async plan() { return []; },
+      async respond() {
+        return [{
+          action_id: "act_default_sql",
+          action_type: "ask_user",
+          title: "Ask",
+          description: "Need more input",
+          side_effect_level: "none"
+        }];
+      }
+    });
+
+    const session = agent.createSession({
+      agent_id: "default-sql-first-agent",
+      tenant_id: "tenant_memory",
+      initial_input: {
+        content: "default sql persistence seed"
+      }
+    });
+
+    await session.runOnce();
+    const checkpoint = session.checkpoint();
+
+    const dbPath = join(stateDir, ".neurocore", "runtime", "default-sql-first-agent.sqlite");
+    assert.equal(existsSync(dbPath), true);
+
+    const reloadedAgent = defineAgent({
+      id: "default-sql-first-agent",
+      role: "Default SQL-first persistence test agent"
+    }).useReasoner({
+      name: "default-sql-first-reload-reasoner",
+      async plan() { return []; },
+      async respond() { return []; }
+    });
+
+    const connected = reloadedAgent.connectSession(session.id);
+    assert.equal(connected.getSession()?.session_id, session.id);
+    assert.equal(connected.getEpisodes().length, 1);
+    assert.ok(connected.getCheckpoints().length >= 1);
+    assert.equal(
+      connected.getCheckpoints().some((candidate) => candidate.checkpoint_id === checkpoint.checkpoint_id),
+      true
+    );
+  } finally {
+    process.chdir(previousCwd);
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("defineAgent auto-derives SQL-first memory and checkpoint persistence from SqliteRuntimeStateStore", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "neurocore-derived-sql-first-"));
+  try {
+    const filename = join(stateDir, "runtime.sqlite");
+    const agent = defineAgent({
+      id: "derived-sql-first-agent",
+      role: "Derived SQL-first persistence test agent"
+    })
+      .useReasoner({
+        name: "derived-sql-first-reasoner",
+        async plan() { return []; },
+        async respond() {
+          return [{
+            action_id: "act_derived_sql",
+            action_type: "ask_user",
+            title: "Ask",
+            description: "Need more input",
+            side_effect_level: "none"
+          }];
+        }
+      })
+      .useRuntimeStateStore(() => new SqliteRuntimeStateStore({ filename }));
+
+    const session = agent.createSession({
+      agent_id: "derived-sql-first-agent",
+      tenant_id: "tenant_memory",
+      initial_input: {
+        content: "derived sql persistence seed"
+      }
+    });
+
+    await session.runOnce();
+    const checkpoint = session.checkpoint();
+
+    const reloadedAgent = defineAgent({
+      id: "derived-sql-first-agent",
+      role: "Derived SQL-first persistence test agent"
+    })
+      .useReasoner({
+        name: "derived-sql-first-reload-reasoner",
+        async plan() { return []; },
+        async respond() { return []; }
+      })
+      .useRuntimeStateStore(() => new SqliteRuntimeStateStore({ filename }));
+
+    const connected = reloadedAgent.connectSession(session.id);
+    assert.equal(connected.getSession()?.session_id, session.id);
+    assert.equal(connected.getEpisodes().length, 1);
+    assert.equal(
+      connected.getCheckpoints().some((candidate) => candidate.checkpoint_id === checkpoint.checkpoint_id),
+      true
+    );
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("AgentRuntime auto-derives SQL-first memory and checkpoint persistence from SqliteRuntimeStateStore", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "neurocore-runtime-derived-sql-first-"));
+  try {
+    const filename = join(stateDir, "runtime.sqlite");
+    const stateStore = new SqliteRuntimeStateStore({ filename });
+    const reasoner = {
+      name: "runtime-derived-sql-first-reasoner",
+      async plan() { return []; },
+      async respond(ctx) {
+        return [{
+          action_id: ctx.services.generateId("act"),
+          action_type: "ask_user",
+          title: "Need more input",
+          description: "Need more input",
+          side_effect_level: "none"
+        }];
+      }
+    };
+    const runtime = new AgentRuntime({ reasoner, stateStore });
+    const profile = makeProfile();
+    const session = runtime.createSession(profile, {
+      agent_id: profile.agent_id,
+      tenant_id: "tenant_memory",
+      initial_input: { content: "runtime derived sql seed" }
+    });
+
+    await runtime.runOnce(profile, session.session_id, {
+      input_id: gid("inp"),
+      content: "runtime derived sql round",
+      created_at: ts()
+    });
+    const checkpoint = runtime.createCheckpoint(session.session_id);
+
+    const snapshot = stateStore.getSession(session.session_id);
+    assert.equal(snapshot.working_memory, undefined);
+    assert.equal(snapshot.episodes, undefined);
+    assert.equal(snapshot.semantic_memory, undefined);
+    assert.equal(snapshot.procedural_memory, undefined);
+    assert.equal(snapshot.checkpoints, undefined);
+
+    const restoredRuntime = new AgentRuntime({
+      reasoner: {
+        name: "runtime-derived-sql-first-read-reasoner",
+        async plan() { return []; },
+        async respond() { return []; }
+      },
+      stateStore: new SqliteRuntimeStateStore({ filename })
+    });
+
+    assert.equal(restoredRuntime.getSession(session.session_id)?.session_id, session.session_id);
+    assert.equal(restoredRuntime.getEpisodes(session.session_id).length, 1);
+    assert.equal(
+      restoredRuntime.listCheckpoints(session.session_id).some(
+        (candidate) => candidate.checkpoint_id === checkpoint.checkpoint_id
+      ),
+      true
+    );
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("AgentRuntime rejects legacy runtime snapshot payloads until explicit migration is run", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "neurocore-legacy-runtime-reject-"));
+  try {
+    const filename = join(stateDir, "runtime.sqlite");
+    const stateStore = new SqliteRuntimeStateStore({ filename });
+    stateStore.saveSession({
+      session: {
+        session_id: "ses_legacy_blocked",
+        schema_version: "1.0.0",
+        tenant_id: "tenant_memory",
+        agent_id: "memory-test-agent",
+        state: "waiting",
+        session_mode: "sync",
+        goal_tree_ref: "goal_tree_memory",
+        budget_state: {},
+        policy_state: {}
+      },
+      goals: [],
+      working_memory: [
+        { memory_id: "mem_legacy_blocked", summary: "legacy blocked working", relevance: 1 }
+      ],
+      episodes: [
+        makeEpisode({
+          episode_id: "ep_legacy_blocked",
+          session_id: "ses_legacy_blocked",
+          outcome_summary: "legacy blocked episodic",
+          created_at: "2026-04-01T00:00:00.000Z"
+        })
+      ],
+      trace_records: [],
+      approvals: [],
+      pending_approvals: [],
+      checkpoints: [
+        makeCheckpoint({
+          checkpoint_id: "chk_legacy_blocked",
+          session: {
+            ...makeSession(),
+            session_id: "ses_legacy_blocked"
+          }
+        })
+      ]
+    });
+
+    const runtime = new AgentRuntime({
+      reasoner: {
+        name: "legacy-runtime-reject-reasoner",
+        async plan() { return []; },
+        async respond() { return []; }
+      },
+      stateStore: new SqliteRuntimeStateStore({ filename }),
+      memoryPersistence: createSqliteMemoryPersistence({ filename }),
+      checkpointStore: new SqliteCheckpointStore({ filename })
+    });
+
+    assert.throws(
+      () => runtime.getSession("ses_legacy_blocked"),
+      /migrateSqliteRuntimeStateToSqlFirst/
+    );
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("explicit SQL runtime migration backfills legacy memory and checkpoints, then runtime restores normally", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "neurocore-explicit-runtime-migration-"));
+  try {
+    const filename = join(stateDir, "runtime.sqlite");
+    const stateStore = new SqliteRuntimeStateStore({ filename });
+    stateStore.saveSession({
+      session: {
+        session_id: "ses_runtime_migrated",
+        schema_version: "1.0.0",
+        tenant_id: "tenant_memory",
+        agent_id: "memory-test-agent",
+        state: "waiting",
+        session_mode: "sync",
+        goal_tree_ref: "goal_tree_memory",
+        budget_state: {},
+        policy_state: {}
+      },
+      goals: [],
+      working_memory: [
+        { memory_id: "mem_runtime_migrated", summary: "migrated working", relevance: 1 }
+      ],
+      episodes: [
+        makeEpisode({
+          episode_id: "ep_runtime_migrated",
+          session_id: "ses_runtime_migrated",
+          outcome_summary: "migrated episodic",
+          created_at: "2026-04-02T00:00:00.000Z"
+        })
+      ],
+      semantic_memory: {
+        contributions: [
+          {
+            tenant_id: "tenant_memory",
+            session_id: "ses_runtime_migrated",
+            pattern_key: "fetch_data:call_tool_fetch_data",
+            summary: "migrated semantic",
+            source_episode_ids: ["ep_runtime_migrated", "ep_runtime_migrated_2"],
+            last_updated_at: "2026-04-02T00:00:00.000Z"
+          }
+        ]
+      },
+      procedural_memory: {
+        skills: [
+          {
+            skill_id: "skl_runtime_migrated",
+            schema_version: "1.0.0",
+            name: "fetch_data:call_tool_fetch_data",
+            version: "1.0.0",
+            kind: "toolchain_skill",
+            trigger_conditions: [
+              { field: "tool_name", operator: "eq", value: "fetch_data" },
+              { field: "action_type", operator: "eq", value: "call_tool" }
+            ],
+            execution_template: {
+              kind: "toolchain",
+              tool_name: "fetch_data",
+              action_type: "call_tool"
+            },
+            metadata: {
+              tenant_id: "tenant_memory",
+              pattern_key: "fetch_data:call_tool_fetch_data",
+              source_episode_ids: ["ep_runtime_migrated"]
+            }
+          }
+        ]
+      },
+      trace_records: [],
+      approvals: [],
+      pending_approvals: [],
+      checkpoints: [
+        makeCheckpoint({
+          checkpoint_id: "chk_runtime_migrated",
+          session: {
+            ...makeSession(),
+            session_id: "ses_runtime_migrated"
+          }
+        })
+      ]
+    });
+
+    const migration = migrateSqliteRuntimeStateToSqlFirst({ filename });
+    assert.equal(migration.memorySessionsBackfilled, 1);
+    assert.equal(migration.checkpointSessionsBackfilled, 1);
+
+    const slimmedSnapshot = new SqliteRuntimeStateStore({ filename }).getSession("ses_runtime_migrated");
+    assert.equal(slimmedSnapshot.working_memory, undefined);
+    assert.equal(slimmedSnapshot.episodes, undefined);
+    assert.equal(slimmedSnapshot.semantic_memory, undefined);
+    assert.equal(slimmedSnapshot.procedural_memory, undefined);
+    assert.equal(slimmedSnapshot.checkpoints, undefined);
+
+    const runtime = new AgentRuntime({
+      reasoner: {
+        name: "runtime-migration-read-reasoner",
+        async plan() { return []; },
+        async respond() { return []; }
+      },
+      stateStore: new SqliteRuntimeStateStore({ filename }),
+      memoryPersistence: createSqliteMemoryPersistence({ filename }),
+      checkpointStore: new SqliteCheckpointStore({ filename })
+    });
+
+    assert.equal(runtime.getSession("ses_runtime_migrated")?.session_id, "ses_runtime_migrated");
+    assert.deepEqual(
+      runtime.getWorkingMemory("ses_runtime_migrated").map((entry) => entry.memory_id),
+      ["mem_runtime_migrated"]
+    );
+    assert.deepEqual(
+      runtime.getEpisodes("ses_runtime_migrated").map((episode) => episode.episode_id),
+      ["ep_runtime_migrated"]
+    );
+    assert.equal(runtime.listCheckpoints("ses_runtime_migrated").length, 1);
+
+    const [semanticProposal] = await runtime.getSemanticMemoryProvider().retrieve({
+      ...makeCtx(),
+      session: {
+        ...makeSession(),
+        session_id: "ses_runtime_query"
+      },
+      runtime_state: {
+        current_input_content: "fetch_data request",
+        current_input_metadata: {
+          sourceToolName: "fetch_data"
+        }
+      }
+    });
+    assert.equal(
+      semanticProposal.payload.records[0].memory_id,
+      "sem_fetch_data:call_tool_fetch_data"
+    );
+
+    const skillMatches = await runtime.getSkillProvider().match({
+      ...makeCtx(),
+      session: {
+        ...makeSession(),
+        session_id: "ses_runtime_migrated"
+      },
+      runtime_state: {
+        current_input_metadata: {
+          sourceToolName: "fetch_data",
+          sourceActionType: "call_tool"
+        }
+      }
+    });
+    assert.equal(skillMatches.length, 1);
   } finally {
     rmSync(stateDir, { recursive: true, force: true });
   }
@@ -777,7 +1181,7 @@ test("restoreSession reloads state from SQLite memory persistence when checkpoin
   }
 });
 
-test("createSqliteMemoryPersistence provides backfillable normalized stores for legacy runtime snapshots", () => {
+test("createSqliteMemoryPersistence does not auto-backfill legacy runtime snapshots", () => {
   const stateDir = mkdtempSync(join(tmpdir(), "neurocore-memory-backfill-"));
   try {
     const filename = join(stateDir, "runtime.db");
@@ -858,22 +1262,10 @@ test("createSqliteMemoryPersistence provides backfillable normalized stores for 
     const persistence = createSqliteMemoryPersistence({
       filename
     });
-    const backfilledCount = backfillSqliteMemoryFromRuntimeState({
-      filename,
-      persistence
-    });
-
-    assert.equal(backfilledCount, 0);
-    assert.deepEqual(
-      persistence.working.list("ses_backfill").map((entry) => entry.memory_id),
-      ["mem_backfill_1"]
-    );
-    assert.deepEqual(
-      persistence.episodic.list("ses_backfill").map((episode) => episode.episode_id),
-      ["ep_backfill_1", "ep_backfill_2"]
-    );
-    assert.equal(persistence.semantic.list("tenant_memory").length, 1);
-    assert.equal(persistence.skillStore.list("tenant_memory").length, 1);
+    assert.deepEqual(persistence.working.list("ses_backfill"), []);
+    assert.deepEqual(persistence.episodic.list("ses_backfill"), []);
+    assert.equal(persistence.semantic.list("tenant_memory").length, 0);
+    assert.equal(persistence.skillStore.list("tenant_memory").length, 0);
 
     persistence.working.replace("ses_backfill", [
       { memory_id: "mem_sql_override", summary: "normalized override", relevance: 1 }
@@ -894,6 +1286,46 @@ test("createSqliteMemoryPersistence provides backfillable normalized stores for 
     secondPersistence.episodic.close();
     secondPersistence.semantic.close();
     secondPersistence.skillStore.close();
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("SqliteCheckpointStore does not auto-backfill legacy runtime snapshot checkpoints", () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "neurocore-checkpoint-backfill-"));
+  try {
+    const filename = join(stateDir, "runtime.db");
+    const stateStore = new SqliteRuntimeStateStore({ filename });
+    stateStore.saveSession({
+      session: {
+        session_id: "ses_checkpoint_backfill",
+        schema_version: "1.0.0",
+        tenant_id: "tenant_memory",
+        agent_id: "memory-test-agent",
+        state: "waiting",
+        session_mode: "sync",
+        goal_tree_ref: "goal_tree_memory",
+        budget_state: {},
+        policy_state: {}
+      },
+      goals: [],
+      trace_records: [],
+      approvals: [],
+      pending_approvals: [],
+      checkpoints: [
+        makeCheckpoint({
+          checkpoint_id: "chk_backfill_1",
+          session: {
+            ...makeSession(),
+            session_id: "ses_checkpoint_backfill"
+          }
+        })
+      ]
+    });
+
+    const checkpointStore = new SqliteCheckpointStore({ filename });
+    assert.equal(checkpointStore.list("ses_checkpoint_backfill").length, 0);
+    checkpointStore.close();
   } finally {
     rmSync(stateDir, { recursive: true, force: true });
   }
@@ -1320,66 +1752,71 @@ test("SemanticMemoryProvider restores semantic contributions from snapshot witho
   assert.equal(proposal.payload.records[0].summary, "fetch_data still stable");
 });
 
-test("persisted runtime session restores semantic snapshot on restart", async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), "neurocore-semantic-snapshot-"));
+test("explicit file runtime migration backfills semantic memory, then runtime restores normally", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "neurocore-semantic-file-migration-"));
   try {
+    const stateStore = new FileRuntimeStateStore({ directory: stateDir });
+    const sessionA = {
+      ...makeSession(),
+      session_id: "ses_semantic_file_seed",
+      tenant_id: "tenant_memory",
+      state: "waiting"
+    };
+    const sessionB = {
+      ...makeSession(),
+      session_id: "ses_semantic_file_query",
+      tenant_id: "tenant_memory",
+      state: "waiting"
+    };
+
+    stateStore.saveSession({
+      session: sessionA,
+      goals: [],
+      trace_records: [],
+      approvals: [],
+      pending_approvals: [],
+      semantic_memory: {
+        contributions: [
+          {
+            tenant_id: "tenant_memory",
+            session_id: sessionA.session_id,
+            pattern_key: "fetch_data:call_tool_fetch_data",
+            summary: "fetch_data still stable",
+            source_episode_ids: ["sem_rt_1", "sem_rt_2"],
+            last_updated_at: "2026-04-02T00:00:00.000Z"
+          }
+        ]
+      }
+    });
+    stateStore.saveSession({
+      session: sessionB,
+      goals: [],
+      trace_records: [],
+      approvals: [],
+      pending_approvals: []
+    });
+
+    const migration = migrateFileRuntimeStateToSqlFirst({
+      directory: stateDir,
+      filename: join(stateDir, "memory.db"),
+      workingMaxEntries: 4
+    });
+    assert.equal(migration.memorySessionsBackfilled, 1);
+    assert.equal(migration.checkpointSessionsBackfilled, 0);
+
     const reasoner = {
       name: "semantic-snapshot-reasoner",
       async plan() { return []; },
       async respond() { return []; }
     };
-    const stateStore = new FileRuntimeStateStore({ directory: stateDir });
-    const runtime = new AgentRuntime({ reasoner, stateStore });
-    const profile = makeProfile();
-
-    const sessionA = runtime.createSession(profile, {
-      agent_id: profile.agent_id,
-      tenant_id: "tenant_memory",
-      initial_input: { content: "semantic seed A" }
-    });
-    const sessionB = runtime.createSession(profile, {
-      agent_id: profile.agent_id,
-      tenant_id: "tenant_memory",
-      initial_input: { content: "semantic query B" }
-    });
-
-    const semantic = runtime.getSemanticMemoryProvider();
-    await semantic.writeEpisode(
-      {
-        ...makeCtx(),
-        session: {
-          ...makeSession(),
-          session_id: sessionA.session_id
-        }
-      },
-      makeEpisode({
-        episode_id: "sem_rt_1",
-        session_id: sessionA.session_id,
-        created_at: "2026-04-01T00:00:00.000Z",
-        outcome_summary: "fetch_data stable"
-      })
-    );
-    await semantic.writeEpisode(
-      {
-        ...makeCtx(),
-        session: {
-          ...makeSession(),
-          session_id: sessionA.session_id
-        }
-      },
-      makeEpisode({
-        episode_id: "sem_rt_2",
-        session_id: sessionA.session_id,
-        created_at: "2026-04-02T00:00:00.000Z",
-        outcome_summary: "fetch_data still stable"
-      })
-    );
-    runtime.createCheckpoint(sessionA.session_id);
-    runtime.createCheckpoint(sessionB.session_id);
 
     const restoredRuntime = new AgentRuntime({
       reasoner,
-      stateStore: new FileRuntimeStateStore({ directory: stateDir })
+      stateStore: new FileRuntimeStateStore({ directory: stateDir }),
+      memoryPersistence: createSqliteMemoryPersistence({
+        filename: join(stateDir, "memory.db"),
+        workingMaxEntries: 4
+      })
     });
 
     assert.ok(restoredRuntime.getSession(sessionA.session_id));
