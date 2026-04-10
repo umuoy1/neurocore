@@ -2,7 +2,6 @@ import { DatabaseSync } from "node:sqlite";
 import type {
   Episode,
   ProceduralMemorySnapshot,
-  RuntimeSessionSnapshot,
   SemanticMemorySnapshot,
   WorkingMemoryRecord
 } from "@neurocore/protocol";
@@ -131,10 +130,21 @@ export function backfillSqliteMemoryFromRuntimeState(
   }
 }
 
-function parseSnapshot(raw: string, target: string): RuntimeSessionSnapshot {
-  const parsed = JSON.parse(raw) as RuntimeSessionSnapshot;
+function parseSnapshot(raw: string, target: string): LegacyRuntimeSessionSnapshot {
+  const parsed = JSON.parse(raw) as LegacyRuntimeSessionSnapshot;
   if (!parsed?.session?.session_id) {
     throw new Error(`Invalid runtime session snapshot at ${target}.`);
   }
   return parsed;
+}
+
+interface LegacyRuntimeSessionSnapshot {
+  session: {
+    session_id: string;
+    tenant_id: string;
+  };
+  working_memory?: WorkingMemoryRecord[];
+  episodes?: Episode[];
+  semantic_memory?: SemanticMemorySnapshot;
+  procedural_memory?: ProceduralMemorySnapshot;
 }

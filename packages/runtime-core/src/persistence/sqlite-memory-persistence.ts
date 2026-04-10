@@ -8,7 +8,6 @@ import {
 } from "@neurocore/memory-core";
 import { SqliteSkillStore } from "../skill/sqlite-skill-store.js";
 import type { SkillStore } from "@neurocore/protocol";
-import { backfillSqliteMemoryFromRuntimeState } from "./sqlite-memory-backfill.js";
 
 export interface AgentMemoryPersistence {
   working?: WorkingMemoryPersistenceStore;
@@ -20,13 +19,12 @@ export interface AgentMemoryPersistence {
 export interface SqliteMemoryPersistenceOptions {
   filename: string;
   workingMaxEntries?: number;
-  backfillFromRuntimeState?: boolean;
 }
 
 export function createSqliteMemoryPersistence(
   options: SqliteMemoryPersistenceOptions
 ): AgentMemoryPersistence {
-  const persistence: AgentMemoryPersistence = {
+  return {
     working: new SqliteWorkingMemoryStore({
       filename: options.filename,
       maxEntries: options.workingMaxEntries
@@ -41,13 +39,4 @@ export function createSqliteMemoryPersistence(
       filename: options.filename
     })
   };
-
-  if (options.backfillFromRuntimeState !== false) {
-    backfillSqliteMemoryFromRuntimeState({
-      filename: options.filename,
-      persistence
-    });
-  }
-
-  return persistence;
 }

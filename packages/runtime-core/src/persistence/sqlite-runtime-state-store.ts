@@ -9,8 +9,10 @@ export interface SqliteRuntimeStateStoreOptions {
 
 export class SqliteRuntimeStateStore implements RuntimeStateStore {
   private readonly db: DatabaseSync;
+  private readonly filename: string;
 
   public constructor(options: SqliteRuntimeStateStoreOptions) {
+    this.filename = options.filename;
     mkdirSync(dirname(options.filename), { recursive: true });
     this.db = new DatabaseSync(options.filename);
     this.db.exec(`
@@ -64,6 +66,10 @@ export class SqliteRuntimeStateStore implements RuntimeStateStore {
 
   public close(): void {
     this.db.close();
+  }
+
+  public getFilename(): string {
+    return this.filename;
   }
 }
 
