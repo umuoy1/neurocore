@@ -167,10 +167,8 @@ Success Episodes
 createCheckpoint(sessionId)
   -> session
   -> goals
-  -> working_memory
-  -> episodes
-  -> semantic_memory snapshot
-  -> procedural_memory snapshot
+  -> working/episodic/semantic/procedural
+     -> 仅在未启用 SQL memory persistence 时内嵌进 checkpoint
   -> traces
   -> checkpointStore.save()
 ```
@@ -196,10 +194,11 @@ checkpoint
 ```text
 RuntimeStateStore.getSession()/listSessions()
   -> hydratePersistedSession(snapshot)
-  -> restore session/goals/working/episodic
-  -> restore semantic snapshot
-  -> restore procedural snapshot
-  -> restore traces/checkpoints/approvals
+  -> validate slim runtime snapshot
+  -> reject legacy fat snapshot payload
+  -> restore session/goals/traces/approvals
+  -> working/episodic/semantic/procedural 从 SQL persistence 侧恢复或按需读取
+  -> checkpoints 从独立 checkpoint store 恢复
 ```
 
 ### 4.4 cleanup
@@ -235,17 +234,21 @@ cleanupSession(sessionId)
 
 ### 5.3 persisted 边界
 
-当前 persisted snapshot 已显式覆盖：
+当前 persisted 边界已经拆成两层：
 
-- `working_memory`
-- `episodes`
-- `semantic_memory`
-- `procedural_memory`
-- `trace_records`
-- `checkpoints`
-- `approvals / pending_approvals`
+- `RuntimeSessionSnapshot`
+  - `session`
+  - `goals`
+  - `trace_records`
+  - `approvals / pending_approvals`
+- SQL memory/checkpoint stores
+  - `working_memory`
+  - `episodes`
+  - `semantic_memory`
+  - `procedural_memory`
+  - `checkpoints`
 
-因此当前 restore 已不是“只恢复 session 壳和 episode”，而是恢复完整的运行期记忆状态。
+legacy fat runtime snapshot 现在只属于迁移输入，不再是 runtime 可直接消费的恢复格式。
 
 ## 6. 代码反推下的系统性质
 

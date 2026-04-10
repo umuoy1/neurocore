@@ -45,7 +45,7 @@ PA-M1 对话入口 MVP
 | `approval_policy.allowed_approvers` | runtime 支持读取，但 `AgentBuilder` 没有公开配置方法 | 如需要限制 approver，先在产品层做一个薄封装或直接改 `profile` |
 | 高副作用审批 | `CycleEngine` 默认会注入 `DefaultPolicyProvider`，高副作用动作会触发 `warn` | `sideEffectLevel: "high"` 的工具天然可进审批链 |
 | 输入归一化 | `runtime-server` 会自动补 `input_id / created_at`；embedded 模式不会 | IM Gateway 走 embedded 路径时必须自带 `UserInput` 工厂 |
-| 持久化恢复 | runtime snapshot 会持久化 goals / memory / trace / approvals / checkpoints | session、审批、trace 恢复可复用现有能力 |
+| 持久化恢复 | SQL-first 路径下，runtime snapshot 只持久化 goals / trace / approvals；memory 与 checkpoints 走独立 SQLite stores | 若要跨 runtime 保留记忆与 checkpoint，必须使用默认 SQL-first 路径或显式配置 SQLite memory/checkpoint persistence |
 | 事件恢复 | hydrated session 会清空历史 `eventBus` | **不能把 event history 当持久化来源**，重启后要基于 snapshot / trace / session state 恢复 |
 | 多 Agent | 当前可用路径是 `configureMultiAgent()` + `InProcessAgentMesh` | `PA-M5` 前不必自己重做 delegation 基建 |
 
