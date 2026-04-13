@@ -1,0 +1,148 @@
+[
+  {
+    "question_id": "lm_q1_single",
+    "question_type": "single-session-user",
+    "question": "What city did I say I would move to in July?",
+    "answer": "Kyoto",
+    "question_date": "2026-04-03T09:00:00.000Z",
+    "haystack_session_ids": [
+      "sess_move",
+      "sess_books",
+      "sess_weather"
+    ],
+    "haystack_dates": [
+      "2026-03-01T09:00:00.000Z",
+      "2026-03-05T09:00:00.000Z",
+      "2026-03-08T09:00:00.000Z"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "I will move to Kyoto in July for the new office.",
+          "has_answer": true
+        },
+        {
+          "role": "assistant",
+          "content": "Understood. You are moving to Kyoto in July."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I finished reading the new economics book yesterday."
+        },
+        {
+          "role": "assistant",
+          "content": "Nice, I logged your book progress."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "The weather has been rainy all week."
+        },
+        {
+          "role": "assistant",
+          "content": "I hope the rain stops soon."
+        }
+      ]
+    ],
+    "answer_session_ids": [
+      "sess_move"
+    ]
+  },
+  {
+    "question_id": "lm_q2_multi",
+    "question_type": "multi-session",
+    "question": "Which language class did I decide to continue after enjoying the intro lesson?",
+    "answer": "Japanese",
+    "question_date": "2026-04-06T10:00:00.000Z",
+    "haystack_session_ids": [
+      "sess_course_intro",
+      "sess_weekend",
+      "sess_course_plan"
+    ],
+    "haystack_dates": [
+      "2026-03-10T10:00:00.000Z",
+      "2026-03-12T10:00:00.000Z",
+      "2026-03-20T10:00:00.000Z"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "The intro Japanese class was surprisingly fun.",
+          "has_answer": true
+        },
+        {
+          "role": "assistant",
+          "content": "Great, you enjoyed the intro Japanese class."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I want to spend the weekend hiking by the river."
+        },
+        {
+          "role": "assistant",
+          "content": "Weekend hiking sounds relaxing."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Please remind me to continue Japanese classes next month.",
+          "has_answer": true
+        },
+        {
+          "role": "assistant",
+          "content": "Noted, you want to continue Japanese classes."
+        }
+      ]
+    ],
+    "answer_session_ids": [
+      "sess_course_intro",
+      "sess_course_plan"
+    ]
+  },
+  {
+    "question_id": "lm_q3_abs",
+    "question_type": "single-session-user",
+    "question": "What is the name of my sailing instructor?",
+    "answer": "unknown",
+    "question_date": "2026-04-07T11:00:00.000Z",
+    "haystack_session_ids": [
+      "sess_pizza",
+      "sess_gym"
+    ],
+    "haystack_dates": [
+      "2026-03-02T11:00:00.000Z",
+      "2026-03-18T11:00:00.000Z"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "I tried a new mushroom pizza place downtown."
+        },
+        {
+          "role": "assistant",
+          "content": "I saved that pizza recommendation."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I changed my gym schedule to Tuesday mornings."
+        },
+        {
+          "role": "assistant",
+          "content": "Your gym routine is now Tuesday mornings."
+        }
+      ]
+    ],
+    "answer_session_ids": []
+  }
+]

@@ -24,6 +24,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@neurocore/memory-core": "^0.1.0",
     "@neurocore/protocol": "^0.1.0",
     "@neurocore/sdk-core": "^0.1.0"
   }
