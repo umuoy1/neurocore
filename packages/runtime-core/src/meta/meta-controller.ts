@@ -1,5 +1,7 @@
 import type {
   CandidateAction,
+  MetaAssessment,
+  MetaControlAction,
   MetaController as IMetaController,
   MetaDecision,
   ModuleContext,
@@ -49,10 +51,36 @@ export class DefaultMetaController implements IMetaController {
     }
 
     const scored = this.scoreAndRank(candidates, predictions, policies);
-    const top = scored[0];
+    let top = scored[0];
+    const fastMetaAssessment = ctx.workspace?.metacognitive_state;
+    const deepMetaAssessment = isMetaAssessment(ctx.runtime_state?.meta_assessment)
+      ? ctx.runtime_state.meta_assessment
+      : undefined;
+
+    if (deepMetaAssessment?.recommended_candidate_action_id) {
+      const recommended = scored.find(
+        (candidate) => candidate.action.action_id === deepMetaAssessment.recommended_candidate_action_id
+      );
+      if (recommended) {
+        top = recommended;
+      }
+    } else {
+      const metaPreferred = this.selectMetaPreferredAction(candidates, scored, fastMetaAssessment, deepMetaAssessment);
+      if (metaPreferred) {
+        top = metaPreferred;
+      }
+    }
 
     if (predictionErrorRate != null && predictionErrorRate > 0) {
       top.confidence = top.confidence * (1 - predictionErrorRate * 0.3);
+    }
+    if (fastMetaAssessment) {
+      top.confidence = Math.max(0.05, Math.min(0.99, (top.confidence + fastMetaAssessment.provisional_confidence) / 2));
+    }
+    if (deepMetaAssessment) {
+      const calibratedConfidence =
+        deepMetaAssessment.calibrated_confidence ?? deepMetaAssessment.confidence.overall_confidence;
+      top.confidence = Math.max(0.03, Math.min(0.99, (top.confidence + calibratedConfidence) / 2));
     }
 
     const conflict = this.detectConflict(scored);
@@ -66,12 +94,43 @@ export class DefaultMetaController implements IMetaController {
     const errorRateThreshold = 0.5;
     const approvalThreshold = this.options?.approvalThreshold ?? 0.7;
     const autoApprove = this.options?.autoApprove ?? ctx.profile?.runtime_config?.auto_approve ?? false;
+    const metaActions = mergeMetaActions(
+      deepMetaAssessment?.recommended_control_action,
+      fastMetaAssessment?.recommended_control_actions
+    );
+    const metaState = deepMetaAssessment?.meta_state ?? fastMetaAssessment?.meta_state;
+    const metaResolvedAction =
+      Boolean(deepMetaAssessment?.recommended_candidate_action_id) ||
+      (metaActions.includes("request-more-evidence") && top.action.action_type === "ask_user") ||
+      (metaActions.includes("switch-to-safe-response") &&
+        (top.action.action_type === "respond" || top.action.action_type === "ask_user"));
+    const forceAbort =
+      deepMetaAssessment?.recommended_control_action === "abort" || metaActions.includes("abort");
+
+    if (forceAbort) {
+      return {
+        decision_type: "abort",
+        confidence: top.confidence,
+        meta_state: metaState,
+        meta_actions: metaActions,
+        rejection_reasons: [
+          deepMetaAssessment?.rationale ??
+            "Metacognitive control aborted execution after deep evaluation."
+        ],
+        explanation: deepMetaAssessment?.rationale ?? "Execution aborted by meta controller."
+      };
+    }
+
     const requiresApproval = !autoApprove && (
+      deepMetaAssessment?.recommended_control_action === "execute-with-approval" ||
+      metaActions.includes("execute-with-approval") ||
+      metaActions.includes("ask-human") ||
       top.action.side_effect_level === "high" ||
       warnedActionIds.has(top.action.action_id) ||
       top.risk > approvalThreshold ||
-      conflict.hasConflict ||
-      (predictionErrorRate != null && predictionErrorRate >= errorRateThreshold)
+      (!metaResolvedAction && conflict.hasConflict) ||
+      (predictionErrorRate != null && predictionErrorRate >= errorRateThreshold) ||
+      metaState === "high-risk"
     );
 
     const riskSummary = this.buildRiskSummary(top, conflict, warnedActionIds, policies, predictionErrorRate);
@@ -80,12 +139,41 @@ export class DefaultMetaController implements IMetaController {
       decision_type: requiresApproval ? "request_approval" : "execute_action",
       selected_action_id: top.action.action_id,
       confidence: top.confidence,
+      meta_state: metaState,
+      meta_actions: metaActions,
       risk_summary: riskSummary,
       requires_human_approval: requiresApproval,
       explanation: conflict.hasConflict
         ? `Selected "${top.action.action_type}" (score ${top.score.toFixed(2)}) over ${conflict.rivalCount} competing candidate(s) with close scores.`
         : `Selected the highest-scoring policy-compliant action (score ${top.score.toFixed(2)}).`
     };
+  }
+
+  private selectMetaPreferredAction(
+    candidates: CandidateAction[],
+    scored: ScoredCandidate[],
+    fastMetaAssessment?: { recommended_control_actions?: MetaControlAction[] },
+    deepMetaAssessment?: MetaAssessment
+  ): ScoredCandidate | undefined {
+    const metaActions = mergeMetaActions(
+      deepMetaAssessment?.recommended_control_action,
+      fastMetaAssessment?.recommended_control_actions
+    );
+
+    if (metaActions.includes("request-more-evidence") || metaActions.includes("ask-human")) {
+      const askUser = candidates.find((action) => action.action_type === "ask_user");
+      if (askUser) {
+        return scored.find((candidate) => candidate.action.action_id === askUser.action_id);
+      }
+    }
+
+    if (metaActions.includes("switch-to-safe-response")) {
+      const safeAction = [...scored]
+        .sort((left, right) => compareSafety(left.action, right.action))[0];
+      return safeAction;
+    }
+
+    return undefined;
   }
 
   private scoreAndRank(
@@ -166,4 +254,57 @@ export class DefaultMetaController implements IMetaController {
     }
     return reasons.join("; ") + ".";
   }
+}
+
+function isMetaAssessment(value: unknown): value is MetaAssessment {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "assessment_id" in value &&
+      "confidence" in value &&
+      "recommended_control_action" in value
+  );
+}
+
+function mergeMetaActions(
+  deepRecommended?: MetaControlAction,
+  fastRecommended?: MetaControlAction[]
+): MetaControlAction[] {
+  const merged = new Set<MetaControlAction>();
+  if (deepRecommended) {
+    merged.add(deepRecommended);
+  }
+  for (const action of fastRecommended ?? []) {
+    merged.add(action);
+  }
+  if (merged.size === 0) {
+    merged.add("execute-now");
+  }
+  return Array.from(merged);
+}
+
+function compareSafety(left: CandidateAction, right: CandidateAction) {
+  return safetyScore(left) - safetyScore(right);
+}
+
+function safetyScore(action: CandidateAction) {
+  const sideEffect =
+    action.side_effect_level === "high"
+      ? 3
+      : action.side_effect_level === "medium"
+        ? 2
+        : action.side_effect_level === "low"
+          ? 1
+          : 0;
+  const typePenalty =
+    action.action_type === "call_tool"
+      ? 2
+      : action.action_type === "delegate"
+        ? 1.5
+        : action.action_type === "ask_user"
+          ? 0
+          : action.action_type === "respond"
+            ? 0.25
+            : 0.5;
+  return sideEffect + typePenalty;
 }

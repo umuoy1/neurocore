@@ -3,6 +3,7 @@ import type {
   AgentProfile,
   AgentSession,
   ApprovalRequest,
+  CalibrationRecord,
   CandidateAction,
   CheckpointStore,
   CycleTrace,
@@ -56,6 +57,7 @@ import { CycleEngine } from "../cycle/cycle-engine.js";
 import { InMemoryEventBus } from "../events/in-memory-event-bus.js";
 import { ToolGateway } from "../execution/tool-gateway.js";
 import { GoalManager } from "../goal/goal-manager.js";
+import { Calibrator } from "../meta/calibrator.js";
 import { DefaultMetaController } from "../meta/meta-controller.js";
 import { InMemoryPredictionStore } from "../prediction/in-memory-prediction-store.js";
 import { computePredictionErrors } from "../prediction/prediction-error-computer.js";
@@ -111,6 +113,7 @@ export interface AgentRunResult {
   trace: CycleTrace;
   cycle: Awaited<ReturnType<CycleEngine["run"]>>;
   predictionErrors?: PredictionError[];
+  calibrationRecord?: CalibrationRecord;
 }
 
 export interface AgentRunLoopResult {
@@ -139,6 +142,10 @@ interface ExecutionCycleState {
   actions: CandidateAction[];
   predictions: Prediction[];
   workspace: WorkspaceSnapshot;
+  metaSignalFrame?: import("@neurocore/protocol").MetaSignalFrame;
+  fastMetaAssessment?: import("@neurocore/protocol").FastMetaAssessment;
+  metaAssessment?: import("@neurocore/protocol").MetaAssessment;
+  selfEvaluationReport?: import("@neurocore/protocol").SelfEvaluationReport;
 }
 
 export class AgentRuntime {
@@ -164,6 +171,7 @@ export class AgentRuntime {
   private readonly stateStore?: RuntimeStateStore;
   private readonly memoryPersistence?: AgentMemoryPersistence;
   private readonly predictionStore: PredictionStore;
+  private readonly calibrator = new Calibrator();
   private readonly approvals = new Map<string, ApprovalRequest>();
   private readonly pendingApprovals = new Map<string, PendingApprovalContext>();
   private readonly deviceRegistry?: DeviceRegistry;
@@ -323,6 +331,7 @@ export class AgentRuntime {
         predictions: result.predictions,
         policyDecisions: result.workspace.policy_decisions ?? [],
         workspace: result.workspace,
+        ...toMetaTraceFields(result),
         startedAt
       });
       this.markActionableGoals(sessionId, "cancelled");
@@ -350,6 +359,7 @@ export class AgentRuntime {
         predictions: result.predictions,
         policyDecisions: result.workspace.policy_decisions ?? [],
         workspace: result.workspace,
+        ...toMetaTraceFields(result),
         startedAt
       });
       debugLog("runtime", "Run failed because no action was selected", {
@@ -393,6 +403,7 @@ export class AgentRuntime {
         selectedAction,
         selectedActionId: selectedAction.action_id,
         workspace: result.workspace,
+        ...toMetaTraceFields(result),
         startedAt
       });
       debugLog("runtime", "Run escalated for approval", {
@@ -523,6 +534,11 @@ export class AgentRuntime {
   public getTraceRecords(sessionId: string): CycleTraceRecord[] {
     this.requireSession(sessionId);
     return this.traceRecorder.listRecords(sessionId);
+  }
+
+  public listCalibrationRecords(sessionId: string): CalibrationRecord[] {
+    this.requireSession(sessionId);
+    return structuredClone(this.calibrator.list(sessionId));
   }
 
   public getEpisodes(sessionId: string): Episode[] {
@@ -707,6 +723,7 @@ export class AgentRuntime {
     this.traceRecorder.getStore().deleteSession?.(sessionId);
     this.checkpointStore.deleteSession?.(sessionId);
     this.predictionStore.deleteSession?.(sessionId);
+    this.calibrator.deleteSession(sessionId);
     this.eventBus.deleteSession(sessionId);
     this.sessions.deleteSession(sessionId);
     this.stateStore?.deleteSession?.(sessionId);
@@ -1103,6 +1120,7 @@ export class AgentRuntime {
         selectedActionId: selectedAction.action_id,
         actionExecution: execution,
         workspace: cycle.workspace,
+        ...toMetaTraceFields(cycle),
         startedAt
       });
       debugLog("runtime", "Run aborted", {
@@ -1165,7 +1183,7 @@ export class AgentRuntime {
       }
       this.emitEvent(session, "action.executed", execution, cycle.cycleId);
       this.sessions.incrementToolCallUsed(sessionId);
-      const predictionErrors = await this.recordObservation(
+      const { predictionErrors, calibrationRecord } = await this.recordObservation(
         profile,
         session,
         input,
@@ -1174,7 +1192,8 @@ export class AgentRuntime {
         observationWithSkill,
         observationWithSkill.status === "failure" ? "failure" : "partial",
         cycle.predictions,
-        execution
+        execution,
+        cycle.metaAssessment
       );
 
       const sessionState = this.updateSessionState(sessionId, "waiting").state;
@@ -1192,6 +1211,8 @@ export class AgentRuntime {
         actionExecution: execution,
         observation: observationWithSkill,
         workspace: cycle.workspace,
+        calibrationRecord,
+        ...toMetaTraceFields(cycle),
         startedAt
       });
       debugLog("runtime", "Run waiting after tool execution", {
@@ -1215,7 +1236,8 @@ export class AgentRuntime {
         outputText: observationWithSkill.summary,
         trace,
         cycle: toAgentCycleState(cycle),
-        predictionErrors
+        predictionErrors,
+        calibrationRecord
       };
     }
 
@@ -1227,9 +1249,9 @@ export class AgentRuntime {
     const observation = buildSyntheticObservation(session, cycle.cycleId, selectedAction);
     const execution = buildRuntimeActionExecution(session, cycle.cycleId, selectedAction, "succeeded");
     this.emitEvent(session, "action.executed", execution, cycle.cycleId);
-    const predictionErrors = await this.recordObservation(
+    const { predictionErrors, calibrationRecord } = await this.recordObservation(
       profile, session, input, cycle.cycleId, selectedAction, observation, "success",
-      cycle.predictions, execution
+      cycle.predictions, execution, cycle.metaAssessment
     );
     const sessionState = this.updateSessionState(sessionId, targetState).state;
     if (sessionState === "completed") {
@@ -1251,6 +1273,8 @@ export class AgentRuntime {
       actionExecution: execution,
       observation,
       workspace: cycle.workspace,
+      calibrationRecord,
+      ...toMetaTraceFields(cycle),
       startedAt
     });
     debugLog("runtime", "Run completed with synthetic observation", {
@@ -1271,7 +1295,8 @@ export class AgentRuntime {
       outputText: selectedAction.description ?? selectedAction.title,
       trace,
       cycle: toAgentCycleState(cycle),
-      predictionErrors
+      predictionErrors,
+      calibrationRecord
     };
   }
 
@@ -1374,10 +1399,10 @@ export class AgentRuntime {
     }
 
     this.emitEvent(session, "action.executed", execution, cycle.cycleId);
-    const predictionErrors = await this.recordObservation(
+    const { predictionErrors, calibrationRecord } = await this.recordObservation(
       profile, session, input, cycle.cycleId, selectedAction, observation,
       observation.status === "failure" ? "failure" : "partial",
-      cycle.predictions, execution
+      cycle.predictions, execution, cycle.metaAssessment
     );
 
     const sessionState = this.updateSessionState(sessionId, "waiting").state;
@@ -1395,6 +1420,8 @@ export class AgentRuntime {
       actionExecution: execution,
       observation,
       workspace: cycle.workspace,
+      calibrationRecord,
+      ...toMetaTraceFields(cycle),
       startedAt
     });
     this.maybeCreateCheckpoint(profile, sessionId);
@@ -1409,7 +1436,8 @@ export class AgentRuntime {
       outputText: observation.summary,
       trace,
       cycle: toAgentCycleState(cycle),
-      predictionErrors
+      predictionErrors,
+      calibrationRecord
     };
   }
 
@@ -1422,8 +1450,9 @@ export class AgentRuntime {
     observation: Observation,
     outcome: Episode["outcome"],
     predictions?: Prediction[],
-    execution?: ActionExecution
-  ): Promise<PredictionError[]> {
+    execution?: ActionExecution,
+    metaAssessment?: import("@neurocore/protocol").MetaAssessment
+  ): Promise<{ predictionErrors: PredictionError[]; calibrationRecord?: CalibrationRecord }> {
     if (profile.memory_config.working_memory_enabled !== false) {
       this.workingMemoryProvider.appendObservation(
         session.session_id,
@@ -1460,6 +1489,14 @@ export class AgentRuntime {
     const valence = this.deriveValence(outcome, predictionErrors);
     const lessons = this.deriveLessons(predictionErrors);
     await this.persistEpisode(profile, session, input, cycleId, action, observation, outcome, valence, lessons);
+    const calibrationRecord = this.calibrator.record({
+      sessionId: session.session_id,
+      cycleId,
+      input,
+      action,
+      observation,
+      metaAssessment
+    });
 
     debugLog("runtime", "Recorded observation into session memory", {
       sessionId: session.session_id,
@@ -1467,10 +1504,14 @@ export class AgentRuntime {
       sourceType: observation.source_type,
       summaryPreview: observation.summary.slice(0, 160),
       episodicCount: this.episodicMemoryProvider.list(session.session_id).length,
-      predictionErrorCount: predictionErrors.length
+      predictionErrorCount: predictionErrors.length,
+      calibrationRecorded: Boolean(calibrationRecord)
     });
 
-    return predictionErrors;
+    return {
+      predictionErrors,
+      calibrationRecord: calibrationRecord ?? undefined
+    };
   }
 
   private deriveValence(
@@ -1566,10 +1607,10 @@ export class AgentRuntime {
     this.emitEvent(session, "skill.executed", execution, cycle.cycleId);
     this.emitEvent(session, "action.executed", execution, cycle.cycleId);
 
-    const predictionErrors = await this.recordObservation(
+    const { predictionErrors, calibrationRecord } = await this.recordObservation(
       profile, session, input, cycle.cycleId, selectedAction, observation,
       observation.status === "failure" ? "failure" : "success",
-      cycle.predictions, execution
+      cycle.predictions, execution, cycle.metaAssessment
     );
 
     const sessionState = this.updateSessionState(session.session_id, "waiting").state;
@@ -1587,6 +1628,8 @@ export class AgentRuntime {
       actionExecution: execution,
       observation,
       workspace: cycle.workspace,
+      calibrationRecord,
+      ...toMetaTraceFields(cycle),
       startedAt
     });
 
@@ -1610,7 +1653,8 @@ export class AgentRuntime {
       outputText: observation.summary,
       trace,
       cycle: toAgentCycleState(cycle),
-      predictionErrors
+      predictionErrors,
+      calibrationRecord
     };
   }
 
@@ -1995,7 +2039,11 @@ function toExecutionCycleState(cycle: Awaited<ReturnType<CycleEngine["run"]>>): 
     proposals: structuredClone(cycle.proposals),
     actions: structuredClone(cycle.actions),
     predictions: structuredClone(cycle.predictions),
-    workspace: structuredClone(cycle.workspace)
+    workspace: structuredClone(cycle.workspace),
+    metaSignalFrame: structuredClone(cycle.metaSignalFrame),
+    fastMetaAssessment: structuredClone(cycle.fastMetaAssessment),
+    metaAssessment: structuredClone(cycle.metaAssessment),
+    selfEvaluationReport: structuredClone(cycle.selfEvaluationReport)
   };
 }
 
@@ -2051,10 +2099,35 @@ function toAgentCycleState(cycle: ExecutionCycleState): Awaited<ReturnType<Cycle
     actions: structuredClone(cycle.actions),
     predictions: structuredClone(cycle.predictions),
     workspace: structuredClone(cycle.workspace),
+    metaSignalFrame: structuredClone(cycle.metaSignalFrame),
+    fastMetaAssessment: structuredClone(cycle.fastMetaAssessment),
+    metaAssessment: structuredClone(cycle.metaAssessment),
+    selfEvaluationReport: structuredClone(cycle.selfEvaluationReport),
     decision: {
       decision_type: "execute_action"
     }
   } as Awaited<ReturnType<CycleEngine["run"]>>;
+}
+
+function toMetaTraceFields(
+  cycle:
+    | ExecutionCycleState
+    | Pick<
+        Awaited<ReturnType<CycleEngine["run"]>>,
+        "metaSignalFrame" | "fastMetaAssessment" | "metaAssessment" | "selfEvaluationReport"
+      >
+): {
+  metaSignalFrame?: import("@neurocore/protocol").MetaSignalFrame;
+  fastMetaAssessment?: import("@neurocore/protocol").FastMetaAssessment;
+  metaAssessment?: import("@neurocore/protocol").MetaAssessment;
+  selfEvaluationReport?: import("@neurocore/protocol").SelfEvaluationReport;
+} {
+  return {
+    metaSignalFrame: structuredClone(cycle.metaSignalFrame),
+    fastMetaAssessment: structuredClone(cycle.fastMetaAssessment),
+    metaAssessment: structuredClone(cycle.metaAssessment),
+    selfEvaluationReport: structuredClone(cycle.selfEvaluationReport)
+  };
 }
 
 function toPendingApprovalSnapshot(pending: PendingApprovalContext): PendingApprovalContextSnapshot {

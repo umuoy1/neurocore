@@ -1,13 +1,18 @@
 import type {
   ActionExecution,
+  CalibrationRecord,
   CandidateAction,
   CycleTrace,
   CycleTraceRecord,
+  FastMetaAssessment,
+  MetaAssessment,
+  MetaSignalFrame,
   Observation,
   PolicyDecision,
   Prediction,
   PredictionError,
   Proposal,
+  SelfEvaluationReport,
   TraceStore,
   UserInput,
   WorkspaceSnapshot
@@ -30,6 +35,11 @@ export interface RecordTraceInput {
   actionExecution?: ActionExecution;
   observation?: Observation;
   workspace?: WorkspaceSnapshot;
+  metaSignalFrame?: MetaSignalFrame;
+  fastMetaAssessment?: FastMetaAssessment;
+  metaAssessment?: MetaAssessment;
+  selfEvaluationReport?: SelfEvaluationReport;
+  calibrationRecord?: CalibrationRecord;
   startedAt: string;
   endedAt?: string;
 }
@@ -71,7 +81,12 @@ export class TraceRecorder {
       selected_action: input.selectedAction,
       action_execution: input.actionExecution,
       observation: input.observation,
-      workspace: input.workspace
+      workspace: input.workspace,
+      meta_signal_frame: input.metaSignalFrame,
+      fast_meta_assessment: input.fastMetaAssessment,
+      meta_assessment: input.metaAssessment,
+      self_evaluation_report: input.selfEvaluationReport,
+      calibration_record: input.calibrationRecord
     };
 
     this.traceStore.append(record);

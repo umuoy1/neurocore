@@ -2,10 +2,13 @@ import { DefaultPolicyProvider } from "@neurocore/policy-core";
 import type {
   AgentProfile,
   CandidateAction,
+  FastMetaAssessment,
   Goal,
   MemoryDigest,
   MemoryProvider,
+  MetaAssessment,
   MetaDecision,
+  MetaSignalFrame,
   ModuleContext,
   Observation,
   PolicyProvider,
@@ -13,6 +16,7 @@ import type {
   Predictor,
   Proposal,
   Reasoner,
+  SelfEvaluationReport,
   SkillDigest,
   SkillProvider,
   TokenEstimator,
@@ -25,6 +29,9 @@ import type { WorldStateGraph } from "@neurocore/world-model";
 import type { TaskDelegator, AgentRegistry } from "@neurocore/multi-agent";
 import { GradedContextCompressor } from "../context/graded-compressor.js";
 import { DefaultTokenEstimator } from "../context/token-estimator.js";
+import { DeepEvaluator } from "../meta/deep-evaluator.js";
+import { FastMonitor } from "../meta/fast-monitor.js";
+import { MetaSignalBus } from "../meta/signal-bus.js";
 import { debugLog } from "../utils/debug.js";
 import { generateId, nowIso } from "../utils/ids.js";
 import { WorkspaceCoordinator } from "../workspace/workspace-coordinator.js";
@@ -56,12 +63,19 @@ export interface CycleExecutionResult {
   proposals: Proposal[];
   actions: CandidateAction[];
   predictions: Prediction[];
+  metaSignalFrame?: MetaSignalFrame;
+  fastMetaAssessment?: FastMetaAssessment;
+  metaAssessment?: MetaAssessment;
+  selfEvaluationReport?: SelfEvaluationReport;
   decision: MetaDecision;
   observation?: Observation;
 }
 
 export class CycleEngine {
   private readonly workspaceCoordinator = new WorkspaceCoordinator();
+  private readonly metaSignalBus = new MetaSignalBus();
+  private readonly fastMonitor = new FastMonitor();
+  private readonly deepEvaluator = new DeepEvaluator();
 
   public async run(input: CycleExecutionInput): Promise<CycleExecutionResult> {
     const cycleId = generateId("cyc");
@@ -236,13 +250,62 @@ export class CycleEngine {
       }
     }
 
+    const metaSignalFrame = this.metaSignalBus.collect({
+      ctx: enrichedContext,
+      workspace,
+      actions,
+      predictions,
+      policies,
+      predictionErrorRate: input.predictionErrorRate,
+      goals: input.goals
+    });
+    const fastMetaAssessment = this.fastMonitor.assess(metaSignalFrame);
+    const metaAssessment = fastMetaAssessment.trigger_deep_eval
+      ? this.deepEvaluator.evaluate({
+          frame: metaSignalFrame,
+          fastAssessment: fastMetaAssessment,
+          actions,
+          predictions,
+          policies
+        })
+      : this.fastMonitor.buildMetaAssessment({
+          frame: metaSignalFrame,
+          selectedMetaActions: fastMetaAssessment.recommended_control_actions
+        });
+    const annotatedWorkspace: WorkspaceSnapshot = {
+      ...workspace,
+      metacognitive_state: fastMetaAssessment,
+      meta_signal_frame_ref: metaSignalFrame.frame_id,
+      meta_assessment_ref: metaAssessment.assessment_id,
+      self_evaluation_report_ref: `${metaSignalFrame.frame_id}_report`
+    };
+
     const decision = await input.metaController.evaluate(
-      { ...enrichedContext, workspace },
+      {
+        ...enrichedContext,
+        workspace: annotatedWorkspace,
+        runtime_state: {
+          ...enrichedContext.runtime_state,
+          meta_signal_frame: metaSignalFrame,
+          fast_meta_assessment: fastMetaAssessment,
+          meta_assessment: metaAssessment
+        }
+      },
       actions,
       predictions,
       policies,
       input.predictionErrorRate
     );
+    const decisionMetaActions =
+      decision.meta_actions && decision.meta_actions.length > 0
+        ? decision.meta_actions
+        : fastMetaAssessment.recommended_control_actions;
+    const selfEvaluationReport = this.fastMonitor.buildSelfEvaluationReport({
+      frame: metaSignalFrame,
+      selectedMetaActions: decisionMetaActions,
+      selectedControlMode: toControlModeForDecision(decision, fastMetaAssessment),
+      verificationTrace: metaAssessment.verification_trace
+    });
     debugLog("cycle", "Meta decision completed", {
       sessionId: input.session.session_id,
       cycleId,
@@ -253,10 +316,17 @@ export class CycleEngine {
 
     return {
       cycleId,
-      workspace,
+      workspace: {
+        ...annotatedWorkspace,
+        self_evaluation_report_ref: selfEvaluationReport.report_id
+      },
       proposals,
       actions,
       predictions,
+      metaSignalFrame,
+      fastMetaAssessment,
+      metaAssessment,
+      selfEvaluationReport,
       decision
     };
     } catch (error) {
@@ -597,4 +667,17 @@ function toActionSideEffectLevel(
     return riskLevel;
   }
   return undefined;
+}
+
+function toControlModeForDecision(
+  decision: MetaDecision,
+  assessment: FastMetaAssessment
+): string {
+  if (decision.decision_type === "request_approval" || decision.decision_type === "escalate") {
+    return "escalation_path";
+  }
+  if (assessment.trigger_deep_eval) {
+    return "slow_path";
+  }
+  return "fast_path";
 }
