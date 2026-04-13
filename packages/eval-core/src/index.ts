@@ -4,3 +4,4 @@ export * from "./remote-eval-client.js";
 export * from "./types.js";
 export * from "./eval-comparator.js";
 export * from "./longmemeval.js";
+export * from "./meta-benchmark.js";
