@@ -762,6 +762,8 @@ Phase 5: 并行 Proposal + Global Workspace 集成            ~1500 行
 
 在投入 Phase 3+ 之前必须验证：
 
+当前代码基线已经接入一条 LongMemEval retrieval benchmark 主线，并补上了对官方 `print_retrieval_metrics.py / evaluate_qa.py / print_qa_metrics.py` 的桥接脚本，用于先验证 episodic recall 的 session/turn 级召回表现；完整 QA correctness 仍依赖外部 judge 与本地评估凭证。
+
 **实验 1：记忆 proposal 的竞争力**
 ```
 设置：7B + LoRA 的 proposal vs 主推理模型（无记忆）的 proposal
