@@ -289,6 +289,259 @@ export interface ConfidenceAssessment {
   summary?: string;
 }
 
+export type MetaState =
+  | "routine-safe"
+  | "routine-uncertain"
+  | "novel-but-manageable"
+  | "high-conflict"
+  | "evidence-insufficient"
+  | "simulation-unreliable"
+  | "high-risk"
+  | "needs-deep-eval";
+
+export type MetaTriggerTag =
+  | "risk_high"
+  | "evidence_gap"
+  | "reasoning_conflict"
+  | "simulation_unreliable"
+  | "task_novel"
+  | "ood_detected"
+  | "calibration_weak"
+  | "tool_not_ready"
+  | "budget_tight"
+  | "policy_warned";
+
+export type MetaControlAction =
+  | "execute-now"
+  | "execute-with-approval"
+  | "request-more-evidence"
+  | "run-more-samples"
+  | "invoke-verifier"
+  | "replan"
+  | "decompose-goal"
+  | "switch-to-safe-response"
+  | "ask-human"
+  | "abort";
+
+export interface TaskMetaSignals {
+  task_novelty: number;
+  domain_familiarity: number;
+  historical_success_rate: number;
+  ood_score: number;
+  decomposition_depth: number;
+  goal_decomposition_depth: number;
+  unresolved_dependency_count: number;
+}
+
+export interface EvidenceMetaSignals {
+  retrieval_coverage: number;
+  evidence_freshness: number;
+  evidence_agreement_score: number;
+  source_reliability_prior: number;
+  missing_critical_evidence_flags: string[];
+}
+
+export interface ReasoningMetaSignals {
+  candidate_reasoning_divergence: number;
+  step_consistency: number;
+  contradiction_score: number;
+  assumption_count: number;
+  unsupported_leap_count: number;
+  self_consistency_margin: number;
+}
+
+export interface UncertaintyDecomposition {
+  epistemic: number;
+  aleatoric: number;
+  evidence_missing: number;
+  model_disagreement: number;
+  simulator_unreliability: number;
+  calibration_gap: number;
+}
+
+export interface PredictionMetaSignals {
+  predicted_success_probability: number;
+  predicted_downside_severity: number;
+  uncertainty_decomposition: UncertaintyDecomposition;
+  simulator_confidence: number;
+  predictor_error_rate: number;
+  predictor_bucket_reliability: number;
+  predictor_calibration_bucket: string;
+  world_model_mismatch_score: number;
+}
+
+export interface ActionMetaSignals {
+  tool_precondition_completeness: number;
+  schema_confidence: number;
+  side_effect_severity: number;
+  reversibility_score: number;
+  observability_after_action: number;
+  fallback_availability: number;
+}
+
+export interface GovernanceMetaSignals {
+  policy_warning_density: number;
+  budget_pressure: number;
+  remaining_recovery_options: number;
+  need_for_human_accountability: number;
+}
+
+export interface MetaSignalProvenance {
+  family: string;
+  field: string;
+  provider: string;
+  status: "ok" | "missing" | "degraded" | "fallback";
+  timestamp: Timestamp;
+  note?: string;
+}
+
+export interface MetaSignalFrame {
+  frame_id: string;
+  session_id: string;
+  cycle_id: string;
+  goal_id?: string;
+  task_signals: TaskMetaSignals;
+  evidence_signals: EvidenceMetaSignals;
+  reasoning_signals: ReasoningMetaSignals;
+  prediction_signals: PredictionMetaSignals;
+  action_signals: ActionMetaSignals;
+  governance_signals: GovernanceMetaSignals;
+  provenance?: MetaSignalProvenance[];
+  created_at: Timestamp;
+}
+
+export interface ConfidenceVector {
+  answer_confidence: number;
+  process_confidence: number;
+  evidence_confidence: number;
+  simulation_confidence: number;
+  action_safety_confidence: number;
+  tool_readiness_confidence: number;
+  calibration_confidence: number;
+  overall_confidence: number;
+}
+
+export interface FastMetaAssessment {
+  assessment_id: string;
+  session_id: string;
+  cycle_id: string;
+  meta_state: MetaState;
+  provisional_confidence: number;
+  confidence?: ConfidenceVector;
+  trigger_tags?: MetaTriggerTag[];
+  trigger_deep_eval: boolean;
+  recommended_control_actions: MetaControlAction[];
+  rationale: string;
+  created_at: Timestamp;
+}
+
+export type FailureMode =
+  | "insufficient_evidence"
+  | "wrong_assumption"
+  | "retrieval_miss"
+  | "stale_memory"
+  | "bad_plan"
+  | "prediction_drift"
+  | "tool_failure"
+  | "policy_block"
+  | "overconfidence"
+  | "underconfidence";
+
+export interface ContradictionRecord {
+  source: string;
+  conflict_type: string;
+  summary: string;
+  related_ids?: string[];
+}
+
+export interface MissingEvidenceItem {
+  key: string;
+  summary: string;
+  severity?: "low" | "medium" | "high";
+}
+
+export interface FailureDiagnosis {
+  dominant_failure_mode: FailureMode;
+  failure_modes: FailureMode[];
+  summary: string;
+}
+
+export interface VerificationTrace {
+  verifier_runs?: Array<Record<string, unknown>>;
+  contested_steps?: Array<Record<string, unknown>>;
+  evidence_gaps?: Array<Record<string, unknown>>;
+  counterfactual_checks?: Array<Record<string, unknown>>;
+  final_verdict: "pass" | "weak-pass" | "fail" | "inconclusive";
+}
+
+export interface MetaAssessment {
+  assessment_id: string;
+  session_id: string;
+  cycle_id: string;
+  meta_state: MetaState;
+  confidence: ConfidenceVector;
+  calibrated_confidence?: number;
+  process_reliability?: number;
+  evidence_sufficiency?: number;
+  simulation_reliability?: number;
+  tool_readiness?: number;
+  conflict_index?: number;
+  controllability_score?: number;
+  uncertainty_decomposition: UncertaintyDecomposition;
+  failure_modes: FailureMode[];
+  recommended_control_action: MetaControlAction;
+  recommended_candidate_action_id?: string;
+  verification_trace?: VerificationTrace;
+  deep_evaluation_used?: boolean;
+  rationale: string;
+  created_at: Timestamp;
+}
+
+export interface SelfEvaluationReport {
+  report_id: string;
+  session_id: string;
+  cycle_id: string;
+  stage_scores: {
+    retrieval_quality?: number;
+    evidence_sufficiency?: number;
+    plan_coherence?: number;
+    execution_readiness?: number;
+    recovery_readiness?: number;
+  };
+  contradictions: ContradictionRecord[];
+  missing_evidence: MissingEvidenceItem[];
+  failure_diagnosis?: FailureDiagnosis;
+  verification_trace?: VerificationTrace;
+  selected_control_mode: string;
+  selected_meta_actions: MetaControlAction[];
+  explanation: string;
+  created_at: Timestamp;
+}
+
+export interface CalibrationRecord {
+  record_id: string;
+  task_bucket: string;
+  predicted_confidence: number;
+  calibrated_confidence: number;
+  observed_success: boolean;
+  risk_level: string;
+  deep_eval_used: boolean;
+  session_id?: string;
+  cycle_id?: string;
+  action_id?: string;
+  meta_state?: MetaState;
+  created_at: Timestamp;
+}
+
+export interface ReflectionRule {
+  rule_id: string;
+  pattern: string;
+  trigger_conditions: string[];
+  recommended_control_action: MetaControlAction;
+  strength: number;
+  evidence_count: number;
+}
+
 export interface BudgetAssessment {
   within_budget: boolean;
   summary?: string;
@@ -373,10 +626,14 @@ export interface WorkspaceSnapshot {
   selected_proposal_id?: string;
   risk_assessment?: RiskAssessment;
   confidence_assessment?: ConfidenceAssessment;
+  metacognitive_state?: FastMetaAssessment;
   budget_assessment?: BudgetAssessment;
   policy_decisions?: PolicyDecision[];
   decision_reasoning?: string;
   competition_log?: CompetitionLog;
+  meta_signal_frame_ref?: string;
+  meta_assessment_ref?: string;
+  self_evaluation_report_ref?: string;
   created_at: Timestamp;
 }
 
@@ -565,6 +822,8 @@ export interface MetaDecision {
     | "abort";
   selected_action_id?: string;
   confidence?: number;
+  meta_state?: MetaState;
+  meta_actions?: MetaControlAction[];
   risk_summary?: string;
   budget_summary?: string;
   requires_human_approval?: boolean;
@@ -605,6 +864,11 @@ export interface CycleTraceRecord {
   action_execution?: ActionExecution;
   observation?: Observation;
   workspace?: WorkspaceSnapshot;
+  meta_signal_frame?: MetaSignalFrame;
+  fast_meta_assessment?: FastMetaAssessment;
+  meta_assessment?: MetaAssessment;
+  self_evaluation_report?: SelfEvaluationReport;
+  calibration_record?: CalibrationRecord;
 }
 
 export interface SessionReplay {
