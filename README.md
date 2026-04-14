@@ -1,255 +1,163 @@
 # NeuroCore
 
-**面向自主智能体的有状态认知运行时**
+面向自主智能体的有状态认知运行时。
 
-NeuroCore 是一个受神经科学启发的结构化智能体基础设施。它实现了六模块认知系统加全局工作空间协调器，突破了 ReAct 范式"提示词 → 工具调用 → 观察 → 重复"的线性循环，构建了一个有状态、可恢复、可治理、可积累的认知运行时。
-
----
-
-## 动机
-
-ReAct 框架（Yao et al., 2022）解决了让大模型调用工具的问题，但留下了更深层的系统性缺陷：
-
-| 局限 | ReAct | NeuroCore |
-|---|---|---|
-| 线性链式推理，无并行认知能力 | 串行 `Thought → Action → Observation` | 每个认知周期内六模块并行处理 |
-| 无世界模型，无法做预测性模拟 | 纯反应式——先做再看 | Predictor 在执行前提交前向模拟结果 |
-| 无持久记忆架构 | 上下文窗口即全部记忆 | 三层记忆：工作记忆、情景记忆、语义记忆；支持跨会话检索 |
-| 无元认知能力 | 无法评估自身的置信度 | MetaController 动态置信度评分、冲突检测、资源分配 |
-| 无内在动机系统 | 完全由外部任务指令驱动 | 风险感知优先级排序、紧迫性信号、审批升级 |
-| 单点故障导致级联崩溃 | 一次幻觉沿推理链放大 | Provider 隔离（`Promise.allSettled`）、指数退避重试、Session 级错误恢复 |
-| 扁平任务表示 | 单一非结构化任务字符串 | 层次化 Goal Tree，支持分解、依赖排序、状态派生 |
-
-NeuroCore 不把大模型当作"大脑"，而是把它当作**新皮层**——认知系统中的一个专门组件，与记忆、预测、动机、技能和元认知监控协同工作。
+NeuroCore 不是一个把提示词、工具调用和观察串成线性循环的 Agent Demo，而是一个 **protocol-first / runtime-first** 的认知运行时：把推理、记忆、预测、风险治理、技能和元认知组织进统一的认知周期里，让智能体具备 **有状态、可恢复、可治理、可积累** 的执行能力。
 
 ---
 
-## 理论基础
+## 它是什么
 
-NeuroCore 的架构源于三个跨学科领域的融合：
+NeuroCore 试图把 Agent 从“提示词驱动的工具调用器”升级为“结构化运行时系统”。
 
-- **神经科学**：Baars 全局工作空间理论（1988）——信息竞争与广播机制；Friston 自由能原理（2006）——预测误差最小化；预测编码（Rao & Ballard, 1999）——层次化误差传播
-- **认知科学**：Kahneman 双过程理论——快（习惯）与慢（审慎）两条推理通路；元认知——置信度监控与认知控制
-- **计算机科学**：贝叶斯推断、层次化强化学习、Actor 模型并发、结构化协议工程
+核心思路：
+
+- 把 LLM 视为认知系统中的一个组件，而不是全部系统本身。
+- 把执行单位从单次 prompt 扩展为 `Agent Profile / Session / Goal Tree / Workspace Snapshot / Trace / Eval`。
+- 把安全、审批、预算、回放、评测这些生产能力内建进运行时主链路，而不是事后外挂。
+- 用统一协议同时支撑本地 SDK 与 Hosted Runtime。
 
 ---
 
-## 架构
+## 为什么不是 ReAct
 
-### 六大神经模块 + 全局工作空间
+ReAct 解决了“让模型会调用工具”的问题，但在工程上仍有几个长期瓶颈：
 
-```
-                    ┌─────────────────────────────────────┐
-                    │          全局工作空间                  │
-                    │    竞争 · 广播 · 融合 · 压缩           │
-                    └──────────────┬──────────────────────┘
-                                   │
-        ┌──────────┬───────────┬───┴───┬──────────┬──────────┐
-        ▼          ▼           ▼       ▼          ▼          ▼
-   ┌─────────┐┌─────────┐┌─────────┐┌─────────┐┌─────────┐┌─────────┐
-   │  新皮层  ││ 海马体  ││  小脑   ││ 杏仁核  ││基底神经节││ 前额叶  │
-   │ Module  ││ Module  ││ Module  ││ Module  ││ Module  ││ Module  │
-   │ (推理)  ││ (记忆)  ││ (预测)  ││ (风险)  ││ (技能)  ││ (元认知)│
-   └─────────┘└─────────┘└─────────┘└─────────┘└─────────┘└─────────┘
-```
+- 线性链式执行，缺乏并行认知协作。
+- 缺少显式世界模型与前向预测。
+- 缺少持久记忆与跨会话积累。
+- 缺少元认知、自评估和不确定性控制。
+- 缺少内建的风险治理、审批与预算管理。
+- 缺少会话级恢复、回放、审计和评测能力。
 
-每个模块对应一个脑区功能域，作为独立的认知服务运行：
+NeuroCore 的目标不是替代模型本身，而是为模型提供一个更像“认知操作系统”的运行环境。
 
-| 模块 | 脑区映射 | 认知职责 | 实现形态 |
-|---|---|---|---|
-| **新皮层模块（Cortex）** | 大脑新皮层 | 高阶推理、规划、响应生成 | LLM 驱动的 Reasoner（OpenAI 兼容适配器） |
-| **海马体模块（Hippocampal）** | 海马体 | 情景编码、记忆检索、语义凝练 | 工作记忆 + 情景记忆 + 语义记忆三层架构 |
-| **小脑模块（Cerebellar）** | 小脑 + 顶叶 | 前向模拟、结果预测、预测误差追踪 | Predictor SPI，支持可插拔实现 |
-| **杏仁核模块（Amygdala）** | 杏仁核 | 风险评估、威胁检测、紧迫性信号 | PolicyProvider，可配置风险等级（warn / block） |
-| **基底神经节模块（Basal Ganglia）** | 基底神经节 | 技能匹配、习惯性行为激活 | SkillProvider SPI，模式匹配提案 |
-| **前额叶模块（Prefrontal）** | 前额叶皮层 | 元认知、冲突检测、资源分配、审批门控 | MetaController，风险排序选择与动态置信度 |
+---
+
+## 核心架构
+
+### 六模块 + 全局工作空间
+
+- **Cortex / Reasoner**：高阶推理、规划、响应生成
+- **Hippocampal / Memory**：记忆检索、情景编码、语义凝练、程序化经验沉淀
+- **Cerebellar / Predictor**：前向模拟、结果预测、预测误差跟踪
+- **Amygdala / Policy-Risk**：风险评估、预算约束、审批门控
+- **Basal Ganglia / Skill**：技能匹配、习惯性动作激活、技能提炼
+- **Prefrontal / Meta**：元认知、自评估、冲突检测、控制分配
+- **Global Workspace**：提案竞争、广播、融合、压缩、快照生成
 
 ### 认知周期
 
-不同于 ReAct 的线性链条，NeuroCore 执行结构化的认知周期：
+一个典型周期不是 `Thought -> Action -> Observation` 的单链路循环，而是：
 
-```
-  [感知输入]
-       │
-       ▼
-  ┌──────────────────────────────────────────┐
-  │  六模块并行处理                            │
-  │  Memory.retrieve()   →  记忆提案          │
-  │  Skill.match()       →  技能提案          │
-  │  Reasoner.plan()     →  推理提案          │
-  │  Predictor.predict() →  预测结果          │
-  │  Policy.evaluate()   →  策略决策          │
-  └──────────────────┬───────────────────────┘
-                     │
-                     ▼
-  ┌──────────────────────────────────────────┐
-  │  全局工作空间                              │
-  │  提案竞争 + 冲突融合                       │
-  │  显著性加权 + 目标对齐评分                  │
-  │  Token 感知上下文压缩                      │
-  │  工作空间快照生成                          │
-  └──────────────────┬───────────────────────┘
-                     │
-                     ▼
-  ┌──────────────────────────────────────────┐
-  │  MetaController（前额叶仲裁）             │
-  │  按风险排序候选行动                        │
-  │  动态置信度评分                            │
-  │  可配置审批升级阈值                        │
-  └──────────────────┬───────────────────────┘
-                     │
-                     ▼
-  [执行 / 审批升级 / 终止]
-       │
-       ▼
-  [观察 → 记忆写入 → 轨迹记录]
-```
-
-每个周期生成一个 **Workspace Snapshot（工作空间快照）**——结构化的上下文物件，包含输入事件、活跃目标、记忆摘要、候选行动、预测结果、策略决策、竞争日志和预算评估。
+1. 输入进入 Session
+2. 六模块并行产生提案 / 检索 / 预测 / 风险评估
+3. Global Workspace 汇聚并竞争候选信息
+4. Meta 层做控制分配、置信度评估、审批判断或安全降级
+5. 执行动作或升级审批
+6. 观测结果写回记忆、轨迹与评测系统
 
 ---
 
-## 核心概念
+## 关键能力
 
-### Agent Profile（智能体档案）
+### 1. 有状态 Session
 
-智能体的静态定义：角色、领域、工具集、记忆策略、运行预算、安全策略和上下文配置。
+每次执行都不是一次性的 prompt 调用，而是一个拥有生命周期的 Session：
 
-### Session（会话）
+- `created -> running -> waiting -> completed | failed | aborted | escalated`
+- 支持 checkpoint / resume / replay
+- 支持本地运行与远程托管运行时的语义对齐
 
-有状态的执行实例，拥有完整生命周期：`created → running → waiting → completed | failed | aborted | escalated`。会话支持挂起、检查点、恢复和继续运行。
+### 2. Goal Tree
 
-### Goal Tree（目标树）
+任务不是一段扁平字符串，而是可管理、可分解、可恢复的目标树：
 
-任务不是一段松散的自然语言，而是一组可管理、可分解、可恢复的结构化目标：
-
-- 递归分解（Reasoner 驱动的子目标生成）
-- 父子状态派生（子目标完成 → 父目标进度更新）
+- 子目标递归分解
+- 父子状态派生
 - 优先级与依赖排序
-- 生命周期时间戳（`created_at`、`updated_at`）
+- 结构化进度跟踪
 
-### Workspace Snapshot（工作空间快照）
+### 3. Workspace Snapshot
 
-每个认知周期的结构化上下文物件——聚合自记忆、技能、推理器、预测器和策略模块。内含 **CompetitionLog（竞争日志）**，记录提案评分、来源权重、目标对齐度、冲突检测和选择推理。
+每个认知周期都会生成结构化快照，聚合：
 
-### 记忆系统
+- 输入事件
+- 活跃目标
+- 记忆摘要
+- 候选行动
+- 预测结果
+- 风险 / 策略决策
+- 竞争日志
+- 元认知状态
 
-三层记忆作为一等能力：
+### 4. 四层记忆
 
-| 层次 | 用途 | 实现 |
-|---|---|---|
-| **工作记忆（Working Memory）** | 当前任务上下文 | 有界内存存储，可配置 `maxEntries`，FIFO 淘汰 |
-| **情景记忆（Episodic Memory）** | 经验记录 | 按会话存储的 Episode，支持跨会话/跨租户检索 |
-| **语义记忆（Semantic Memory）** | 知识凝练 | 从 Episode 中提炼的语义模式，支持跨会话积累 |
+当前主链路以四层记忆为基础：
 
-所有检索使用可配置的 `retrieval_top_k`（无硬编码上限）。
+- **Working Memory**：当前任务上下文
+- **Episodic Memory**：按会话沉淀的经验事件
+- **Semantic Memory**：从经验中提炼出的稳定知识
+- **Procedural Memory**：从反复成功的模式中沉淀出的程序化经验
 
-### 策略与治理
+> 下一阶段的记忆演进与五层设计、SQL-first 持久化方向，见 `docs/README.md` 与 `docs/05_2026-04-01_memory-evolution/`。
 
-工具执行在调用前经过硬门控层：
+### 5. 治理与安全
 
-- **风险等级**：`none` / `low` / `medium` / `high` → 高风险动作自动升级审批
-- **策略决策**：`allow` / `warn` / `block` — warn 触发审批流，block 阻止执行
-- **参数校验**：基于 `inputSchema` 的 required 检查和类型校验，拒绝无效参数
-- **预算执行**：多维度配额（cycle 上限、tool call 上限、token 预算）
-- **可配置审批阈值**：可调整的不确定性阈值，超出时自动升级
+治理能力不是外挂，而是主链路能力：
 
-### 轨迹 / 回放 / 评估
+- 风险等级与策略决策
+- 工具参数 Schema 校验
+- 审批升级流
+- 预算与配额控制
+- Trace / Replay / Eval 全链路可追踪
 
-每个周期记录为 **CycleTrace**——支持完整的会话回放、逐步调试和自动化评估：
+### 6. Hosted Runtime
 
-- **Trace Store**：按周期记录提案、行动、预测、观察和工作空间状态
-- **Replay Runner**：从记录的轨迹确定性重放
-- **Eval Harness**：定义评估用例与期望，运行自动化通过/失败判定，生成评估报告
+NeuroCore 同时支持两种使用方式：
+
+- **Embedded SDK**：直接在本地应用中定义 Agent、创建 Session、执行周期
+- **Hosted Runtime**：通过 `runtime-server` 暴露 HTTP API、异步执行、SSE、Webhook、审批与评测接口
 
 ---
 
-## 运行时加固
+## 当前状态
 
-NeuroCore 实现了多层韧性机制以支撑生产环境：
+截至当前主分支，项目整体状态可以概括为：
 
-- **Provider 隔离**：四个采集方法（记忆、技能、预测、策略）全部使用 `Promise.allSettled`，单个 Provider 故障不会导致周期崩溃
-- **Reasoner 容错**：`plan()` 和 `respond()` 失败时优雅降级，周期以空提案/空行动继续
-- **工具参数校验**：基于 Schema 的参数验证（required 属性检查、类型检查），在调用工具前拒绝无效参数
-- **指数退避**：工具重试使用 `baseDelay × 2^(attempt-1) + jitter` 替代固定延迟
-- **Session 并发保护**：`SessionManager.acquireSessionLock()` 阻止同一会话上的并发 `runOnce` / `resume` / `decideApproval` 调用
-- **Hydrate 防覆盖**：`SessionManager.hydrate()` 拒绝覆盖已存在的会话
-- **活跃时间追踪**：所有变更操作更新 `last_active_at` 时间戳
-- **上下文预算**：Token 感知压缩，分阶段裁剪（摘要截断 → 提案精简 → 目标截断 → 总结截断）
+- Runtime 主链路、Hosted Runtime、World Model、Device 接入、多 Agent 原语已进入代码库
+- M0 ~ M8 已形成主体闭环；M9 的本地多 Agent 核心闭环已补齐
+- Personal Assistant Phase A 已有局部落地
+- Console 已有文档、接口契约与预实现，但尚未形成完整产品闭环
+- 深层元认知升级已进入实现阶段，但仍在持续演进
+
+> 详细进度、里程碑判断和设计演进请以 `docs/README.md` 为准；它是项目的文档导航与进度跟踪入口。
 
 ---
 
 ## 仓库结构
 
-```
+```text
 neurocore/
 ├── packages/
-│   ├── protocol/          # 核心类型、Schema、命令、事件和接口定义
-│   ├── runtime-core/      # 有状态认知运行时内核
-│   ├── sdk-core/          # 面向开发者的 SDK（defineAgent、createSession、run）
-│   ├── sdk-node/          # Node.js 适配层（OpenAI 兼容 Reasoner）
-│   ├── runtime-server/    # HTTP API 服务（async、stream、SSE、webhooks）
-│   ├── memory-core/       # 工作 / 情景 / 语义记忆实现
-│   ├── policy-core/       # 风险控制、预算执行、动作门控
-│   └── eval-core/         # 回放、评估、基线测试、远程评估
-├── tests/                 # 测试套件（单元 + 集成 + 加固 + 基线）
-├── examples/              # 覆盖所有使用方式的示例
-└── docs/                  # 架构文档、需求规格、协议规范、路线图
+│   ├── protocol/        # 核心类型、Schema、命令、事件、接口契约
+│   ├── runtime-core/    # 有状态认知运行时内核
+│   ├── sdk-core/        # Agent 定义、Session 创建、本地执行 API
+│   ├── sdk-node/        # Node.js 适配层与模型接线
+│   ├── runtime-server/  # Hosted Runtime HTTP API / async / stream / webhook
+│   ├── memory-core/     # 记忆系统实现
+│   ├── policy-core/     # 风险、预算、审批、策略门控
+│   ├── eval-core/       # Trace、Replay、Eval、Benchmark
+│   ├── world-model/     # 世界模型相关能力
+│   ├── device-core/     # 设备抽象与接入能力
+│   ├── multi-agent/     # 多 Agent 原语与协作能力
+│   └── console/         # Operations Console 前端包
+├── examples/            # CLI、runtime-server、world-model、personal-assistant 等示例
+├── tests/               # 单元、集成、产品化与评测测试
+├── docs/                # 架构、协议、路线、控制台、个人助理、元认知设计文档
+├── TODO.md              # 工程待办与里程碑工作项
+└── README.md
 ```
-
-9 个包，**~8,200 行 TypeScript**，**47+ 确定性测试**（含 LLM 基线测试共 81+），覆盖单元、集成、加固和评估场景。
-
----
-
-## 使用方式
-
-### 嵌入式 SDK
-
-```ts
-import { defineAgent } from "@neurocore/sdk-core";
-
-const agent = defineAgent({
-  id: "research-agent",
-  role: "能够推理、调用工具并管理目标的助手。"
-})
-  .useReasoner(reasoner)
-  .registerTool(searchTool)
-  .registerTool(analyzeTool);
-
-const session = agent.createSession({
-  agent_id: "research-agent",
-  tenant_id: "local",
-  initial_input: {
-    input_id: "inp_1",
-    content: "研究当前电动汽车电池的市场趋势并总结。",
-    created_at: new Date().toISOString()
-  }
-});
-
-const result = await session.run();
-```
-
-### 托管运行时
-
-同一个 Agent 可以注册到 `runtime-server`，通过 HTTP API 访问：
-
-- `POST /v1/sessions` — 创建会话
-- `POST /v1/sessions/:id/run` — 执行周期
-- `POST /v1/sessions/:id/resume` — 从等待/升级状态恢复
-- `POST /v1/approvals/:id/decide` — 审批或拒绝升级的操作
-- `GET /v1/sessions/:id/traces` — 查询周期轨迹
-- `POST /v1/evals/runs` — 运行评估用例
-- `GET /v1/evals/runs/:id` — 获取评估报告
-
-两种模式共享相同的语义——本地 SDK 和远程运行时消费同一套协议类型。
-
-### 支持的运行模式
-
-| 模式 | 说明 |
-|---|---|
-| **Sync（同步）** | 阻塞执行，返回最终结果 |
-| **Async（异步）** | 后台执行，通过轮询或 Webhook 获取结果 |
-| **Stream（流式）** | 通过 SSE 增量交付 |
 
 ---
 
@@ -274,21 +182,37 @@ npm run typecheck
 npm test
 ```
 
-### 运行示例
+### 常用示例
 
 ```bash
-npm run demo:session          # 基础 Session 生命周期
-npm run demo:cli              # 交互式 CLI Agent
-npm run demo:runtime-server   # 托管运行时 HTTP API
-npm run demo:runtime-parity   # 本地与托管语义一致性
-npm run demo:checkpoint       # 检查点 / 挂起 / 恢复
-npm run demo:replay           # 会话回放
-npm run demo:eval             # 基线评估
+# 基础运行与会话能力
+npm run demo:session
+npm run demo:cli
+npm run demo:checkpoint
+npm run demo:memory
+
+# Hosted Runtime / 运行模式 / Webhook
+npm run demo:runtime-server
+npm run demo:runtime-modes
+npm run demo:webhooks
+
+# 世界模型
+npm run demo:world-model
+
+# Personal Assistant
+npm run demo:personal-assistant:web
+npm run demo:personal-assistant:feishu
+
+# Console
+npm run console:dev
+
+# Benchmark
+npm run benchmark:longmemeval
 ```
 
 ### 模型配置
 
-需要真实模型调用的示例，创建 `.neurocore/llm.local.json`：
+需要真实模型调用的示例，可创建 `.neurocore/llm.local.json`：
 
 ```json
 {
@@ -300,32 +224,82 @@ npm run demo:eval             # 基线评估
 }
 ```
 
-此文件已被 `.gitignore` 忽略。
+该文件已被 `.gitignore` 忽略。
+
+---
+
+## 最小使用示例
+
+```ts
+import { defineAgent } from "@neurocore/sdk-core";
+
+const agent = defineAgent({
+  id: "research-agent",
+  role: "能够推理、调用工具并管理目标的助手。"
+})
+  .useReasoner(reasoner)
+  .registerTool(searchTool)
+  .registerTool(analyzeTool);
+
+const session = agent.createSession({
+  agent_id: "research-agent",
+  tenant_id: "local",
+  initial_input: {
+    input_id: "inp_1",
+    content: "研究当前电动汽车电池的市场趋势并总结。",
+    created_at: new Date().toISOString()
+  }
+});
+
+const result = await session.run();
+console.log(result.output);
+```
 
 ---
 
 ## 设计原则
 
-| 原则 | 说明 |
-|---|---|
-| **Protocol First（协议优先）** | 先定义稳定的类型与接口，再定义实现。所有包共享同一套核心对象。 |
-| **Runtime First（运行时优先）** | 即使是本地嵌入式调用，也按有状态运行时设计，而非无状态函数。 |
-| **Cognitive Cycle First（认知周期优先）** | 高级能力围绕认知周期组织，而非围绕提示词模板组织。 |
-| **Safe by Default（默认安全）** | 风险控制、预算约束、审批门控和审计追踪默认内建，而非外挂。 |
-| **Progressive Complexity（渐进复杂度）** | 从轻量推理器 + 工具起步，按需叠加记忆、策略、预测和托管运行能力。 |
+- **Protocol First**：先定义稳定协议，再定义实现
+- **Runtime First**：本地嵌入式调用也按有状态运行时设计
+- **Cognitive Cycle First**：围绕认知周期组织能力，而不是围绕 prompt 模板组织能力
+- **Safe by Default**：默认内建风险控制、预算约束、审批门控和审计追踪
+- **Progressive Complexity**：从轻量能力起步，按需叠加记忆、预测、多 Agent、托管运行时与评测能力
 
 ---
 
 ## 适用场景
 
-- **复杂任务自动化**：多步骤、可恢复的执行，支持目标分解与状态管理
-- **企业流程 Agent**：跨系统工作流，内置权限边界、审计和审批
-- **知识密集型 Agent**：通过情景记忆与语义记忆持续积累经验
-- **可治理 AI 平台**：多租户运行时，集成风险门控、轨迹追踪、会话回放和自动化评估
-- **混合部署**：本地 SDK 处理内网逻辑 + 托管运行时承载治理要求
+- 复杂任务自动化
+- 企业流程 Agent
+- 知识密集型 Agent
+- 可治理 AI 平台
+- 本地 SDK + 托管运行时的混合部署
+- 个人助理 / IM Agent / 可视化 Console 驱动的 Agent 产品原型
 
 ---
 
-## 许可
+## 文档导航
 
-私有项目，保留所有权利。
+文档入口在 `docs/README.md`，建议按如下路径阅读：
+
+1. 范式提出
+2. SDK 设计与实施
+3. 差距评估与路线
+4. 下一阶段设计
+5. 记忆系统演进
+6. 运营控制台设计
+7. 个人助理架构设计
+8. 元认知系统演进
+
+如果目标是直接理解项目现状，优先看：
+
+- `docs/README.md`
+- `docs/03_2026-03-30_assessment/`
+- `docs/05_2026-04-01_memory-evolution/`
+- `docs/06_2026-04-14_metacognition-evolution/`
+
+---
+
+## License
+
+MIT
