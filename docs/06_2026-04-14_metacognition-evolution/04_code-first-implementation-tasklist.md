@@ -20,7 +20,10 @@
 > - 2026-04-14 子稿一增强：已完成 `FastMonitor V2` 标签化诊断、显式权重、预算抑制与 `DeepEvaluator` 子检查器路由
 > - 2026-04-14 子稿二增强：已完成 `MetaSignalBus` 的 `goal_id / provenance / predictor reliability / budget pressure` 接线与聚合规则收紧
 > - 2026-04-14 子稿三增强：已完成 `@neurocore/eval-core` 的 `meta-benchmark.ts` 基础实现，已覆盖 calibration、fast monitor、deep eval、control allocator、risk gating、evidence sensitivity、learning reflection 七组评分输出
-> - 后续批次：`ReflectionLearner / MetaControlAction` 的扩展消费、真实 benchmark 数据集与 online meta eval
+> - 2026-04-15 收口方向更新：下一阶段不再横向扩概念模块，转为 `控制平面收口 -> calibration 单一路径 -> DeepEvaluator SPI -> Signal Bus provider 化 -> meta eval 数据集与 online 管线`
+> - 2026-04-15 Phase 1 / 2 代码状态：`ControlAllocator` 已成为最终控制动作的单真源，`DefaultMetaController` 已退化为 adapter；`Calibrator` 已升级为 `query + calibrate + record` 单一路径，`DeepEvaluator` 私有校准已移除，`SqliteCalibrationStore`、task bucket、决策前查询与决策后写回均已进入代码库
+> - 2026-04-15 Phase 3 代码状态：`DeepEvaluator` 已切为 `Verifier SPI` 编排层，默认 `logic / evidence / tool / safety / process` verifiers 与可选 `CounterfactualSimulator SPI` 已进入主链，支持并发执行、部分失败降级与 budget-aware 选择
+> - 后续批次：Signal Bus family providers、真实 benchmark 数据集与 online meta eval、`ReflectionLearner`
 
 ---
 

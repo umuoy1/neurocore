@@ -68,6 +68,9 @@
 - 2026-04-14 根据外部子稿《工程子稿一：Fast Monitor + Deep Evaluator 决策表与伪代码》进一步增强：`FastMonitor` 已升级为标签化 V2，补齐 `trigger_tags`、显式置信度权重、`simulation-unreliable` 的 deep-eval 触发、预算紧张下的高成本动作抑制；`DeepEvaluator` 已按触发标签路由子检查器并收紧动作建议表。
 - 2026-04-14 根据外部子稿《工程子稿二：Meta Signal Bus 字段与聚合规则逐项说明》进一步增强：`MetaSignalBus` 已补 `goal_id`、`MetaSignalProvenance`、`predictor_error_rate / predictor_bucket_reliability`、更细粒度 `budget_pressure`、更保守的 `evidence_freshness` 与 `source_reliability_prior` 聚合规则。
 - 2026-04-14 根据外部子稿《工程子稿三：Meta Benchmark——如何量化“知道自己不知道”》进一步实现：`@neurocore/eval-core` 已新增 `meta-benchmark.ts`，覆盖 `ECE / Brier / Overconfidence Failure Rate`、`FastMonitor` 专项指标、`DeepEvaluator` 专项指标、`ControlAllocator` 专项指标、`Risk Gating / Evidence Sensitivity / Learning Reflection` 七组评分输出，并补了 focused tests。
+- 2026-04-15 路线收口调整：Prefrontal / Meta 下一阶段不再以“继续横向加模块”为主，而改为五条收口主线：`控制平面单真源`、`calibration 单路径与持久化`、`DeepEvaluator SPI 化`、`MetaSignalBus provider 化`、`真实 meta benchmark 数据集与 online eval`。
+- 2026-04-15 M8.5 Phase 2 补充：`ControlAllocator` 已成为最终控制动作单真源，`DefaultMetaController` 已瘦身为 adapter；`Calibrator` 已升级为 `query + calibrate + record` 单一路径，`SqliteCalibrationStore`、task bucket、决策前 bucket reliability 查询与执行后写回均已进入代码库；下一步严格转向 `DeepEvaluator SPI 化`，不提前做 provider 化和 learner 扩展。
+- 2026-04-15 M8.5 Phase 3 补充：`DeepEvaluator` 已切到 `Verifier SPI` 编排层，默认 `logic / evidence / tool / safety / process` verifiers 与可选 `CounterfactualSimulator SPI` 已进入主链，支持并发执行、部分失败降级和 budget-aware 选择；下一步严格转向 `MetaSignalBus provider 化`。
 
 ## 关键风险（历史记录）
 

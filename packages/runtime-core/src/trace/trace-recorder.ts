@@ -6,6 +6,7 @@ import type {
   CycleTraceRecord,
   FastMetaAssessment,
   MetaAssessment,
+  MetaDecisionV2,
   MetaSignalFrame,
   Observation,
   PolicyDecision,
@@ -38,6 +39,7 @@ export interface RecordTraceInput {
   metaSignalFrame?: MetaSignalFrame;
   fastMetaAssessment?: FastMetaAssessment;
   metaAssessment?: MetaAssessment;
+  metaDecisionV2?: MetaDecisionV2;
   selfEvaluationReport?: SelfEvaluationReport;
   calibrationRecord?: CalibrationRecord;
   startedAt: string;
@@ -85,6 +87,7 @@ export class TraceRecorder {
       meta_signal_frame: input.metaSignalFrame,
       fast_meta_assessment: input.fastMetaAssessment,
       meta_assessment: input.metaAssessment,
+      meta_decision_v2: input.metaDecisionV2,
       self_evaluation_report: input.selfEvaluationReport,
       calibration_record: input.calibrationRecord
     };

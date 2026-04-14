@@ -2,12 +2,14 @@ import { DefaultPolicyProvider } from "@neurocore/policy-core";
 import type {
   AgentProfile,
   CandidateAction,
+  ControlAllocator,
   FastMetaAssessment,
   Goal,
   MemoryDigest,
   MemoryProvider,
   MetaAssessment,
   MetaDecision,
+  MetaDecisionV2,
   MetaSignalFrame,
   ModuleContext,
   Observation,
@@ -29,9 +31,12 @@ import type { WorldStateGraph } from "@neurocore/world-model";
 import type { TaskDelegator, AgentRegistry } from "@neurocore/multi-agent";
 import { GradedContextCompressor } from "../context/graded-compressor.js";
 import { DefaultTokenEstimator } from "../context/token-estimator.js";
+import { DefaultControlAllocator } from "../meta/control-allocator.js";
 import { DeepEvaluator } from "../meta/deep-evaluator.js";
 import { FastMonitor } from "../meta/fast-monitor.js";
+import { toControlModeFromDecisionV2 } from "../meta/meta-decision.js";
 import { MetaSignalBus } from "../meta/signal-bus.js";
+import type { Calibrator } from "../meta/calibrator.js";
 import { debugLog } from "../utils/debug.js";
 import { generateId, nowIso } from "../utils/ids.js";
 import { WorkspaceCoordinator } from "../workspace/workspace-coordinator.js";
@@ -50,6 +55,7 @@ export interface CycleExecutionInput {
   skillProviders?: SkillProvider[];
   tokenEstimator?: TokenEstimator;
   predictionErrorRate?: number;
+  calibrator?: Calibrator;
   deviceRegistry?: DeviceRegistry;
   perceptionPipeline?: PerceptionPipeline;
   worldStateGraph?: WorldStateGraph;
@@ -66,6 +72,7 @@ export interface CycleExecutionResult {
   metaSignalFrame?: MetaSignalFrame;
   fastMetaAssessment?: FastMetaAssessment;
   metaAssessment?: MetaAssessment;
+  metaDecisionV2?: MetaDecisionV2;
   selfEvaluationReport?: SelfEvaluationReport;
   decision: MetaDecision;
   observation?: Observation;
@@ -76,6 +83,7 @@ export class CycleEngine {
   private readonly metaSignalBus = new MetaSignalBus();
   private readonly fastMonitor = new FastMonitor();
   private readonly deepEvaluator = new DeepEvaluator();
+  private readonly controlAllocator: ControlAllocator = new DefaultControlAllocator();
 
   public async run(input: CycleExecutionInput): Promise<CycleExecutionResult> {
     const cycleId = generateId("cyc");
@@ -259,18 +267,39 @@ export class CycleEngine {
       predictionErrorRate: input.predictionErrorRate,
       goals: input.goals
     });
-    const fastMetaAssessment = this.fastMonitor.assess(metaSignalFrame);
+    const baseFastMetaAssessment = this.fastMonitor.assess(metaSignalFrame);
+    const calibrationQuery = input.calibrator?.query({
+      profile: input.profile,
+      frame: metaSignalFrame,
+      input: input.input,
+      actions,
+      predictions,
+      metaState: baseFastMetaAssessment.meta_state
+    });
+    const fastMetaAssessment = calibrationQuery
+      ? {
+          ...baseFastMetaAssessment,
+          task_bucket: calibrationQuery.descriptor.taskBucket,
+          bucket_reliability: calibrationQuery.stats.bucket_reliability
+        }
+      : baseFastMetaAssessment;
     const metaAssessment = fastMetaAssessment.trigger_deep_eval
-      ? this.deepEvaluator.evaluate({
+      ? await this.deepEvaluator.evaluate({
+          ctx: enrichedContext,
+          workspace,
           frame: metaSignalFrame,
           fastAssessment: fastMetaAssessment,
           actions,
           predictions,
-          policies
+          policies,
+          calibrator: input.calibrator,
+          calibrationQuery
         })
       : this.fastMonitor.buildMetaAssessment({
           frame: metaSignalFrame,
-          selectedMetaActions: fastMetaAssessment.recommended_control_actions
+          selectedMetaActions: fastMetaAssessment.recommended_control_actions,
+          calibrator: input.calibrator,
+          calibrationQuery
         });
     const annotatedWorkspace: WorkspaceSnapshot = {
       ...workspace,
@@ -280,6 +309,21 @@ export class CycleEngine {
       self_evaluation_report_ref: `${metaSignalFrame.frame_id}_report`
     };
 
+    const metaDecisionV2 = await this.controlAllocator.decide({
+      ctx: {
+        ...enrichedContext,
+        workspace: annotatedWorkspace
+      },
+      actions,
+      predictions,
+      policies,
+      workspace: annotatedWorkspace,
+      budgetAssessment: annotatedWorkspace.budget_assessment,
+      fastAssessment: fastMetaAssessment,
+      metaAssessment,
+      predictionErrorRate: input.predictionErrorRate
+    });
+
     const decision = await input.metaController.evaluate(
       {
         ...enrichedContext,
@@ -288,7 +332,8 @@ export class CycleEngine {
           ...enrichedContext.runtime_state,
           meta_signal_frame: metaSignalFrame,
           fast_meta_assessment: fastMetaAssessment,
-          meta_assessment: metaAssessment
+          meta_assessment: metaAssessment,
+          meta_decision_v2: metaDecisionV2
         }
       },
       actions,
@@ -296,14 +341,10 @@ export class CycleEngine {
       policies,
       input.predictionErrorRate
     );
-    const decisionMetaActions =
-      decision.meta_actions && decision.meta_actions.length > 0
-        ? decision.meta_actions
-        : fastMetaAssessment.recommended_control_actions;
     const selfEvaluationReport = this.fastMonitor.buildSelfEvaluationReport({
       frame: metaSignalFrame,
-      selectedMetaActions: decisionMetaActions,
-      selectedControlMode: toControlModeForDecision(decision, fastMetaAssessment),
+      selectedMetaActions: [metaDecisionV2.control_action],
+      selectedControlMode: toControlModeFromDecisionV2(metaDecisionV2),
       verificationTrace: metaAssessment.verification_trace
     });
     debugLog("cycle", "Meta decision completed", {
@@ -326,6 +367,7 @@ export class CycleEngine {
       metaSignalFrame,
       fastMetaAssessment,
       metaAssessment,
+      metaDecisionV2,
       selfEvaluationReport,
       decision
     };
@@ -667,17 +709,4 @@ function toActionSideEffectLevel(
     return riskLevel;
   }
   return undefined;
-}
-
-function toControlModeForDecision(
-  decision: MetaDecision,
-  assessment: FastMetaAssessment
-): string {
-  if (decision.decision_type === "request_approval" || decision.decision_type === "escalate") {
-    return "escalation_path";
-  }
-  if (assessment.trigger_deep_eval) {
-    return "slow_path";
-  }
-  return "fast_path";
 }

@@ -323,6 +323,10 @@ export type MetaControlAction =
   | "ask-human"
   | "abort";
 
+export type VerifierMode = "logic" | "evidence" | "tool" | "safety" | "process";
+export type VerificationVerdict = "pass" | "weak-pass" | "fail" | "inconclusive";
+export type VerifierRunStatus = "ok" | "failed" | "timeout" | "skipped";
+
 export interface TaskMetaSignals {
   task_novelty: number;
   domain_familiarity: number;
@@ -428,12 +432,16 @@ export interface FastMetaAssessment {
   meta_state: MetaState;
   provisional_confidence: number;
   confidence?: ConfidenceVector;
+  task_bucket?: string;
+  bucket_reliability?: number;
   trigger_tags?: MetaTriggerTag[];
   trigger_deep_eval: boolean;
   recommended_control_actions: MetaControlAction[];
   rationale: string;
   created_at: Timestamp;
 }
+
+export type ControlDecisionSource = "fast" | "deep";
 
 export type FailureMode =
   | "insufficient_evidence"
@@ -466,12 +474,43 @@ export interface FailureDiagnosis {
   summary: string;
 }
 
-export interface VerificationTrace {
-  verifier_runs?: Array<Record<string, unknown>>;
+export interface VerificationIssue {
+  key: string;
+  severity: "low" | "medium" | "high";
+  summary: string;
+  related_action_id?: string;
+}
+
+export interface VerifierRunRecord {
+  verifier: string;
+  mode: VerifierMode;
+  status: VerifierRunStatus;
+  verdict?: VerificationVerdict;
+  summary?: string;
+  elapsed_ms?: number;
+  error?: string;
+  metadata?: Record<string, unknown>;
+  issues?: VerificationIssue[];
+}
+
+export interface VerifierResult {
+  verifier: string;
+  mode: VerifierMode;
+  verdict: VerificationVerdict;
+  summary: string;
+  issues?: VerificationIssue[];
   contested_steps?: Array<Record<string, unknown>>;
   evidence_gaps?: Array<Record<string, unknown>>;
   counterfactual_checks?: Array<Record<string, unknown>>;
-  final_verdict: "pass" | "weak-pass" | "fail" | "inconclusive";
+  metadata?: Record<string, unknown>;
+}
+
+export interface VerificationTrace {
+  verifier_runs?: VerifierRunRecord[];
+  contested_steps?: Array<Record<string, unknown>>;
+  evidence_gaps?: Array<Record<string, unknown>>;
+  counterfactual_checks?: Array<Record<string, unknown>>;
+  final_verdict: VerificationVerdict;
 }
 
 export interface MetaAssessment {
@@ -481,6 +520,8 @@ export interface MetaAssessment {
   meta_state: MetaState;
   confidence: ConfidenceVector;
   calibrated_confidence?: number;
+  task_bucket?: string;
+  bucket_reliability?: number;
   process_reliability?: number;
   evidence_sufficiency?: number;
   simulation_reliability?: number;
@@ -518,6 +559,19 @@ export interface SelfEvaluationReport {
   created_at: Timestamp;
 }
 
+export interface CalibrationBucketStats {
+  task_bucket: string;
+  sample_count: number;
+  success_rate: number;
+  average_predicted_confidence: number;
+  average_calibrated_confidence: number;
+  average_confidence_gap: number;
+  bucket_reliability: number;
+  risk_level?: string;
+  predictor_id?: string;
+  last_updated_at?: Timestamp;
+}
+
 export interface CalibrationRecord {
   record_id: string;
   task_bucket: string;
@@ -525,12 +579,30 @@ export interface CalibrationRecord {
   calibrated_confidence: number;
   observed_success: boolean;
   risk_level: string;
+  predictor_id?: string;
   deep_eval_used: boolean;
   session_id?: string;
   cycle_id?: string;
   action_id?: string;
   meta_state?: MetaState;
   created_at: Timestamp;
+}
+
+export interface MetaDecisionV2 {
+  decision_id: string;
+  session_id: string;
+  cycle_id: string;
+  control_action: MetaControlAction;
+  selected_action_id?: string;
+  requires_approval: boolean;
+  decision_source: ControlDecisionSource;
+  confidence: number;
+  meta_state?: MetaState;
+  verification_trace?: VerificationTrace;
+  rationale: string;
+  rejection_reasons?: string[];
+  risk_summary?: string;
+  budget_summary?: string;
 }
 
 export interface ReflectionRule {
@@ -867,6 +939,7 @@ export interface CycleTraceRecord {
   meta_signal_frame?: MetaSignalFrame;
   fast_meta_assessment?: FastMetaAssessment;
   meta_assessment?: MetaAssessment;
+  meta_decision_v2?: MetaDecisionV2;
   self_evaluation_report?: SelfEvaluationReport;
   calibration_record?: CalibrationRecord;
 }

@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import test from "node:test";
 import {
   AgentRuntime,
+  Calibrator,
   CycleEngine,
+  DefaultControlAllocator,
   DeepEvaluator,
   DefaultMetaController,
   FastMonitor,
-  MetaSignalBus
+  InMemoryCalibrationStore,
+  MetaSignalBus,
+  SqliteRuntimeStateStore
 } from "@neurocore/runtime-core";
 
 function ts() {
@@ -362,7 +369,9 @@ test("DeepEvaluator produces verification trace and calibrated assessment", () =
   });
 
   const fast = monitor.assess(frame);
-  const assessment = evaluator.evaluate({
+  const assessmentPromise = evaluator.evaluate({
+    ctx: makeCtx(),
+    workspace: makeWorkspace(),
     frame,
     fastAssessment: fast,
     actions: [
@@ -404,67 +413,581 @@ test("DeepEvaluator produces verification trace and calibrated assessment", () =
     ]
   });
 
-  assert.equal(assessment.deep_evaluation_used, true);
-  assert.ok(assessment.verification_trace);
-  assert.ok(assessment.verification_trace.verifier_runs.some((row) => row.verifier === "evidence-verifier"));
-  assert.ok(assessment.calibrated_confidence <= assessment.confidence.overall_confidence);
-  assert.equal(typeof assessment.recommended_control_action, "string");
+  return assessmentPromise.then((assessment) => {
+    assert.equal(assessment.deep_evaluation_used, true);
+    assert.ok(assessment.verification_trace);
+    assert.ok(assessment.verification_trace.verifier_runs.some((row) => row.verifier === "evidence-verifier"));
+    assert.ok(assessment.calibrated_confidence <= assessment.confidence.overall_confidence);
+    assert.equal(typeof assessment.recommended_control_action, "string");
+  });
 });
 
-test("DefaultMetaController consumes deep meta assessment and selects ask_user for missing evidence", async () => {
+test("DeepEvaluator recommends replan when tool verifier finds readiness unresolved", async () => {
+  const evaluator = new DeepEvaluator();
+  const frame = {
+    frame_id: "frm_tool",
+    session_id: "ses_meta",
+    cycle_id: "cyc_1",
+    task_signals: {
+      task_novelty: 0.3,
+      domain_familiarity: 0.8,
+      historical_success_rate: 0.7,
+      ood_score: 0.2,
+      decomposition_depth: 1,
+      goal_decomposition_depth: 1,
+      unresolved_dependency_count: 0
+    },
+    evidence_signals: {
+      retrieval_coverage: 0.8,
+      evidence_freshness: 0.8,
+      evidence_agreement_score: 0.8,
+      source_reliability_prior: 0.8,
+      missing_critical_evidence_flags: []
+    },
+    reasoning_signals: {
+      candidate_reasoning_divergence: 0.2,
+      step_consistency: 0.8,
+      contradiction_score: 0.1,
+      assumption_count: 1,
+      unsupported_leap_count: 0,
+      self_consistency_margin: 0.7
+    },
+    prediction_signals: {
+      predicted_success_probability: 0.7,
+      predicted_downside_severity: 0.2,
+      uncertainty_decomposition: {
+        epistemic: 0.2,
+        aleatoric: 0.2,
+        evidence_missing: 0.1,
+        model_disagreement: 0.2,
+        simulator_unreliability: 0.2,
+        calibration_gap: 0.1
+      },
+      simulator_confidence: 0.7,
+      predictor_error_rate: 0.1,
+      predictor_bucket_reliability: 0.8,
+      predictor_calibration_bucket: "high",
+      world_model_mismatch_score: 0.1
+    },
+    action_signals: {
+      tool_precondition_completeness: 0.4,
+      schema_confidence: 0.45,
+      side_effect_severity: 0.2,
+      reversibility_score: 0.8,
+      observability_after_action: 0.8,
+      fallback_availability: 0.7
+    },
+    governance_signals: {
+      policy_warning_density: 0,
+      budget_pressure: 0.2,
+      remaining_recovery_options: 0.7,
+      need_for_human_accountability: 0.2
+    },
+    created_at: ts()
+  };
+
+  const assessment = await evaluator.evaluate({
+    ctx: makeCtx(),
+    workspace: makeWorkspace(),
+    frame,
+    fastAssessment: {
+      assessment_id: "fast_tool",
+      session_id: "ses_meta",
+      cycle_id: "cyc_1",
+      meta_state: "needs-deep-eval",
+      provisional_confidence: 0.52,
+      trigger_tags: ["tool_not_ready"],
+      trigger_deep_eval: true,
+      recommended_control_actions: ["invoke-verifier"],
+      rationale: "tool not ready",
+      created_at: ts()
+    },
+    actions: [
+      {
+        action_id: "act_tool",
+        action_type: "call_tool",
+        title: "Call tool",
+        tool_name: "dangerous_tool",
+        side_effect_level: "low"
+      }
+    ],
+    predictions: [],
+    policies: []
+  });
+
+  assert.equal(assessment.recommended_control_action, "replan");
+  assert.ok(assessment.verification_trace?.verifier_runs.some((row) => row.verifier === "tool-verifier"));
+});
+
+test("DeepEvaluator recommends ask-human on unresolved high-risk safety path", async () => {
+  const evaluator = new DeepEvaluator();
+  const assessment = await evaluator.evaluate({
+    ctx: makeCtx(),
+    workspace: makeWorkspace(),
+    frame: {
+      frame_id: "frm_risk",
+      session_id: "ses_meta",
+      cycle_id: "cyc_1",
+      task_signals: {
+        task_novelty: 0.4,
+        domain_familiarity: 0.4,
+        historical_success_rate: 0.4,
+        ood_score: 0.3,
+        decomposition_depth: 1,
+        goal_decomposition_depth: 1,
+        unresolved_dependency_count: 0
+      },
+      evidence_signals: {
+        retrieval_coverage: 0.7,
+        evidence_freshness: 0.7,
+        evidence_agreement_score: 0.7,
+        source_reliability_prior: 0.7,
+        missing_critical_evidence_flags: []
+      },
+      reasoning_signals: {
+        candidate_reasoning_divergence: 0.2,
+        step_consistency: 0.7,
+        contradiction_score: 0.1,
+        assumption_count: 1,
+        unsupported_leap_count: 0,
+        self_consistency_margin: 0.7
+      },
+      prediction_signals: {
+        predicted_success_probability: 0.65,
+        predicted_downside_severity: 0.75,
+        uncertainty_decomposition: {
+          epistemic: 0.3,
+          aleatoric: 0.2,
+          evidence_missing: 0.1,
+          model_disagreement: 0.2,
+          simulator_unreliability: 0.2,
+          calibration_gap: 0.1
+        },
+        simulator_confidence: 0.7,
+        predictor_error_rate: 0.1,
+        predictor_bucket_reliability: 0.8,
+        predictor_calibration_bucket: "high",
+        world_model_mismatch_score: 0.1
+      },
+      action_signals: {
+        tool_precondition_completeness: 0.8,
+        schema_confidence: 0.8,
+        side_effect_severity: 0.72,
+        reversibility_score: 0.5,
+        observability_after_action: 0.8,
+        fallback_availability: 0.7
+      },
+      governance_signals: {
+        policy_warning_density: 0.2,
+        budget_pressure: 0.2,
+        remaining_recovery_options: 0.4,
+        need_for_human_accountability: 0.78
+      },
+      created_at: ts()
+    },
+    fastAssessment: {
+      assessment_id: "fast_risk",
+      session_id: "ses_meta",
+      cycle_id: "cyc_1",
+      meta_state: "high-risk",
+      provisional_confidence: 0.5,
+      trigger_tags: ["risk_high", "policy_warned"],
+      trigger_deep_eval: true,
+      recommended_control_actions: ["execute-with-approval"],
+      rationale: "high risk",
+      created_at: ts()
+    },
+    actions: [
+      {
+        action_id: "act_tool",
+        action_type: "call_tool",
+        title: "Delete resource",
+        tool_name: "dangerous_tool",
+        side_effect_level: "high"
+      }
+    ],
+    predictions: [],
+    policies: [
+      {
+        decision_id: "pol_1",
+        policy_name: "warn-dangerous",
+        level: "warn",
+        target_type: "action",
+        target_id: "act_tool",
+        reason: "dangerous side effect"
+      }
+    ]
+  });
+
+  assert.equal(assessment.recommended_control_action, "ask-human");
+  assert.ok(assessment.verification_trace?.verifier_runs.some((row) => row.verifier === "safety-verifier"));
+});
+
+test("DeepEvaluator survives verifier failure and returns partial verification trace", async () => {
+  const failingVerifier = {
+    name: "failing-verifier",
+    mode: "logic",
+    async verify() {
+      throw new Error("boom");
+    }
+  };
+  const evaluator = new DeepEvaluator({
+    verifiers: [failingVerifier, {
+      name: "evidence-verifier",
+      mode: "evidence",
+      async verify() {
+        return {
+          verifier: "evidence-verifier",
+          mode: "evidence",
+          verdict: "inconclusive",
+          summary: "missing evidence",
+          evidence_gaps: [{ key: "missing_web", severity: "high" }],
+          issues: [{ key: "missing_web", severity: "high", summary: "missing web evidence" }]
+        };
+      }
+    }],
+    simulator: null
+  });
+
+  const assessment = await evaluator.evaluate({
+    ctx: makeCtx(),
+    workspace: makeWorkspace(),
+    frame: {
+      ...new MetaSignalBus().collect({
+        ctx: makeCtx(),
+        workspace: makeWorkspace(),
+        actions: [{ action_id: "act_1", action_type: "respond", title: "Respond" }],
+        predictions: [],
+        policies: [],
+        goals: makeCtx().goals
+      })
+    },
+    fastAssessment: {
+      assessment_id: "fast_fail",
+      session_id: "ses_meta",
+      cycle_id: "cyc_1",
+      meta_state: "evidence-insufficient",
+      provisional_confidence: 0.35,
+      trigger_tags: ["evidence_gap", "reasoning_conflict"],
+      trigger_deep_eval: true,
+      recommended_control_actions: ["request-more-evidence"],
+      rationale: "missing evidence",
+      created_at: ts()
+    },
+    actions: [{ action_id: "act_1", action_type: "respond", title: "Respond" }],
+    predictions: [],
+    policies: []
+  });
+
+  assert.equal(assessment.verification_trace?.final_verdict, "inconclusive");
+  assert.ok(assessment.verification_trace?.verifier_runs.some((row) => row.verifier === "failing-verifier" && row.status === "failed"));
+  assert.ok(assessment.verification_trace?.verifier_runs.some((row) => row.verifier === "evidence-verifier" && row.status === "ok"));
+  assert.ok(assessment.verification_trace?.evidence_gaps?.some((row) => row.key === "missing_web"));
+});
+
+test("ControlAllocator is the single control source for evidence-insufficient path", async () => {
+  const allocator = new DefaultControlAllocator();
+  const fastAssessment = {
+    assessment_id: "fast_1",
+    session_id: "ses_meta",
+    cycle_id: "cyc_1",
+    meta_state: "evidence-insufficient",
+    provisional_confidence: 0.35,
+    trigger_deep_eval: true,
+    recommended_control_actions: ["request-more-evidence"],
+    rationale: "missing evidence",
+    created_at: ts()
+  };
+  const metaAssessment = {
+    assessment_id: "meta_1",
+    session_id: "ses_meta",
+    cycle_id: "cyc_1",
+    meta_state: "evidence-insufficient",
+    confidence: {
+      answer_confidence: 0.4,
+      process_confidence: 0.45,
+      evidence_confidence: 0.2,
+      simulation_confidence: 0.5,
+      action_safety_confidence: 0.9,
+      tool_readiness_confidence: 0.9,
+      calibration_confidence: 0.5,
+      overall_confidence: 0.45
+    },
+    calibrated_confidence: 0.32,
+    uncertainty_decomposition: {
+      epistemic: 0.5,
+      aleatoric: 0.2,
+      evidence_missing: 0.8,
+      model_disagreement: 0.3,
+      simulator_unreliability: 0.2,
+      calibration_gap: 0.3
+    },
+    failure_modes: ["insufficient_evidence"],
+    recommended_control_action: "request-more-evidence",
+    recommended_candidate_action_id: "act_ask",
+    rationale: "need more evidence",
+    created_at: ts(),
+    deep_evaluation_used: true
+  };
+  const ctx = {
+    ...makeCtx(),
+    workspace: {
+      ...makeWorkspace(),
+      metacognitive_state: fastAssessment
+    }
+  };
+  const actions = [
+    {
+      action_id: "act_resp",
+      action_type: "respond",
+      title: "Respond from current context"
+    },
+    {
+      action_id: "act_ask",
+      action_type: "ask_user",
+      title: "Ask user for clarifying evidence"
+    }
+  ];
+  const predictions = [
+    {
+      prediction_id: "prd_1",
+      session_id: "ses_meta",
+      cycle_id: "cyc_1",
+      action_id: "act_resp",
+      predictor_name: "rule",
+      expected_outcome: "respond",
+      success_probability: 0.85,
+      uncertainty: 0.25,
+      created_at: ts()
+    },
+    {
+      prediction_id: "prd_2",
+      session_id: "ses_meta",
+      cycle_id: "cyc_1",
+      action_id: "act_ask",
+      predictor_name: "rule",
+      expected_outcome: "request evidence",
+      success_probability: 0.7,
+      uncertainty: 0.1,
+      created_at: ts()
+    }
+  ];
+
+  const decisionV2 = await allocator.decide({
+    ctx,
+    actions,
+    predictions,
+    policies: [],
+    workspace: ctx.workspace,
+    budgetAssessment: ctx.workspace.budget_assessment,
+    fastAssessment,
+    metaAssessment,
+    predictionErrorRate: 0.05
+  });
+
+  assert.equal(decisionV2.control_action, "request-more-evidence");
+  assert.equal(decisionV2.selected_action_id, "act_ask");
+  assert.equal(decisionV2.decision_source, "deep");
+
   const controller = new DefaultMetaController();
   const decision = await controller.evaluate(
     {
-      ...makeCtx(),
-      workspace: {
-        ...makeWorkspace(),
-        metacognitive_state: {
-          assessment_id: "fast_1",
-          session_id: "ses_meta",
-          cycle_id: "cyc_1",
-          meta_state: "evidence-insufficient",
-          provisional_confidence: 0.35,
-          trigger_deep_eval: true,
-          recommended_control_actions: ["request-more-evidence"],
-          rationale: "missing evidence",
-          created_at: ts()
-        }
-      },
+      ...ctx,
       runtime_state: {
-        meta_assessment: {
-          assessment_id: "meta_1",
-          session_id: "ses_meta",
-          cycle_id: "cyc_1",
-          meta_state: "evidence-insufficient",
-          confidence: {
-            answer_confidence: 0.4,
-            process_confidence: 0.45,
-            evidence_confidence: 0.2,
-            simulation_confidence: 0.5,
-            action_safety_confidence: 0.9,
-            tool_readiness_confidence: 0.9,
-            calibration_confidence: 0.5,
-            overall_confidence: 0.45
-          },
-          calibrated_confidence: 0.32,
-          uncertainty_decomposition: {
-            epistemic: 0.5,
-            aleatoric: 0.2,
-            evidence_missing: 0.8,
-            model_disagreement: 0.3,
-            simulator_unreliability: 0.2,
-            calibration_gap: 0.3
-          },
-          failure_modes: ["insufficient_evidence"],
-          recommended_control_action: "request-more-evidence",
-          recommended_candidate_action_id: "act_ask",
-          rationale: "need more evidence",
-          created_at: ts(),
-          deep_evaluation_used: true
-        }
+        meta_decision_v2: decisionV2
+      }
+    },
+    actions,
+    predictions,
+    [],
+    0.05
+  );
+
+  assert.equal(decision.decision_type, "execute_action");
+  assert.equal(decision.selected_action_id, "act_ask");
+  assert.ok(decision.meta_actions.includes("request-more-evidence"));
+});
+
+test("ControlAllocator escalates high-risk actions through a single approval path", async () => {
+  const allocator = new DefaultControlAllocator();
+  const ctx = {
+    ...makeCtx(),
+    workspace: makeWorkspace()
+  };
+
+  const decisionV2 = await allocator.decide({
+    ctx,
+    actions: [
+      {
+        action_id: "act_tool",
+        action_type: "call_tool",
+        title: "Delete resource",
+        tool_name: "dangerous_tool",
+        side_effect_level: "high"
+      }
+    ],
+    predictions: [
+      {
+        prediction_id: "prd_1",
+        session_id: "ses_meta",
+        cycle_id: "cyc_1",
+        action_id: "act_tool",
+        predictor_name: "rule",
+        expected_outcome: "tool succeeds",
+        success_probability: 0.7,
+        uncertainty: 0.35,
+        created_at: ts()
+      }
+    ],
+    policies: [
+      {
+        decision_id: "pol_1",
+        policy_name: "warn-dangerous",
+        level: "warn",
+        target_type: "action",
+        target_id: "act_tool",
+        reason: "dangerous side effect"
+      }
+    ],
+    workspace: ctx.workspace,
+    budgetAssessment: ctx.workspace.budget_assessment,
+    fastAssessment: {
+      assessment_id: "fast_1",
+      session_id: "ses_meta",
+      cycle_id: "cyc_1",
+      meta_state: "high-risk",
+      provisional_confidence: 0.55,
+      trigger_deep_eval: true,
+      recommended_control_actions: ["execute-with-approval"],
+      rationale: "high risk",
+      created_at: ts()
+    },
+    metaAssessment: {
+      assessment_id: "meta_1",
+      session_id: "ses_meta",
+      cycle_id: "cyc_1",
+      meta_state: "high-risk",
+      confidence: {
+        answer_confidence: 0.55,
+        process_confidence: 0.55,
+        evidence_confidence: 0.7,
+        simulation_confidence: 0.6,
+        action_safety_confidence: 0.2,
+        tool_readiness_confidence: 0.8,
+        calibration_confidence: 0.6,
+        overall_confidence: 0.57
+      },
+      calibrated_confidence: 0.48,
+      uncertainty_decomposition: {
+        epistemic: 0.3,
+        aleatoric: 0.2,
+        evidence_missing: 0.1,
+        model_disagreement: 0.2,
+        simulator_unreliability: 0.1,
+        calibration_gap: 0.2
+      },
+      failure_modes: ["overconfidence"],
+      recommended_control_action: "execute-with-approval",
+      recommended_candidate_action_id: "act_tool",
+      rationale: "requires approval",
+      created_at: ts(),
+      deep_evaluation_used: true
+    }
+  });
+
+  assert.equal(decisionV2.control_action, "ask-human");
+  assert.equal(decisionV2.requires_approval, true);
+  assert.equal(decisionV2.selected_action_id, "act_tool");
+
+  const decision = await new DefaultMetaController().evaluate(
+    {
+      ...ctx,
+      runtime_state: {
+        meta_decision_v2: decisionV2
       }
     },
     [
+      {
+        action_id: "act_tool",
+        action_type: "call_tool",
+        title: "Delete resource",
+        tool_name: "dangerous_tool",
+        side_effect_level: "high"
+      }
+    ],
+    [],
+    [],
+    0
+  );
+
+  assert.equal(decision.decision_type, "request_approval");
+  assert.equal(decision.requires_human_approval, true);
+});
+
+test("Calibrator makes repeated failed buckets more conservative", () => {
+  const store = new InMemoryCalibrationStore();
+  const calibrator = new Calibrator(store);
+  const action = {
+    action_id: "act_tool",
+    action_type: "call_tool",
+    title: "Mutate external system",
+    tool_name: "dangerous_tool",
+    side_effect_level: "high"
+  };
+
+  const query = calibrator.query({
+    profile: makeProfile(),
+    input: makeInput(),
+    action,
+    metaState: "high-risk"
+  });
+
+  for (let index = 0; index < 5; index += 1) {
+    store.append({
+      record_id: gid("cal"),
+      task_bucket: query.descriptor.taskBucket,
+      predicted_confidence: 0.9,
+      calibrated_confidence: 0.35,
+      observed_success: false,
+      risk_level: "high",
+      predictor_id: query.descriptor.predictorId,
+      deep_eval_used: true,
+      session_id: "ses_meta",
+      cycle_id: `cyc_${index}`,
+      action_id: action.action_id,
+      meta_state: "high-risk",
+      created_at: ts()
+    });
+  }
+
+  const stats = calibrator.query({
+    profile: makeProfile(),
+    input: makeInput(),
+    action,
+    metaState: "high-risk"
+  }).stats;
+  const calibrated = calibrator.calibrate({
+    rawConfidence: 0.82,
+    bucketStats: stats,
+    riskLevel: "high",
+    strictness: 1
+  });
+
+  assert.ok(stats.sample_count >= 5);
+  assert.ok(stats.bucket_reliability < 0.5);
+  assert.ok(calibrated < 0.5);
+});
+
+test("ControlAllocator uses low calibrated confidence as a conservative control signal", async () => {
+  const allocator = new DefaultControlAllocator();
+  const ctx = {
+    ...makeCtx(),
+    workspace: makeWorkspace()
+  };
+
+  const decisionV2 = await allocator.decide({
+    ctx,
+    actions: [
       {
         action_id: "act_resp",
         action_type: "respond",
@@ -473,40 +996,58 @@ test("DefaultMetaController consumes deep meta assessment and selects ask_user f
       {
         action_id: "act_ask",
         action_type: "ask_user",
-        title: "Ask user for clarifying evidence"
+        title: "Ask for evidence"
       }
     ],
-    [
-      {
-        prediction_id: "prd_1",
-        session_id: "ses_meta",
-        cycle_id: "cyc_1",
-        action_id: "act_resp",
-        predictor_name: "rule",
-        expected_outcome: "respond",
-        success_probability: 0.85,
-        uncertainty: 0.25,
-        created_at: ts()
+    predictions: [],
+    policies: [],
+    workspace: ctx.workspace,
+    fastAssessment: {
+      assessment_id: "fast_1",
+      session_id: "ses_meta",
+      cycle_id: "cyc_1",
+      meta_state: "routine-safe",
+      provisional_confidence: 0.78,
+      trigger_deep_eval: false,
+      recommended_control_actions: ["execute-now"],
+      rationale: "routine path",
+      created_at: ts()
+    },
+    metaAssessment: {
+      assessment_id: "meta_1",
+      session_id: "ses_meta",
+      cycle_id: "cyc_1",
+      meta_state: "routine-safe",
+      confidence: {
+        answer_confidence: 0.8,
+        process_confidence: 0.8,
+        evidence_confidence: 0.75,
+        simulation_confidence: 0.7,
+        action_safety_confidence: 0.8,
+        tool_readiness_confidence: 0.8,
+        calibration_confidence: 0.2,
+        overall_confidence: 0.78
       },
-      {
-        prediction_id: "prd_2",
-        session_id: "ses_meta",
-        cycle_id: "cyc_1",
-        action_id: "act_ask",
-        predictor_name: "rule",
-        expected_outcome: "request evidence",
-        success_probability: 0.7,
-        uncertainty: 0.1,
-        created_at: ts()
-      }
-    ],
-    [],
-    0.05
-  );
+      calibrated_confidence: 0.24,
+      bucket_reliability: 0.22,
+      uncertainty_decomposition: {
+        epistemic: 0.4,
+        aleatoric: 0.2,
+        evidence_missing: 0.1,
+        model_disagreement: 0.2,
+        simulator_unreliability: 0.2,
+        calibration_gap: 0.55
+      },
+      failure_modes: ["overconfidence"],
+      recommended_control_action: "execute-now",
+      rationale: "raw path would execute",
+      created_at: ts(),
+      deep_evaluation_used: false
+    }
+  });
 
-  assert.equal(decision.decision_type, "execute_action");
-  assert.equal(decision.selected_action_id, "act_ask");
-  assert.ok(decision.meta_actions.includes("request-more-evidence"));
+  assert.equal(decisionV2.control_action, "request-more-evidence");
+  assert.equal(decisionV2.selected_action_id, "act_ask");
 });
 
 test("CycleEngine run attaches metacognitive artifacts to workspace and decision", async () => {
@@ -567,6 +1108,7 @@ test("CycleEngine run attaches metacognitive artifacts to workspace and decision
   assert.ok(result.metaSignalFrame);
   assert.ok(result.fastMetaAssessment);
   assert.ok(result.metaAssessment);
+  assert.ok(result.metaDecisionV2);
   assert.ok(result.selfEvaluationReport);
   assert.equal(result.metaAssessment.deep_evaluation_used, true);
   assert.ok(result.metaAssessment.verification_trace);
@@ -577,7 +1119,7 @@ test("CycleEngine run attaches metacognitive artifacts to workspace and decision
   assert.equal(result.workspace.self_evaluation_report_ref, result.selfEvaluationReport.report_id);
   assert.ok(Array.isArray(result.decision.meta_actions));
   assert.ok(typeof result.decision.meta_state === "string");
-  assert.equal(result.decision.selected_action_id, result.actions[0].action_id);
+  assert.equal(result.decision.selected_action_id, result.metaDecisionV2.selected_action_id);
 });
 
 test("AgentRuntime trace records persist metacognitive artifacts", async () => {
@@ -616,7 +1158,51 @@ test("AgentRuntime trace records persist metacognitive artifacts", async () => {
   assert.ok(records[0].meta_signal_frame);
   assert.ok(records[0].fast_meta_assessment);
   assert.ok(records[0].meta_assessment);
+  assert.ok(records[0].meta_decision_v2);
   assert.ok(records[0].self_evaluation_report);
   assert.ok(records[0].calibration_record);
   assert.equal(records[0].calibration_record?.record_id, calibrationRecords[0].record_id);
+});
+
+test("Calibration records persist across runtime restart with sqlite state store", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "neurocore-meta-calibration-"));
+  const filename = join(dir, "runtime.sqlite");
+  const stateStore = new SqliteRuntimeStateStore({ filename });
+  const reasoner = {
+    name: "runtime-meta-reasoner",
+    async plan() {
+      return [];
+    },
+    async respond(ctx) {
+      return [
+        {
+          action_id: ctx.services.generateId("act"),
+          action_type: "respond",
+          title: "Respond to user",
+          description: "Runtime response"
+        }
+      ];
+    }
+  };
+
+  try {
+    const runtime1 = new AgentRuntime({ reasoner, stateStore });
+    const profile = makeProfile();
+    const session = runtime1.createSession(profile, {
+      agent_id: profile.agent_id,
+      tenant_id: "tenant_meta",
+      initial_input: makeInput()
+    });
+    await runtime1.runOnce(profile, session.session_id, makeInput());
+
+    const runtime2 = new AgentRuntime({
+      reasoner,
+      stateStore: new SqliteRuntimeStateStore({ filename })
+    });
+
+    const records = runtime2.listCalibrationRecords(session.session_id);
+    assert.ok(records.length >= 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

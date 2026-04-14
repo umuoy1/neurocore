@@ -1,26 +1,69 @@
 import type {
+  CalibrationBucketStats,
   CandidateAction,
+  CounterfactualSimulator,
   FastMetaAssessment,
   MetaAssessment,
   MetaControlAction,
   MetaSignalFrame,
   MetaState,
   MetaTriggerTag,
+  ModuleContext,
   PolicyDecision,
   Prediction,
-  VerificationTrace
+  VerificationTrace,
+  Verifier,
+  VerifierInput,
+  VerifierResult,
+  VerifierRunRecord
 } from "@neurocore/protocol";
+import type { Calibrator } from "./calibrator.js";
+import { DefaultCounterfactualSimulator } from "./counterfactual-simulator.js";
+import { runSimulatorWithGuard, runVerifierWithGuard } from "./verifier.js";
+import { DefaultEvidenceVerifier } from "./verifiers/evidence-verifier.js";
+import { DefaultLogicVerifier } from "./verifiers/logic-verifier.js";
+import { DefaultProcessVerifier } from "./verifiers/process-verifier.js";
+import { DefaultSafetyVerifier } from "./verifiers/safety-verifier.js";
+import { DefaultToolVerifier } from "./verifiers/tool-verifier.js";
 
 interface DeepEvaluationInput {
+  ctx: ModuleContext;
+  workspace: import("@neurocore/protocol").WorkspaceSnapshot;
   frame: MetaSignalFrame;
   fastAssessment: FastMetaAssessment;
   actions: CandidateAction[];
   predictions: Prediction[];
   policies: PolicyDecision[];
+  calibrator?: Calibrator;
+  calibrationQuery?: {
+    descriptor: { taskBucket: string; riskLevel: string };
+    stats: CalibrationBucketStats;
+  };
+}
+
+export interface DeepEvaluatorOptions {
+  verifiers?: Verifier[];
+  simulator?: CounterfactualSimulator | null;
 }
 
 export class DeepEvaluator {
-  public evaluate(input: DeepEvaluationInput): MetaAssessment {
+  private readonly verifiers: Verifier[];
+  private readonly simulator: CounterfactualSimulator | null;
+
+  public constructor(options: DeepEvaluatorOptions = {}) {
+    this.verifiers =
+      options.verifiers ??
+      [
+        new DefaultLogicVerifier(),
+        new DefaultEvidenceVerifier(),
+        new DefaultToolVerifier(),
+        new DefaultSafetyVerifier(),
+        new DefaultProcessVerifier()
+      ];
+    this.simulator = options.simulator === undefined ? new DefaultCounterfactualSimulator() : options.simulator;
+  }
+
+  public async evaluate(input: DeepEvaluationInput): Promise<MetaAssessment> {
     const triggerTags = deriveTriggerTags(input.frame, input.fastAssessment);
     const confidence = buildConfidenceVector(input.frame);
     const processReliability = clamp01(
@@ -57,14 +100,27 @@ export class DeepEvaluator {
         input.frame.action_signals.fallback_availability +
         input.frame.governance_signals.remaining_recovery_options) / 3
     );
-    const verificationTrace = buildVerificationTrace(
-      input.frame,
-      input.actions,
-      input.predictions,
-      input.policies,
+    const verifierInput: VerifierInput = {
+      ctx: input.ctx,
+      workspace: input.workspace,
+      frame: input.frame,
+      fastAssessment: input.fastAssessment,
+      actions: input.actions,
+      predictions: input.predictions,
+      policies: input.policies,
       triggerTags
+    };
+
+    const selectedVerifiers = selectVerifiers(this.verifiers, verifierInput);
+    const verifierRuns = await Promise.all(
+      selectedVerifiers.map((verifier) => runVerifierWithGuard(verifier, verifierInput))
     );
-    const calibratedConfidence = calibrateConfidence({
+    const simulatorRun =
+      this.simulator && shouldRunSimulator(this.simulator, verifierInput)
+        ? await runSimulatorWithGuard(this.simulator, verifierInput)
+        : null;
+    const verificationTrace = buildVerificationTrace(verifierRuns, simulatorRun);
+    const rawDeepConfidence = deriveRawDeepConfidence({
       base: confidence.overall_confidence,
       evidenceSufficiency,
       processReliability,
@@ -74,8 +130,32 @@ export class DeepEvaluator {
       controllabilityScore,
       trace: verificationTrace
     });
-    const metaState = deriveDeepMetaState(input.frame, input.fastAssessment.meta_state, calibratedConfidence, verificationTrace.final_verdict);
-    const failureModes = deriveFailureModes(input.frame, verificationTrace.final_verdict, metaState, input.policies);
+    const calibratedConfidence =
+      input.calibrator && input.calibrationQuery
+        ? input.calibrator.calibrate({
+            rawConfidence: rawDeepConfidence,
+            bucketStats: input.calibrationQuery.stats,
+            riskLevel: input.calibrationQuery.descriptor.riskLevel,
+            strictness:
+              input.calibrationQuery.descriptor.riskLevel === "high"
+                ? 1
+                : input.calibrationQuery.descriptor.riskLevel === "medium"
+                  ? 0.75
+                  : 0.5
+          })
+        : rawDeepConfidence;
+    const metaState = deriveDeepMetaState(
+      input.frame,
+      input.fastAssessment.meta_state,
+      calibratedConfidence,
+      verificationTrace.final_verdict
+    );
+    const failureModes = deriveFailureModes(
+      input.frame,
+      verificationTrace.final_verdict,
+      metaState,
+      input.policies
+    );
     const recommendedControlAction = recommendControlAction({
       frame: input.frame,
       triggerTags,
@@ -97,11 +177,10 @@ export class DeepEvaluator {
       session_id: input.frame.session_id,
       cycle_id: input.frame.cycle_id,
       meta_state: metaState,
-      confidence: {
-        ...confidence,
-        overall_confidence: calibratedConfidence
-      },
+      confidence,
       calibrated_confidence: calibratedConfidence,
+      task_bucket: input.calibrationQuery?.descriptor.taskBucket,
+      bucket_reliability: input.calibrationQuery?.stats.bucket_reliability,
       process_reliability: processReliability,
       evidence_sufficiency: evidenceSufficiency,
       simulation_reliability: simulationReliability,
@@ -148,8 +227,7 @@ function buildConfidenceVector(frame: MetaSignalFrame) {
   const toolReadinessConfidence =
     (frame.action_signals.tool_precondition_completeness + frame.action_signals.schema_confidence) / 2;
   const calibrationConfidence = 1 - frame.prediction_signals.uncertainty_decomposition.calibration_gap;
-  const answerConfidence =
-    (processConfidence + evidenceConfidence + simulationConfidence) / 3;
+  const answerConfidence = (processConfidence + evidenceConfidence + simulationConfidence) / 3;
   const overallConfidence =
     (answerConfidence +
       processConfidence +
@@ -171,108 +249,61 @@ function buildConfidenceVector(frame: MetaSignalFrame) {
   };
 }
 
+function selectVerifiers(verifiers: Verifier[], input: VerifierInput) {
+  const budgetPressure = input.frame.governance_signals.budget_pressure;
+  const highRisk =
+    input.triggerTags.includes("risk_high") ||
+    input.frame.governance_signals.need_for_human_accountability >= 0.7;
+  const mustModes = new Set<string>();
+
+  if (input.triggerTags.includes("evidence_gap")) {
+    mustModes.add("evidence");
+  }
+  if (input.triggerTags.includes("tool_not_ready")) {
+    mustModes.add("tool");
+  }
+  if (input.triggerTags.includes("risk_high")) {
+    mustModes.add("safety");
+  }
+  if (input.triggerTags.includes("reasoning_conflict")) {
+    mustModes.add("logic");
+  }
+
+  return verifiers.filter((verifier) => {
+    const wantsRun = verifier.shouldRun?.(input) ?? true;
+    if (!wantsRun) {
+      return false;
+    }
+    if (highRisk) {
+      return true;
+    }
+    if (budgetPressure >= 0.75) {
+      return mustModes.has(verifier.mode);
+    }
+    return true;
+  });
+}
+
+function shouldRunSimulator(simulator: CounterfactualSimulator, input: VerifierInput) {
+  if (input.frame.governance_signals.budget_pressure >= 0.8 && !input.triggerTags.includes("risk_high")) {
+    return false;
+  }
+  return simulator.shouldRun?.(input) ?? true;
+}
+
 function buildVerificationTrace(
-  frame: MetaSignalFrame,
-  actions: CandidateAction[],
-  predictions: Prediction[],
-  policies: PolicyDecision[],
-  triggerTags: MetaTriggerTag[]
+  verifierRuns: Array<{ result?: VerifierResult; run: VerifierRunRecord }>,
+  simulatorRun: { result?: VerifierResult; run: VerifierRunRecord } | null
 ): VerificationTrace {
-  const verifierRuns: Array<Record<string, unknown>> = [];
-  const addRun = (verifier: string, payload: Record<string, unknown>) => {
-    verifierRuns.push({
-      verifier,
-      ...payload
-    });
-  };
-
-  if (triggerTags.includes("reasoning_conflict") || triggerTags.includes("task_novel") || triggerTags.includes("ood_detected")) {
-    addRun("multi-sample-deliberation", {
-      candidate_count: actions.length,
-      contradiction_score: frame.reasoning_signals.contradiction_score
-    });
-  }
-  if (triggerTags.includes("reasoning_conflict") || triggerTags.includes("calibration_weak")) {
-    addRun("logic-verifier", {
-      contradiction_score: frame.reasoning_signals.contradiction_score,
-      unsupported_leap_count: frame.reasoning_signals.unsupported_leap_count
-    });
-  }
-  if (triggerTags.includes("evidence_gap") || triggerTags.includes("policy_warned")) {
-    addRun("evidence-verifier", {
-      retrieval_coverage: frame.evidence_signals.retrieval_coverage,
-      missing_count: frame.evidence_signals.missing_critical_evidence_flags.length
-    });
-  }
-  if (triggerTags.includes("tool_not_ready") || triggerTags.includes("risk_high")) {
-    addRun("tool-verifier", {
-      tool_precondition_completeness: frame.action_signals.tool_precondition_completeness,
-      schema_confidence: frame.action_signals.schema_confidence,
-      fallback_availability: frame.action_signals.fallback_availability
-    });
-  }
-  if (triggerTags.includes("risk_high") || triggerTags.includes("policy_warned")) {
-    addRun("safety-verifier", {
-      side_effect_severity: frame.action_signals.side_effect_severity,
-      reversibility_score: frame.action_signals.reversibility_score,
-      accountability: frame.governance_signals.need_for_human_accountability
-    });
-  }
-  if (triggerTags.includes("simulation_unreliable") || triggerTags.includes("risk_high")) {
-    addRun("counterfactual-simulator", {
-      simulator_confidence: frame.prediction_signals.simulator_confidence,
-      world_model_mismatch_score: frame.prediction_signals.world_model_mismatch_score,
-      predictor_count: new Set(predictions.map((prediction) => prediction.predictor_name)).size
-    });
-  }
-  if (verifierRuns.length === 0) {
-    addRun("deep-evaluator", {
-      candidate_count: actions.length,
-      predictor_count: new Set(predictions.map((prediction) => prediction.predictor_name)).size
-    });
-  }
-
-  const contestedSteps = actions
-    .filter((action) =>
-      frame.reasoning_signals.contradiction_score >= 0.45 ||
-      frame.reasoning_signals.candidate_reasoning_divergence >= 0.55 ||
-      action.side_effect_level === "high"
-    )
-    .map((action) => ({
-      action_id: action.action_id,
-      action_type: action.action_type,
-      label:
-        action.side_effect_level === "high"
-          ? "dangerous"
-          : frame.reasoning_signals.contradiction_score >= 0.45
-            ? "contradictory"
-            : "unsupported",
-      summary: action.title
-    }));
-
-  const evidenceGaps = frame.evidence_signals.missing_critical_evidence_flags.map((flag) => ({
-    key: flag,
-    severity: flag.includes("low") ? "medium" : "high"
-  }));
-
-  const counterfactualChecks =
-    frame.action_signals.side_effect_severity >= 0.55 || frame.action_signals.reversibility_score <= 0.45
-      ? [
-          {
-            check: "safe-alternative-available",
-            result:
-              actions.some((action) => action.action_type === "respond" || action.action_type === "ask_user")
-                ? "yes"
-                : "no"
-          }
-        ]
-      : [];
-
-  const warnCount = policies.filter((policy) => policy.level === "warn").length;
-  const finalVerdict = deriveFinalVerdict(frame, contestedSteps.length, evidenceGaps.length, warnCount, triggerTags);
+  const allRuns = simulatorRun ? [...verifierRuns, simulatorRun] : verifierRuns;
+  const results = allRuns.flatMap((entry) => (entry.result ? [entry.result] : []));
+  const contestedSteps = results.flatMap((result) => result.contested_steps ?? []);
+  const evidenceGaps = results.flatMap((result) => result.evidence_gaps ?? []);
+  const counterfactualChecks = results.flatMap((result) => result.counterfactual_checks ?? []);
+  const finalVerdict = aggregateVerdict(results);
 
   return {
-    verifier_runs: verifierRuns,
+    verifier_runs: allRuns.map((entry) => entry.run),
     contested_steps: contestedSteps,
     evidence_gaps: evidenceGaps,
     counterfactual_checks: counterfactualChecks,
@@ -280,45 +311,20 @@ function buildVerificationTrace(
   };
 }
 
-function deriveFinalVerdict(
-  frame: MetaSignalFrame,
-  contestedStepCount: number,
-  evidenceGapCount: number,
-  warnCount: number,
-  triggerTags: MetaTriggerTag[]
-): VerificationTrace["final_verdict"] {
-  if (
-    frame.action_signals.side_effect_severity >= 0.85 ||
-    (frame.action_signals.tool_precondition_completeness < 0.3 &&
-      frame.action_signals.schema_confidence < 0.35) ||
-    (triggerTags.includes("risk_high") &&
-      frame.action_signals.reversibility_score <= 0.3 &&
-      frame.governance_signals.need_for_human_accountability >= 0.8)
-  ) {
+function aggregateVerdict(results: VerifierResult[]): VerificationTrace["final_verdict"] {
+  if (results.some((result) => result.verdict === "fail")) {
     return "fail";
   }
-
-  if (
-    evidenceGapCount > 0 ||
-    frame.reasoning_signals.contradiction_score >= 0.5 ||
-    frame.reasoning_signals.candidate_reasoning_divergence >= 0.65
-  ) {
+  if (results.some((result) => result.verdict === "inconclusive")) {
     return "inconclusive";
   }
-
-  if (
-    contestedStepCount > 0 ||
-    warnCount > 0 ||
-    frame.prediction_signals.uncertainty_decomposition.calibration_gap >= 0.45 ||
-    triggerTags.includes("tool_not_ready")
-  ) {
+  if (results.some((result) => result.verdict === "weak-pass")) {
     return "weak-pass";
   }
-
   return "pass";
 }
 
-function calibrateConfidence(input: {
+function deriveRawDeepConfidence(input: {
   base: number;
   evidenceSufficiency: number;
   processReliability: number;
@@ -489,10 +495,7 @@ function recommendControlAction(input: {
     return "switch-to-safe-response";
   }
 
-  if (
-    input.toolReadiness < 0.5 ||
-    input.controllabilityScore < 0.45
-  ) {
+  if (input.toolReadiness < 0.5 || input.controllabilityScore < 0.45) {
     return "switch-to-safe-response";
   }
 
@@ -519,51 +522,41 @@ function recommendCandidateActionId(
   return topPredictedAction(actions, predictions)?.action_id ?? safestAction(actions)?.action_id;
 }
 
-function topPredictedAction(actions: CandidateAction[], predictions: Prediction[]) {
-  return [...actions]
-    .map((action) => {
-      const prediction = predictions.find((row) => row.action_id === action.action_id);
-      const success = prediction?.success_probability ?? 0.5;
-      const uncertainty = prediction?.uncertainty ?? 0.5;
-      const sideEffectPenalty =
-        action.side_effect_level === "high"
-          ? 0.3
-          : action.side_effect_level === "medium"
-            ? 0.1
-            : 0;
-      return {
-        action,
-        score: success * 0.6 + (1 - uncertainty) * 0.4 - sideEffectPenalty
-      };
-    })
-    .sort((left, right) => right.score - left.score)[0]?.action;
-}
-
 function safestAction(actions: CandidateAction[]) {
-  return [...actions]
-    .sort((left, right) => rankSafety(right) - rankSafety(left))[0];
+  return [...actions].sort((left, right) => compareSafety(left, right))[0];
 }
 
-function rankSafety(action: CandidateAction) {
-  const sideEffectScore =
-    action.side_effect_level === "high"
+function compareSafety(left: CandidateAction, right: CandidateAction) {
+  return safetyRank(left) - safetyRank(right);
+}
+
+function safetyRank(action: CandidateAction) {
+  const typeRank =
+    action.action_type === "respond"
       ? 0
+      : action.action_type === "ask_user"
+        ? 1
+        : action.action_type === "call_tool"
+          ? 2
+          : 3;
+  const sideEffectRank =
+    action.side_effect_level === "high"
+      ? 3
       : action.side_effect_level === "medium"
-        ? 0.35
+        ? 2
         : action.side_effect_level === "low"
-          ? 0.7
-          : 1;
-  const typeScore =
-    action.action_type === "ask_user"
-      ? 1
-      : action.action_type === "respond"
-        ? 0.85
-        : action.action_type === "wait"
-          ? 0.75
-          : action.action_type === "call_tool"
-            ? 0.2
-            : 0.5;
-  return sideEffectScore * 0.55 + typeScore * 0.45;
+          ? 1
+          : 0;
+  return typeRank * 10 + sideEffectRank;
+}
+
+function topPredictedAction(actions: CandidateAction[], predictions: Prediction[]) {
+  const predictionMap = new Map(predictions.map((prediction) => [prediction.action_id, prediction]));
+  return [...actions].sort((left, right) => {
+    const leftPrediction = predictionMap.get(left.action_id);
+    const rightPrediction = predictionMap.get(right.action_id);
+    return (rightPrediction?.success_probability ?? 0) - (leftPrediction?.success_probability ?? 0);
+  })[0];
 }
 
 function buildRationale(input: {
@@ -579,51 +572,19 @@ function buildRationale(input: {
 }) {
   return [
     `meta_state=${input.metaState}`,
-    `trigger_tags=${input.triggerTags.join(",") || "none"}`,
     `verdict=${input.verdict}`,
     `calibrated_confidence=${input.calibratedConfidence.toFixed(2)}`,
     `evidence=${input.evidenceSufficiency.toFixed(2)}`,
     `process=${input.processReliability.toFixed(2)}`,
     `simulation=${input.simulationReliability.toFixed(2)}`,
     `tool=${input.toolReadiness.toFixed(2)}`,
-    `conflict=${input.conflictIndex.toFixed(2)}`
+    `conflict=${input.conflictIndex.toFixed(2)}`,
+    `tags=${input.triggerTags.join(",") || "none"}`
   ].join("; ");
 }
 
-function deriveTriggerTags(frame: MetaSignalFrame, fastAssessment: FastMetaAssessment): MetaTriggerTag[] {
-  if (Array.isArray(fastAssessment.trigger_tags) && fastAssessment.trigger_tags.length > 0) {
-    return fastAssessment.trigger_tags;
-  }
-
-  const tags = new Set<MetaTriggerTag>();
-
-  if (
-    frame.action_signals.side_effect_severity >= 0.75 ||
-    frame.governance_signals.need_for_human_accountability >= 0.75
-  ) tags.add("risk_high");
-  if (
-    frame.evidence_signals.retrieval_coverage < 0.35 ||
-    frame.evidence_signals.missing_critical_evidence_flags.length > 0
-  ) tags.add("evidence_gap");
-  if (
-    frame.reasoning_signals.contradiction_score >= 0.45 ||
-    frame.reasoning_signals.candidate_reasoning_divergence >= 0.65
-  ) tags.add("reasoning_conflict");
-  if (
-    frame.prediction_signals.uncertainty_decomposition.model_disagreement >= 0.6 ||
-    frame.prediction_signals.simulator_confidence < 0.4
-  ) tags.add("simulation_unreliable");
-  if (frame.task_signals.task_novelty >= 0.7) tags.add("task_novel");
-  if (frame.task_signals.ood_score >= 0.65) tags.add("ood_detected");
-  if ((fastAssessment.confidence?.calibration_confidence ?? 1) < 0.45) tags.add("calibration_weak");
-  if (
-    frame.action_signals.tool_precondition_completeness < 0.5 ||
-    frame.action_signals.schema_confidence < 0.5
-  ) tags.add("tool_not_ready");
-  if (frame.governance_signals.budget_pressure >= 0.75) tags.add("budget_tight");
-  if (frame.governance_signals.policy_warning_density > 0) tags.add("policy_warned");
-
-  return Array.from(tags);
+function deriveTriggerTags(frame: MetaSignalFrame, fastAssessment: FastMetaAssessment) {
+  return fastAssessment.trigger_tags ?? [];
 }
 
 function clamp01(value: number) {

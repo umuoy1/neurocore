@@ -4,6 +4,7 @@ import type {
   AgentSession,
   ApprovalRequest,
   CalibrationRecord,
+  CalibrationStore,
   CandidateAction,
   CheckpointStore,
   CycleTrace,
@@ -59,6 +60,8 @@ import { ToolGateway } from "../execution/tool-gateway.js";
 import { GoalManager } from "../goal/goal-manager.js";
 import { Calibrator } from "../meta/calibrator.js";
 import { DefaultMetaController } from "../meta/meta-controller.js";
+import { InMemoryCalibrationStore } from "../meta/in-memory-calibration-store.js";
+import { SqliteCalibrationStore } from "../meta/sqlite-calibration-store.js";
 import { InMemoryPredictionStore } from "../prediction/in-memory-prediction-store.js";
 import { computePredictionErrors } from "../prediction/prediction-error-computer.js";
 import { ReplayRunner } from "../replay/replay-runner.js";
@@ -87,6 +90,7 @@ export interface AgentRuntimeOptions {
   checkpointStore?: CheckpointStore;
   stateStore?: RuntimeStateStore;
   memoryPersistence?: AgentMemoryPersistence;
+  calibrationStore?: CalibrationStore;
   predictionStore?: PredictionStore;
   deviceRegistry?: DeviceRegistry;
   worldStateGraph?: WorldStateGraph;
@@ -145,6 +149,7 @@ interface ExecutionCycleState {
   metaSignalFrame?: import("@neurocore/protocol").MetaSignalFrame;
   fastMetaAssessment?: import("@neurocore/protocol").FastMetaAssessment;
   metaAssessment?: import("@neurocore/protocol").MetaAssessment;
+  metaDecisionV2?: import("@neurocore/protocol").MetaDecisionV2;
   selfEvaluationReport?: import("@neurocore/protocol").SelfEvaluationReport;
 }
 
@@ -171,7 +176,7 @@ export class AgentRuntime {
   private readonly stateStore?: RuntimeStateStore;
   private readonly memoryPersistence?: AgentMemoryPersistence;
   private readonly predictionStore: PredictionStore;
-  private readonly calibrator = new Calibrator();
+  private readonly calibrator: Calibrator;
   private readonly approvals = new Map<string, ApprovalRequest>();
   private readonly pendingApprovals = new Map<string, PendingApprovalContext>();
   private readonly deviceRegistry?: DeviceRegistry;
@@ -184,11 +189,16 @@ export class AgentRuntime {
     const derivedPersistence = deriveSqlitePersistenceFromStateStore(
       options.stateStore,
       options.memoryPersistence,
-      options.checkpointStore
+      options.checkpointStore,
+      options.calibrationStore
     );
     const memoryPersistence = options.memoryPersistence ?? derivedPersistence.memoryPersistence;
     const checkpointStore =
       options.checkpointStore ?? derivedPersistence.checkpointStore ?? new InMemoryCheckpointStore();
+    const calibrationStore =
+      options.calibrationStore ??
+      derivedPersistence.calibrationStore ??
+      new InMemoryCalibrationStore();
     this.reasoner = options.reasoner;
     this.metaController = options.metaController ?? new DefaultMetaController();
     const traceStore = options.traceStore ?? new InMemoryTraceStore();
@@ -196,6 +206,7 @@ export class AgentRuntime {
     this.stateStore = options.stateStore;
     this.memoryPersistence = memoryPersistence;
     this.predictionStore = options.predictionStore ?? new InMemoryPredictionStore();
+    this.calibrator = new Calibrator(calibrationStore);
     this.workingMemoryProvider = new WorkingMemoryProvider(
       undefined,
       memoryPersistence?.working as WorkingMemoryPersistenceStore | undefined
@@ -288,6 +299,7 @@ export class AgentRuntime {
       reasoner: this.reasoner,
       metaController: this.metaController,
       predictionErrorRate,
+      calibrator: this.calibrator,
       deviceRegistry: this.deviceRegistry,
       perceptionPipeline: this.perceptionPipeline,
       worldStateGraph: this.worldStateGraph,
@@ -1492,9 +1504,11 @@ export class AgentRuntime {
     const calibrationRecord = this.calibrator.record({
       sessionId: session.session_id,
       cycleId,
+      profile,
       input,
       action,
       observation,
+      predictions,
       metaAssessment
     });
 
@@ -1792,10 +1806,12 @@ export class AgentRuntime {
 function deriveSqlitePersistenceFromStateStore(
   stateStore: RuntimeStateStore | undefined,
   memoryPersistence: AgentMemoryPersistence | undefined,
-  checkpointStore: CheckpointStore | undefined
+  checkpointStore: CheckpointStore | undefined,
+  calibrationStore?: CalibrationStore
 ): {
   memoryPersistence?: AgentMemoryPersistence;
   checkpointStore?: CheckpointStore;
+  calibrationStore?: CalibrationStore;
 } {
   if (!(stateStore instanceof SqliteRuntimeStateStore)) {
     return {};
@@ -1804,7 +1820,8 @@ function deriveSqlitePersistenceFromStateStore(
   const filename = stateStore.getFilename();
   return {
     memoryPersistence: memoryPersistence ?? createSqliteMemoryPersistence({ filename }),
-    checkpointStore: checkpointStore ?? new SqliteCheckpointStore({ filename })
+    checkpointStore: checkpointStore ?? new SqliteCheckpointStore({ filename }),
+    calibrationStore: calibrationStore ?? new SqliteCalibrationStore({ filename })
   };
 }
 
@@ -2043,6 +2060,7 @@ function toExecutionCycleState(cycle: Awaited<ReturnType<CycleEngine["run"]>>): 
     metaSignalFrame: structuredClone(cycle.metaSignalFrame),
     fastMetaAssessment: structuredClone(cycle.fastMetaAssessment),
     metaAssessment: structuredClone(cycle.metaAssessment),
+    metaDecisionV2: structuredClone(cycle.metaDecisionV2),
     selfEvaluationReport: structuredClone(cycle.selfEvaluationReport)
   };
 }
@@ -2102,6 +2120,7 @@ function toAgentCycleState(cycle: ExecutionCycleState): Awaited<ReturnType<Cycle
     metaSignalFrame: structuredClone(cycle.metaSignalFrame),
     fastMetaAssessment: structuredClone(cycle.fastMetaAssessment),
     metaAssessment: structuredClone(cycle.metaAssessment),
+    metaDecisionV2: structuredClone(cycle.metaDecisionV2),
     selfEvaluationReport: structuredClone(cycle.selfEvaluationReport),
     decision: {
       decision_type: "execute_action"
@@ -2114,18 +2133,20 @@ function toMetaTraceFields(
     | ExecutionCycleState
     | Pick<
         Awaited<ReturnType<CycleEngine["run"]>>,
-        "metaSignalFrame" | "fastMetaAssessment" | "metaAssessment" | "selfEvaluationReport"
+        "metaSignalFrame" | "fastMetaAssessment" | "metaAssessment" | "selfEvaluationReport" | "metaDecisionV2"
       >
 ): {
   metaSignalFrame?: import("@neurocore/protocol").MetaSignalFrame;
   fastMetaAssessment?: import("@neurocore/protocol").FastMetaAssessment;
   metaAssessment?: import("@neurocore/protocol").MetaAssessment;
+  metaDecisionV2?: import("@neurocore/protocol").MetaDecisionV2;
   selfEvaluationReport?: import("@neurocore/protocol").SelfEvaluationReport;
 } {
   return {
     metaSignalFrame: structuredClone(cycle.metaSignalFrame),
     fastMetaAssessment: structuredClone(cycle.fastMetaAssessment),
     metaAssessment: structuredClone(cycle.metaAssessment),
+    metaDecisionV2: structuredClone(cycle.metaDecisionV2),
     selfEvaluationReport: structuredClone(cycle.selfEvaluationReport)
   };
 }

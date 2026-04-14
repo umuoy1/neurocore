@@ -2,9 +2,11 @@ import type {
   ActionExecution,
   AgentProfile,
   AgentSession,
+  BudgetAssessment,
   CandidateAction,
   SessionCheckpoint,
   Episode,
+  FastMetaAssessment,
   Goal,
   JsonSchema,
   JsonValue,
@@ -12,7 +14,12 @@ import type {
   CycleTraceRecord,
   MemoryConfig,
   MemoryDigest,
+  CalibrationBucketStats,
+  CalibrationRecord,
+  MetaAssessment,
+  MetaDecisionV2,
   MetaDecision,
+  MetaTriggerTag,
   Observation,
   PolicyDecision,
   Prediction,
@@ -21,6 +28,8 @@ import type {
   RuntimeSessionSnapshot,
   SkillDefinition,
   ToolExecutionPolicy,
+  VerifierMode,
+  VerifierResult,
   WorkspaceSnapshot
 } from "./types.js";
 
@@ -103,6 +112,59 @@ export interface MetaController {
     policies: PolicyDecision[],
     predictionErrorRate?: number
   ): Promise<MetaDecision>;
+}
+
+export interface ControlAllocator {
+  decide(input: {
+    ctx: ModuleContext;
+    actions: CandidateAction[];
+    predictions: Prediction[];
+    policies: PolicyDecision[];
+    workspace: WorkspaceSnapshot;
+    budgetAssessment?: BudgetAssessment;
+    fastAssessment: FastMetaAssessment;
+    metaAssessment: MetaAssessment;
+    predictionErrorRate?: number;
+  }): Promise<MetaDecisionV2>;
+}
+
+export interface CalibrationStore {
+  append(record: CalibrationRecord): void;
+  list(sessionId?: string): CalibrationRecord[];
+  listByTaskBucket(taskBucket: string): CalibrationRecord[];
+  getBucketStats(input: {
+    taskBucket: string;
+    riskLevel?: string;
+    predictorId?: string;
+  }): CalibrationBucketStats;
+  deleteSession(sessionId: string): void;
+  close?(): void;
+}
+
+export interface VerifierInput {
+  ctx: ModuleContext;
+  workspace: WorkspaceSnapshot;
+  frame: import("./types.js").MetaSignalFrame;
+  fastAssessment: FastMetaAssessment;
+  actions: CandidateAction[];
+  predictions: Prediction[];
+  policies: PolicyDecision[];
+  triggerTags: MetaTriggerTag[];
+}
+
+export interface Verifier {
+  name: string;
+  mode: VerifierMode;
+  timeoutMs?: number;
+  shouldRun?(input: VerifierInput): boolean;
+  verify(input: VerifierInput): Promise<VerifierResult>;
+}
+
+export interface CounterfactualSimulator {
+  name: string;
+  timeoutMs?: number;
+  shouldRun?(input: VerifierInput): boolean;
+  simulate(input: VerifierInput): Promise<VerifierResult | null>;
 }
 
 export interface PredictionStore {

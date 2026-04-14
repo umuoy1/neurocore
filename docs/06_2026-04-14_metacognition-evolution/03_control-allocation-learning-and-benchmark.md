@@ -11,6 +11,11 @@
 > - 已实现 `ECE / Brier / Overconfidence Failure Rate`
 > - 已实现 `FastMonitor / DeepEvaluator / ControlAllocator / Risk Gating / Evidence Sensitivity / Learning Reflection` 六组 benchmark 指标
 > - 已补 focused tests，当前仍缺真实 benchmark 数据集、online eval 管线与 `ReflectionLearner` 驱动的长期回归集
+>
+> 2026-04-15 收口优先级补充：
+> - 当前最需要的不是新增概念模块，而是把元认知栈做成单一路径控制平面
+> - benchmark、calibration、control allocation、signal aggregation 都应开始围绕“单真源 + 可持久化 + 可 SPI 化”收口
+> - 2026-04-15 当前代码状态补充：`ControlAllocator` 已成为最终控制动作的唯一真源；`Calibrator` 已具备 `query + calibrate + record` 闭环，`SqliteCalibrationStore`、task bucket、决策前 bucket reliability 查询与执行后写回均已进入主链；`DeepEvaluator` 已切到 `Verifier SPI` 编排层，默认 `logic / evidence / tool / safety / process` verifiers 与可选 `CounterfactualSimulator SPI` 已进入主链；下一步严格转向 `MetaSignalBus provider 化`
 
 ---
 
@@ -296,6 +301,70 @@ interface ReflectionRule {
 - 还没有 `coverage vs accuracy curve` 和 `risk-conditioned selective curve` 的批量导出
 - `action_regret` 目前仍是基于 `expected/hindsight control behavior` 的离散 regret，不是成本模型
 - `ReflectionLearner` 还未真正落库，因此学习相关指标目前依赖外部构造 observation
+
+## 6.7 下一阶段评测与控制收口原则
+
+结合当前代码状态，下一阶段最该推进的不是“再加新层”，而是以下五条收口动作：
+
+### A. 控制真源单一路径化
+
+- `FastMonitor / DeepEvaluator` 已经产出控制建议
+- `DefaultMetaController` 仍保留自己的 ranking / confidence / approval gating 逻辑
+
+这意味着当前控制平面还存在分叉。下一步必须明确：
+
+- 要么引入显式 `ControlAllocator / MetaOrchestrator`
+- 要么让 `MetaController` 自身退化成执行适配层
+
+但无论选哪条路，都要做到：
+
+- 最终控制动作只从一个 metacognitive decision object 收敛
+- benchmark 也只评估这条主路径，而不是评估分叉后的混合行为
+
+### B. Calibration 单路径化
+
+当前校准逻辑仍然分散在：
+
+- `Calibrator`
+- `DeepEvaluator` 内部的 heuristic calibrated confidence
+
+下一步需要收成：
+
+- 单一路径校准函数
+- 可持久化 calibration store
+- 决策前可查询
+- benchmark 中 task bucket / provider bucket 都能直接读取
+
+### C. DeepEvaluator SPI 化
+
+当前 DeepEvaluator 还偏“厚启发式评估器”，而不是“独立验证编排器”。
+
+下一阶段 benchmark 也要跟着演进：
+
+- 区分 `logic / evidence / tool / safety` verifier
+- 区分“触发了 deep eval”和“触发了真正 verifier SPI”
+- 区分“只是增加开销”和“真正纠正错误”
+
+### D. Signal Bus Provider 化
+
+当前 `MetaSignalBus` 已有统一 frame 和 provenance，但聚合仍偏单体 heuristic aggregator。
+
+下一步需要让 benchmark 也能按 family provider 看：
+
+- 哪类信号来自哪类 provider
+- provider 是否降级
+- provider 置信度是否可靠
+
+### E. 从 focused metric 走向真实 benchmark
+
+当前 `meta-benchmark.ts` 已能量化元认知能力，但仍然是 framework，不是完整 benchmark 产品。
+
+下一步应补：
+
+- 家族 A~G 的真实 case bundle
+- offline historical report
+- online eval pipeline
+- benchmark persistence
 
 ---
 

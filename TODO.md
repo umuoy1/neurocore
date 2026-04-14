@@ -1,10 +1,15 @@
 # NeuroCore Execution Roadmap
 
-> Calibrated against the current codebase on 2026-03-30.
+> Calibrated against the current codebase on 2026-04-15.
+>
+> 当前最重要的变化：
+> - 记忆系统已经从 fat snapshot 路径切到 SQL-first
+> - Prefrontal / Meta 已经从“架构构想期”进入“元认知运行时 v1”
+> - 下一阶段关键词不再是扩更多概念模块，而是：收口、闭环、持久化、SPI 化、评估化
 
 ## Milestone 5: Cognitive Core
 
-- [in_progress] Goal tree execution
+- [done] Goal tree execution
   - [x] Support reasoner-driven goal decomposition
   - [x] Persist parent/child goal hierarchy in runtime snapshots and checkpoints
   - [x] Track derived parent status from child goals
@@ -15,17 +20,17 @@
   - [x] Add builder/runtime registration for predictors
   - [x] Add builder/runtime registration for skill providers
   - [x] Include predictor and skill outputs in workspace selection flow
-- [in_progress] Long-term memory
+- [done] Long-term memory v1
   - [x] Add cross-session memory retrieval
   - [x] Introduce semantic memory implementation
   - [x] Add consolidation flow for episodic to semantic memory
   - [x] Add configurable retrieval limits (`retrieval_top_k`)
   - [x] Add tenant-scoped recall for shared episodic/semantic stores
-  - [x] Add maxEntries-based working memory eviction in the store layer
-  - [ ] Expose working-memory maxEntries through agent/runtime configuration
+  - [x] Add working-memory max entries through agent/runtime configuration
+  - [x] Add procedural memory implementation
+  - [x] Move default persistence path to SQL-first
   - [ ] Add TTL-based working memory expiration
   - [ ] Store failure episodes in semantic memory for negative-pattern learning
-  - [ ] Add procedural memory implementation
 - [in_progress] Policy and budget upgrades
   - [x] Support custom policy provider registration
   - [x] Replace heuristic budget checks with token/tool/cycle quota checks
@@ -99,7 +104,7 @@
   - [x] Add session-level concurrency guard in `SessionManager` (CAS/lock instead of hosted wrapper only)
   - [ ] Distinguish transient vs permanent errors in tool retry logic
   - [ ] Add error handling around `RuntimeStateStore` persistence operations
-- [in_progress] MetaController improvements
+- [done] Legacy MetaController improvements
   - [x] Rank candidate actions by predictor uncertainty (risk proxy)
   - [x] Make approval threshold configurable
   - [x] Compute confidence from prediction uncertainty
@@ -149,7 +154,53 @@
   - [ ] Add `AsyncIterable` token streaming for reasoner output
   - [ ] Differentiate token streaming from background `async` mode semantics
 
-## Milestone 10: Operational Maturity
+## Milestone 10: Meta Stack v2 Closure
+
+- [done] Control plane convergence
+  - [x] Add `MetaSignalBus`
+  - [x] Add `FastMonitor`
+  - [x] Add `DeepEvaluator`
+  - [x] Add `MetaAssessment / SelfEvaluationReport / MetaControlAction`
+  - [x] Decide and implement the single control source: `ControlAllocator`
+  - [x] Thin `DefaultMetaController` into execution/approval adapter only
+  - [x] Remove duplicated ranking/confidence/risk/approval logic from legacy control path
+  - [x] Ensure all final control decisions flow through one metacognitive decision object
+- [in_progress] Calibration closure
+  - [x] Add `Calibrator`
+  - [x] Add `InMemoryCalibrationStore`
+  - [x] Record `CalibrationRecord` from execution outcome
+  - [x] Unify `DeepEvaluator` and `Calibrator` confidence calibration into one path
+  - [x] Add durable calibration store
+  - [x] Make calibration queryable before decision time
+  - [x] Add task-bucket calibration profiles
+  - [ ] Add provider-level calibration profiles
+- [in_progress] DeepEvaluator SPI
+  - [x] Add verification trace and heuristic verifier runs
+  - [x] Introduce explicit `Verifier SPI`
+  - [x] Split `logic / evidence / tool / safety` verifiers
+  - [x] Add optional simulator/world-model verifier integration
+  - [x] Support concurrent verifier orchestration with budget-aware fallback
+  - [ ] Add stricter verifier isolation policy and per-verifier budgets
+- [in_progress] MetaSignalBus providerization
+  - [x] Add unified signal frame with provenance
+  - [ ] Split signal families into provider-based collectors
+  - [ ] Add family-level degradation and fallback strategy
+  - [ ] Replace ad hoc `*-heuristic` provenance with provider-specific provenance
+  - [ ] Add confidence/reliability scoring per signal provider
+- [in_progress] Meta benchmark and evaluation
+  - [x] Add `meta-benchmark.ts`
+  - [x] Add focused tests for calibration / fast-monitor / deep-eval / control-allocator metrics
+  - [ ] Add real benchmark case bundle for families A-G
+  - [ ] Add online meta eval pipeline
+  - [ ] Add coverage-vs-accuracy and risk-conditioned curve export
+  - [ ] Add benchmark persistence and historical comparison
+- [pending] Reflection and policy learning
+  - [ ] Implement `ReflectionLearner`
+  - [ ] Persist reflection memory / rule artifacts
+  - [ ] Convert repeated failures into future control policy updates
+  - [ ] Add recurrence regression suite
+
+## Milestone 11: Operational Maturity
 
 - [in_progress] Webhook reliability
   - [x] Add basic webhook delivery hooks
@@ -172,7 +223,7 @@
   - [ ] Add OpenTelemetry span creation for distributed tracing
   - [ ] Honor `ObservabilityConfig.trace_enabled` and `event_stream_enabled`
 
-## Milestone 11: SDK Robustness
+## Milestone 12: SDK Robustness
 
 - [pending] Agent builder validation
   - [ ] Validate agent ID format (reject empty, whitespace, special characters)
@@ -192,7 +243,7 @@
   - [ ] Add SSE reconnection with `Last-Event-ID`
   - [ ] Add pagination for trace/episode/event list endpoints
 
-## Milestone 12: Protocol Tightening
+## Milestone 13: Protocol Tightening
 
 - [pending] Type safety
   - [ ] Add discriminator field to `RuntimeCommand` union

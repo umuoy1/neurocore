@@ -1,4 +1,5 @@
 import type {
+  CalibrationBucketStats,
   ConfidenceVector,
   FastMetaAssessment,
   MetaAssessment,
@@ -9,12 +10,18 @@ import type {
   SelfEvaluationReport,
   VerificationTrace
 } from "@neurocore/protocol";
+import type { Calibrator } from "./calibrator.js";
 
 interface BuildAssessmentInput {
   frame: MetaSignalFrame;
   selectedMetaActions?: MetaControlAction[];
   selectedControlMode?: string;
   verificationTrace?: VerificationTrace;
+  calibrator?: Calibrator;
+  calibrationQuery?: {
+    descriptor: { taskBucket: string; riskLevel: string };
+    stats: CalibrationBucketStats;
+  };
 }
 
 export class FastMonitor {
@@ -44,6 +51,21 @@ export class FastMonitor {
     const confidence = this.buildConfidenceVector(input.frame);
     const triggerTags = this.deriveTriggerTags(input.frame, confidence);
     const metaState = this.deriveMetaState(triggerTags, confidence);
+    const calibrationQuery = input.calibrationQuery;
+    const calibratedConfidence =
+      calibrationQuery && input.calibrator
+        ? input.calibrator.calibrate({
+            rawConfidence: confidence.overall_confidence,
+            bucketStats: calibrationQuery.stats,
+            riskLevel: calibrationQuery.descriptor.riskLevel,
+            strictness:
+              calibrationQuery.descriptor.riskLevel === "high"
+                ? 1
+                : calibrationQuery.descriptor.riskLevel === "medium"
+                  ? 0.7
+                  : 0.4
+          })
+        : confidence.overall_confidence;
     const recommendedControlAction =
       input.selectedMetaActions?.[0] ??
       this.recommendActions(input.frame, triggerTags, metaState)[0] ??
@@ -55,6 +77,9 @@ export class FastMonitor {
       cycle_id: input.frame.cycle_id,
       meta_state: metaState,
       confidence,
+      calibrated_confidence: calibratedConfidence,
+      task_bucket: calibrationQuery?.descriptor.taskBucket,
+      bucket_reliability: calibrationQuery?.stats.bucket_reliability,
       uncertainty_decomposition: input.frame.prediction_signals.uncertainty_decomposition,
       failure_modes: deriveFailureModes(input.frame, metaState),
       recommended_control_action: recommendedControlAction,
