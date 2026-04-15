@@ -23,7 +23,8 @@
 > - 2026-04-15 收口方向更新：下一阶段不再横向扩概念模块，转为 `控制平面收口 -> calibration 单一路径 -> DeepEvaluator SPI -> Signal Bus provider 化 -> meta eval 数据集与 online 管线`
 > - 2026-04-15 Phase 1 / 2 代码状态：`ControlAllocator` 已成为最终控制动作的单真源，`DefaultMetaController` 已退化为 adapter；`Calibrator` 已升级为 `query + calibrate + record` 单一路径，`DeepEvaluator` 私有校准已移除，`SqliteCalibrationStore`、task bucket、决策前查询与决策后写回均已进入代码库
 > - 2026-04-15 Phase 3 代码状态：`DeepEvaluator` 已切为 `Verifier SPI` 编排层，默认 `logic / evidence / tool / safety / process` verifiers 与可选 `CounterfactualSimulator SPI` 已进入主链，支持并发执行、部分失败降级与 budget-aware 选择
-> - 后续批次：Signal Bus family providers、真实 benchmark 数据集与 online meta eval、`ReflectionLearner`
+> - 2026-04-16 Phase 4 代码状态：`MetaSignalBus` 已完成 family-provider 第一版，`task / evidence / reasoning / prediction / action / governance` 六类 `Heuristic*Provider`、provider registry、family merge rules、degraded/fallback provenance 与关键缺失值保守化已进入主链；provider 失败时总线仍可产出 frame，缺失 prediction family 时下游不会继续判成 `routine-safe`
+> - 后续批次：真实 benchmark 数据集与 CI/online meta eval、`ReflectionLearner`
 
 ---
 
@@ -555,28 +556,29 @@ node --test tests/memory-provider-config.test.mjs tests/skill-system.test.mjs
 
 ---
 
-## 7. 施工起点建议
+## 7. 当前下一步
 
-如果下一步立刻开始写代码，建议按这个顺序：
+当前 `M8.5 Phase 1 ~ 4` 已经进入代码库，下一步不再是继续扩协议或补 provider，而是严格转向：
 
-1. 先改 `packages/protocol/src/types.ts`
-2. 再加 `packages/runtime-core/src/meta/signal-bus.ts`
-3. 再加 `packages/runtime-core/src/meta/fast-monitor.ts`
-4. 再接 `packages/runtime-core/src/cycle/cycle-engine.ts`
-5. 最后补 `trace-recorder` 和测试
+1. 真实 meta benchmark case bundle
+2. benchmark summary / persistence
+3. CI 中独立 meta test group
+4. online meta eval pipeline
+5. 最后再进入 `ReflectionLearner`
 
-不要先碰：
+不要跳回去重做：
 
-- `DeepEvaluator`
+- `ControlAllocator`
 - `Calibrator`
-- `ReflectionLearner`
+- `DeepEvaluator SPI`
+- `MetaSignalBus provider registry`
 
-否则很容易把第一批实现做成半截系统。
+否则只会把已经收口的主链重新打散。
 
 ---
 
 ## 8. 一句话结论
 
-下一步代码实现最合理的切入点，不是“直接重写 MetaController”，而是：
+当前最合理的切入点，不是继续横向扩元认知概念，而是：
 
-**先把元认知从隐式打分逻辑中剥离出来，变成有输入帧、有状态、有评估、有 trace 的第一等运行对象。**
+**把已经成形的控制栈做成可持续评估、可回归比较、可进入 CI 的稳定工程系统。**

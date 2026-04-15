@@ -4,6 +4,13 @@
 > 上位输入：
 > - [深层元认知与自评估系统设计](/Users/sizz/Code/neurocore/docs/06_2026-04-14_metacognition-evolution/01_deep-metacognition-and-self-evaluation.md)
 > - [外部专家报告](/Users/sizz/Code/neurocore/neuro_core_元认知系统深层自评估升级设计.md)
+>
+> 2026-04-16 实现状态补充：
+> - `MetaSignalBus` 已完成 family-provider 第一版
+> - `task / evidence / reasoning / prediction / action / governance` 六类 `Heuristic*Provider` 已进入代码库
+> - `MetaSignalBus` 现在只负责 provider 调度、family merge、missing-field conservative fallback 与 provenance 汇总
+> - provider 失败或缺失时，frame 仍可生成，并带 `ok / missing / degraded / fallback` 状态
+> - `prediction` family 缺失时会触发保守 fallback，下游 `FastMonitor` 不再继续判成 `routine-safe`
 
 ---
 

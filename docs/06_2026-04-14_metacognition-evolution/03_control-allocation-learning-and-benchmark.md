@@ -16,6 +16,7 @@
 > - 当前最需要的不是新增概念模块，而是把元认知栈做成单一路径控制平面
 > - benchmark、calibration、control allocation、signal aggregation 都应开始围绕“单真源 + 可持久化 + 可 SPI 化”收口
 > - 2026-04-15 当前代码状态补充：`ControlAllocator` 已成为最终控制动作的唯一真源；`Calibrator` 已具备 `query + calibrate + record` 闭环，`SqliteCalibrationStore`、task bucket、决策前 bucket reliability 查询与执行后写回均已进入主链；`DeepEvaluator` 已切到 `Verifier SPI` 编排层，默认 `logic / evidence / tool / safety / process` verifiers 与可选 `CounterfactualSimulator SPI` 已进入主链；下一步严格转向 `MetaSignalBus provider 化`
+> - 2026-04-16 当前代码状态补充：`MetaSignalBus` 已完成 family-provider 第一版，`task / evidence / reasoning / prediction / action / governance` 六类 `Heuristic*Provider`、provider registry、family merge rules、degraded/fallback provenance 与关键缺失值保守化已进入主链；下一步严格转向真实 benchmark 数据集、CI/online eval 与 `ReflectionLearner`
 
 ---
 
@@ -347,19 +348,25 @@ interface ReflectionRule {
 
 ### D. Signal Bus Provider 化
 
-当前 `MetaSignalBus` 已有统一 frame 和 provenance，但聚合仍偏单体 heuristic aggregator。
+这一项的第一版已经完成：
 
-下一步需要让 benchmark 也能按 family provider 看：
+- `MetaSignalBus` 已切到 provider registry
+- `task / evidence / reasoning / prediction / action / governance` 六类 family 已由独立 provider 负责
+- 总线只负责调度、归一化、聚合和 provenance 汇总
+- provider 失败、缺失或降级时会显式暴露 `ok / missing / degraded / fallback`
+- `prediction` family 缺失时已采用保守 fallback，避免下游继续落入 `routine-safe`
 
-- 哪类信号来自哪类 provider
-- provider 是否降级
-- provider 置信度是否可靠
+下一步 benchmark 需要继续补的是：
+
+- provider-level confidence / reliability scoring
+- family provider 维度的历史报表
+- provider 降级对控制动作的长期影响评估
 
 ### E. 从 focused metric 走向真实 benchmark
 
 当前 `meta-benchmark.ts` 已能量化元认知能力，但仍然是 framework，不是完整 benchmark 产品。
 
-下一步应补：
+这一项现在成为严格的下一步，应补：
 
 - 家族 A~G 的真实 case bundle
 - offline historical report

@@ -71,6 +71,7 @@
 - 2026-04-15 路线收口调整：Prefrontal / Meta 下一阶段不再以“继续横向加模块”为主，而改为五条收口主线：`控制平面单真源`、`calibration 单路径与持久化`、`DeepEvaluator SPI 化`、`MetaSignalBus provider 化`、`真实 meta benchmark 数据集与 online eval`。
 - 2026-04-15 M8.5 Phase 2 补充：`ControlAllocator` 已成为最终控制动作单真源，`DefaultMetaController` 已瘦身为 adapter；`Calibrator` 已升级为 `query + calibrate + record` 单一路径，`SqliteCalibrationStore`、task bucket、决策前 bucket reliability 查询与执行后写回均已进入代码库；下一步严格转向 `DeepEvaluator SPI 化`，不提前做 provider 化和 learner 扩展。
 - 2026-04-15 M8.5 Phase 3 补充：`DeepEvaluator` 已切到 `Verifier SPI` 编排层，默认 `logic / evidence / tool / safety / process` verifiers 与可选 `CounterfactualSimulator SPI` 已进入主链，支持并发执行、部分失败降级和 budget-aware 选择；下一步严格转向 `MetaSignalBus provider 化`。
+- 2026-04-16 M8.5 Phase 4 补充：`MetaSignalBus` 已完成 family-provider 第一版，`task / evidence / reasoning / prediction / action / governance` 六类 `Heuristic*Provider`、provider registry、family merge rules、degraded/fallback provenance 与关键缺失值保守化已进入代码库；provider 失败时总线仍可产出 frame，缺失 prediction family 时下游不会继续判成 `routine-safe`；下一步严格转向真实 meta benchmark 数据集与 CI/online eval。
 
 ## 关键风险（历史记录）
 

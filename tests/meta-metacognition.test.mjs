@@ -212,6 +212,143 @@ test("MetaSignalBus aggregates budget pressure and provenance conservatively", (
   assert.ok(frame.provenance.some((row) => row.field === "budget_pressure"));
 });
 
+test("MetaSignalBus survives provider failure and marks degraded fallback provenance", () => {
+  const signalBus = new MetaSignalBus({
+    useDefaultProviders: false,
+    providers: {
+      evidence: [
+        {
+          name: "broken-evidence-provider",
+          family: "evidence",
+          collect() {
+            throw new Error("evidence unavailable");
+          }
+        }
+      ]
+    }
+  });
+
+  const frame = signalBus.collect({
+    ctx: makeCtx(),
+    workspace: makeWorkspace(),
+    actions: [],
+    predictions: [],
+    policies: [],
+    goals: makeCtx().goals
+  });
+
+  assert.ok(frame.evidence_signals.missing_critical_evidence_flags.includes("missing_evidence_provider"));
+  assert.ok(frame.provenance.some((row) => row.family === "evidence" && row.status === "degraded"));
+});
+
+test("MetaSignalBus missing prediction family forces conservative downstream state", () => {
+  const signalBus = new MetaSignalBus({
+    useDefaultProviders: false,
+    providers: {
+      task: [
+        {
+          name: "task-ok",
+          family: "task",
+          collect() {
+            return {
+              signals: {
+                task_novelty: 0.2,
+                domain_familiarity: 0.8,
+                historical_success_rate: 0.8,
+                ood_score: 0.1,
+                decomposition_depth: 0,
+                goal_decomposition_depth: 0,
+                unresolved_dependency_count: 0
+              }
+            };
+          }
+        }
+      ],
+      evidence: [
+        {
+          name: "evidence-ok",
+          family: "evidence",
+          collect() {
+            return {
+              signals: {
+                retrieval_coverage: 0.9,
+                evidence_freshness: 0.9,
+                evidence_agreement_score: 0.9,
+                source_reliability_prior: 0.9,
+                missing_critical_evidence_flags: []
+              }
+            };
+          }
+        }
+      ],
+      reasoning: [
+        {
+          name: "reasoning-ok",
+          family: "reasoning",
+          collect() {
+            return {
+              signals: {
+                candidate_reasoning_divergence: 0.1,
+                step_consistency: 0.9,
+                contradiction_score: 0.05,
+                assumption_count: 0,
+                unsupported_leap_count: 0,
+                self_consistency_margin: 0.9
+              }
+            };
+          }
+        }
+      ],
+      action: [
+        {
+          name: "action-ok",
+          family: "action",
+          collect() {
+            return {
+              signals: {
+                tool_precondition_completeness: 0.9,
+                schema_confidence: 0.9,
+                side_effect_severity: 0.1,
+                reversibility_score: 0.9,
+                observability_after_action: 0.9,
+                fallback_availability: 0.9
+              }
+            };
+          }
+        }
+      ],
+      governance: [
+        {
+          name: "governance-ok",
+          family: "governance",
+          collect() {
+            return {
+              signals: {
+                policy_warning_density: 0,
+                budget_pressure: 0.1,
+                remaining_recovery_options: 0.9,
+                need_for_human_accountability: 0.1
+              }
+            };
+          }
+        }
+      ]
+    }
+  });
+  const frame = signalBus.collect({
+    ctx: makeCtx(),
+    workspace: makeWorkspace(),
+    actions: [{ action_id: "act_1", action_type: "respond", title: "Respond" }],
+    predictions: [],
+    policies: [],
+    goals: makeCtx().goals
+  });
+  const assessment = new FastMonitor().assess(frame);
+
+  assert.ok(frame.provenance.some((row) => row.family === "prediction" && row.status === "missing"));
+  assert.notEqual(assessment.meta_state, "routine-safe");
+});
+
 test("FastMonitor emits evidence-insufficient for low evidence coverage", () => {
   const signalBus = new MetaSignalBus();
   const monitor = new FastMonitor();

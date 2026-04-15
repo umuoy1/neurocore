@@ -183,9 +183,9 @@
   - [ ] Add stricter verifier isolation policy and per-verifier budgets
 - [in_progress] MetaSignalBus providerization
   - [x] Add unified signal frame with provenance
-  - [ ] Split signal families into provider-based collectors
-  - [ ] Add family-level degradation and fallback strategy
-  - [ ] Replace ad hoc `*-heuristic` provenance with provider-specific provenance
+  - [x] Split signal families into provider-based collectors
+  - [x] Add family-level degradation and fallback strategy
+  - [x] Replace ad hoc `*-heuristic` provenance with provider-specific provenance
   - [ ] Add confidence/reliability scoring per signal provider
 - [in_progress] Meta benchmark and evaluation
   - [x] Add `meta-benchmark.ts`
