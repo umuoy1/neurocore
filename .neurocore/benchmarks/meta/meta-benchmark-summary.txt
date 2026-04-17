@@ -1,0 +1,10 @@
+Meta Benchmark Summary [meta-stack-v1-a-to-g]
+cases=8
+meta_score=0.5509
+calibration_score=0.4227
+selective_score=0.2250
+risk_score=0.6000
+evidence_score=0.7125
+learning_score=0.8667
+strongest_family=B
+weakest_family=C

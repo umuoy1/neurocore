@@ -8,6 +8,7 @@ export interface EvalStore {
   get(runId: string): EvalRunReport | undefined;
   list(filter?: { tenant_id?: string; agent_id?: string; limit?: number; offset?: number }): EvalRunReport[];
   delete(runId: string): void;
+  close?(): void;
 }
 
 export class InMemoryEvalStore implements EvalStore {

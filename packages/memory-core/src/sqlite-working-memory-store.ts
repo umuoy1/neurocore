@@ -17,27 +17,40 @@ export class SqliteWorkingMemoryStore {
     mkdirSync(dirname(options.filename), { recursive: true });
     this.db = new DatabaseSync(options.filename);
     this.maxEntries = options.maxEntries;
+    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 2000;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS working_memory_entries (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id TEXT NOT NULL,
         memory_id TEXT NOT NULL,
         summary TEXT NOT NULL,
-        relevance REAL NOT NULL
+        relevance REAL NOT NULL,
+        created_at TEXT,
+        expires_at TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_working_session_sequence
         ON working_memory_entries(session_id, sequence DESC);
     `);
+    this.ensureColumn("working_memory_entries", "created_at", "TEXT");
+    this.ensureColumn("working_memory_entries", "expires_at", "TEXT");
   }
 
   public append(sessionId: string, entry: WorkingMemoryEntry, maxEntriesOverride?: number): void {
     this.db
       .prepare(`
-        INSERT INTO working_memory_entries (session_id, memory_id, summary, relevance)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO working_memory_entries (session_id, memory_id, summary, relevance, created_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?)
       `)
-      .run(sessionId, entry.memory_id, entry.summary, entry.relevance);
+      .run(
+        sessionId,
+        entry.memory_id,
+        entry.summary,
+        entry.relevance,
+        entry.created_at ?? new Date().toISOString(),
+        entry.expires_at ?? null
+      );
 
+    this.pruneExpired(sessionId);
     const limit = maxEntriesOverride ?? this.maxEntries;
     if (!limit || limit <= 0) {
       return;
@@ -70,9 +83,10 @@ export class SqliteWorkingMemoryStore {
   }
 
   public list(sessionId: string): WorkingMemoryEntry[] {
+    this.pruneExpired(sessionId);
     const rows = this.db
       .prepare(`
-        SELECT memory_id, summary, relevance
+        SELECT memory_id, summary, relevance, created_at, expires_at
         FROM working_memory_entries
         WHERE session_id = ?
         ORDER BY sequence ASC
@@ -81,12 +95,16 @@ export class SqliteWorkingMemoryStore {
         memory_id: string;
         summary: string;
         relevance: number;
+        created_at: string | null;
+        expires_at: string | null;
       }>;
 
     return rows.map((row) => ({
       memory_id: row.memory_id,
       summary: row.summary,
-      relevance: Number(row.relevance)
+      relevance: Number(row.relevance),
+      created_at: row.created_at ?? undefined,
+      expires_at: row.expires_at ?? undefined
     }));
   }
 
@@ -112,5 +130,27 @@ export class SqliteWorkingMemoryStore {
 
   public close(): void {
     this.db.close();
+  }
+
+  private pruneExpired(sessionId: string): void {
+    this.db
+      .prepare(`
+        DELETE FROM working_memory_entries
+        WHERE session_id = ?
+          AND expires_at IS NOT NULL
+          AND expires_at != ''
+          AND expires_at <= ?
+      `)
+      .run(sessionId, new Date().toISOString());
+  }
+
+  private ensureColumn(table: string, column: string, definition: string): void {
+    const rows = this.db
+      .prepare(`PRAGMA table_info(${table})`)
+      .all() as Array<{ name: string }>;
+    if (rows.some((row) => row.name === column)) {
+      return;
+    }
+    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 }

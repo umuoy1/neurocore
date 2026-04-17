@@ -33,6 +33,30 @@ jobs:
       - name: Test
         run: npm run test:unit
 
+  meta-stack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Meta Stack Tests
+        run: npm run test:meta
+
+      - name: Meta Benchmark Fixture Run
+        run: npm run benchmark:meta
+
+      - name: Upload Meta Benchmark Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: meta-benchmark
+          path: .neurocore/benchmarks/meta
+
   baseline-llm:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[run-baseline]')

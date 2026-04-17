@@ -43,6 +43,9 @@ test("D1: baseline eval - simple respond completes with echoed output", async ()
           side_effect_level: "none"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   });
 
@@ -117,6 +120,9 @@ test("D2: baseline eval - single tool call then respond", async () => {
             side_effect_level: "none"
           }
         ];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .registerTool({
@@ -183,6 +189,9 @@ test("D3: baseline eval - clarification trigger leaves session waiting", async (
           side_effect_level: "none"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   });
 
@@ -242,6 +251,9 @@ test("D4: baseline eval - high-risk tool triggers approval escalation", async ()
             side_effect_level: "high"
           }
         ];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .registerTool({
@@ -337,6 +349,9 @@ test("D5: baseline eval - multi-tool chain produces correct executed sequence", 
             side_effect_level: "none"
           }
         ];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .registerTool({
@@ -425,6 +440,9 @@ test("D6: baseline eval - resume after waiting completes session", async () => {
           side_effect_level: "none"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   });
 
@@ -524,6 +542,9 @@ test("D7: baseline eval - memory recall from session 1 influences session 2", as
           side_effect_level: "none"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   });
 

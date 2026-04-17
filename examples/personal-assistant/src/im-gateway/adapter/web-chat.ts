@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
-import { WebSocketServer, type RawData, type WebSocket } from "ws";
+import { WebSocket, WebSocketServer, type RawData } from "ws";
 import type { IMAdapter } from "./im-adapter.js";
 import type { IMAdapterConfig, IMPlatform, MessageContent, UnifiedMessage } from "../types.js";
 import { WEB_CHAT_PAGE_HTML } from "./web-chat-page.js";
@@ -19,6 +19,7 @@ export class WebChatAdapter implements IMAdapter {
   private handler?: (msg: UnifiedMessage) => void;
   private readonly socketsByChatId = new Map<string, WebSocket>();
   private readonly chatIdBySocket = new Map<WebSocket, string>();
+  private readonly socketWaitersByChatId = new Map<string, Array<(socket: WebSocket) => void>>();
 
   public onMessage(handler: (msg: UnifiedMessage) => void): void {
     this.handler = handler;
@@ -42,6 +43,7 @@ export class WebChatAdapter implements IMAdapter {
 
       this.socketsByChatId.set(chatId, socket);
       this.chatIdBySocket.set(socket, chatId);
+      this.resolveSocketWaiters(chatId, socket);
 
       socket.on("message", (data) => {
         const message = this.toUnifiedMessage(chatId, senderId, data);
@@ -49,7 +51,9 @@ export class WebChatAdapter implements IMAdapter {
       });
 
       socket.on("close", () => {
-        this.socketsByChatId.delete(chatId);
+        if (this.socketsByChatId.get(chatId) === socket) {
+          this.socketsByChatId.delete(chatId);
+        }
         this.chatIdBySocket.delete(socket);
       });
     });
@@ -69,6 +73,7 @@ export class WebChatAdapter implements IMAdapter {
     }
     this.socketsByChatId.clear();
     this.chatIdBySocket.clear();
+    this.socketWaitersByChatId.clear();
 
     await new Promise<void>((resolve) => {
       if (!this.server) {
@@ -90,10 +95,7 @@ export class WebChatAdapter implements IMAdapter {
   }
 
   public async sendMessage(chatId: string, content: MessageContent): Promise<{ message_id: string }> {
-    const socket = this.socketsByChatId.get(chatId);
-    if (!socket) {
-      throw new Error(`Web chat connection for chat_id ${chatId} is not available.`);
-    }
+    const socket = await this.getLiveSocket(chatId);
 
     const messageId = randomUUID();
     socket.send(
@@ -108,10 +110,7 @@ export class WebChatAdapter implements IMAdapter {
   }
 
   public async editMessage(chatId: string, messageId: string, content: MessageContent): Promise<void> {
-    const socket = this.socketsByChatId.get(chatId);
-    if (!socket) {
-      throw new Error(`Web chat connection for chat_id ${chatId} is not available.`);
-    }
+    const socket = await this.getLiveSocket(chatId);
 
     socket.send(
       JSON.stringify({
@@ -124,7 +123,7 @@ export class WebChatAdapter implements IMAdapter {
 
   public async typingIndicator(chatId: string): Promise<void> {
     const socket = this.socketsByChatId.get(chatId);
-    if (!socket) {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
       return;
     }
 
@@ -240,6 +239,51 @@ export class WebChatAdapter implements IMAdapter {
       }
     } catch {}
     return text;
+  }
+
+  private resolveSocketWaiters(chatId: string, socket: WebSocket): void {
+    const waiters = this.socketWaitersByChatId.get(chatId);
+    if (!waiters || waiters.length === 0) {
+      return;
+    }
+    this.socketWaitersByChatId.delete(chatId);
+    for (const resolve of waiters) {
+      resolve(socket);
+    }
+  }
+
+  private async getLiveSocket(chatId: string): Promise<WebSocket> {
+    const existing = this.socketsByChatId.get(chatId);
+    if (existing && existing.readyState === WebSocket.OPEN) {
+      return existing;
+    }
+
+    const socket = await new Promise<WebSocket>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        const waiters = this.socketWaitersByChatId.get(chatId);
+        if (waiters) {
+          this.socketWaitersByChatId.set(chatId, waiters.filter((candidate) => candidate !== resolve));
+          if (this.socketWaitersByChatId.get(chatId)?.length === 0) {
+            this.socketWaitersByChatId.delete(chatId);
+          }
+        }
+        reject(new Error(`Web chat connection for chat_id ${chatId} is not available.`));
+      }, 250);
+
+      const wrapped = (candidate: WebSocket) => {
+        clearTimeout(timeout);
+        resolve(candidate);
+      };
+
+      const waiters = this.socketWaitersByChatId.get(chatId) ?? [];
+      waiters.push(wrapped);
+      this.socketWaitersByChatId.set(chatId, waiters);
+    });
+
+    if (socket.readyState !== WebSocket.OPEN) {
+      throw new Error(`Web chat connection for chat_id ${chatId} is not available.`);
+    }
+    return socket;
   }
 }
 

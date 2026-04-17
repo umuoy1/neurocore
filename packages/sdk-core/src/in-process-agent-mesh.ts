@@ -313,6 +313,7 @@ export class InProcessAgentMesh {
         : "";
 
     return {
+      command_type: "create_session",
       agent_id: profile.agent_id,
       tenant_id: request.tenant_id ?? "multi-agent",
       session_mode: "sync",

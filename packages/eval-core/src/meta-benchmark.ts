@@ -36,12 +36,45 @@ export interface MetaBenchmarkObservation {
   recurrence_avoided?: boolean;
 }
 
+export interface MetaBenchmarkBundle {
+  bundle_id: string;
+  schema_version?: string;
+  generated_at?: string;
+  cases: MetaBenchmarkCase[];
+  observations: MetaBenchmarkObservation[];
+}
+
 export interface MetaBenchmarkFamilyReport {
   family: string;
   case_count: number;
   control_accuracy: number;
   pass_rate: number;
   average_confidence: number;
+}
+
+export interface MetaBenchmarkSummary {
+  bundle_id?: string;
+  case_count: number;
+  meta_score: number;
+  strongest_family?: string;
+  weakest_family?: string;
+  calibration_score: number;
+  selective_score: number;
+  risk_score: number;
+  evidence_score: number;
+  learning_score: number;
+}
+
+export interface MetaBenchmarkSummaryDiff {
+  baseline_bundle_id?: string;
+  candidate_bundle_id?: string;
+  case_count_delta: number;
+  meta_score_delta: number;
+  calibration_score_delta: number;
+  selective_score_delta: number;
+  risk_score_delta: number;
+  evidence_score_delta: number;
+  learning_score_delta: number;
 }
 
 export interface MetaBenchmarkReport {
@@ -109,6 +142,10 @@ const CHEAP_INTERVENTIONS: MetaControlAction[] = [
   "replan",
   "decompose-goal"
 ];
+
+export function evaluateMetaBenchmarkBundle(bundle: MetaBenchmarkBundle) {
+  return evaluateMetaBenchmark(bundle.cases, bundle.observations);
+}
 
 export function evaluateMetaBenchmark(
   cases: MetaBenchmarkCase[],
@@ -193,6 +230,81 @@ export function brierScore(samples: Array<{ confidence: number; success: boolean
       })
     )
   );
+}
+
+export function summarizeMetaBenchmarkReport(
+  report: MetaBenchmarkReport,
+  options: { bundle_id?: string } = {}
+): MetaBenchmarkSummary {
+  const rankedFamilies = [...report.family_reports].sort((left, right) => familyScore(right) - familyScore(left));
+  return {
+    bundle_id: options.bundle_id,
+    case_count: report.case_count,
+    meta_score: report.meta_score,
+    strongest_family: rankedFamilies[0]?.family,
+    weakest_family: rankedFamilies.at(-1)?.family,
+    calibration_score: calibrationScore(report.calibration),
+    selective_score: selectiveScore(report.selective_execution),
+    risk_score: riskScore(report.risk_gating),
+    evidence_score: evidenceScore(report.evidence_sensitivity),
+    learning_score: learningScore(report.learning_reflection)
+  };
+}
+
+export function buildMetaBenchmarkArtifacts(bundle: MetaBenchmarkBundle) {
+  const report = evaluateMetaBenchmarkBundle(bundle);
+  const summary = summarizeMetaBenchmarkReport(report, { bundle_id: bundle.bundle_id });
+  return { report, summary };
+}
+
+export function formatMetaBenchmarkSummary(summary: MetaBenchmarkSummary) {
+  const lines = [
+    `Meta Benchmark Summary${summary.bundle_id ? ` [${summary.bundle_id}]` : ""}`,
+    `cases=${summary.case_count}`,
+    `meta_score=${formatMetric(summary.meta_score)}`,
+    `calibration_score=${formatMetric(summary.calibration_score)}`,
+    `selective_score=${formatMetric(summary.selective_score)}`,
+    `risk_score=${formatMetric(summary.risk_score)}`,
+    `evidence_score=${formatMetric(summary.evidence_score)}`,
+    `learning_score=${formatMetric(summary.learning_score)}`
+  ];
+  if (summary.strongest_family) {
+    lines.push(`strongest_family=${summary.strongest_family}`);
+  }
+  if (summary.weakest_family) {
+    lines.push(`weakest_family=${summary.weakest_family}`);
+  }
+  return lines.join("\n");
+}
+
+export function compareMetaBenchmarkSummaries(
+  baseline: MetaBenchmarkSummary,
+  candidate: MetaBenchmarkSummary
+): MetaBenchmarkSummaryDiff {
+  return {
+    baseline_bundle_id: baseline.bundle_id,
+    candidate_bundle_id: candidate.bundle_id,
+    case_count_delta: candidate.case_count - baseline.case_count,
+    meta_score_delta: candidate.meta_score - baseline.meta_score,
+    calibration_score_delta: candidate.calibration_score - baseline.calibration_score,
+    selective_score_delta: candidate.selective_score - baseline.selective_score,
+    risk_score_delta: candidate.risk_score - baseline.risk_score,
+    evidence_score_delta: candidate.evidence_score - baseline.evidence_score,
+    learning_score_delta: candidate.learning_score - baseline.learning_score
+  };
+}
+
+export function formatMetaBenchmarkComparison(diff: MetaBenchmarkSummaryDiff) {
+  return [
+    `Meta Benchmark Comparison${diff.baseline_bundle_id || diff.candidate_bundle_id ? ` [${diff.baseline_bundle_id ?? "baseline"} -> ${diff.candidate_bundle_id ?? "candidate"}]` : ""}`,
+    `case_count_delta=${diff.case_count_delta}`,
+    `meta_score_delta=${formatSignedMetric(diff.meta_score_delta)}`,
+    `calibration_score_delta=${formatSignedMetric(diff.calibration_score_delta)}`,
+    `selective_score_delta=${formatSignedMetric(diff.selective_score_delta)}`,
+    `risk_score_delta=${formatSignedMetric(diff.risk_score_delta)}`,
+    `evidence_score_delta=${formatSignedMetric(diff.evidence_score_delta)}`,
+    `learning_score_delta=${formatSignedMetric(diff.learning_score_delta)}`
+  ].join("\n");
 }
 
 function joinCases(cases: MetaBenchmarkCase[], observations: MetaBenchmarkObservation[]) {
@@ -481,6 +593,10 @@ function learningScore(learning: MetaBenchmarkReport["learning_reflection"]) {
   );
 }
 
+function familyScore(report: MetaBenchmarkFamilyReport) {
+  return report.control_accuracy * 0.6 + report.pass_rate * 0.4;
+}
+
 function average(values: number[]) {
   if (values.length === 0) {
     return 0;
@@ -500,4 +616,12 @@ function clamp01(value: number) {
     return 0;
   }
   return Math.max(0, Math.min(1, value));
+}
+
+function formatMetric(value: number) {
+  return clamp01(value).toFixed(4);
+}
+
+function formatSignedMetric(value: number) {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(4)}`;
 }

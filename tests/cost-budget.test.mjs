@@ -30,6 +30,9 @@ test("Cost budget: cycle trace accumulates cost_budget_used", async () => {
         description: "cost test done",
         side_effect_level: "none"
       }];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   });
 
@@ -81,6 +84,9 @@ test("Cost budget: exceeding cost budget triggers budget_exceeded", async () => 
         description: "cost test",
         side_effect_level: "none"
       }];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   });
 

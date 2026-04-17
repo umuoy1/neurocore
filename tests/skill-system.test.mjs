@@ -471,6 +471,9 @@ test("AgentRuntime restoreSession rebuilds procedural memory accumulation from c
         description: "Answer directly",
         side_effect_level: "none"
       }];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   };
 
@@ -546,7 +549,10 @@ test("AgentRuntime restoreSession restores procedural skills from checkpoint sna
   const reasoner = {
     name: "restore-procedural-snapshot-reasoner",
     async plan() { return []; },
-    async respond() { return []; }
+    async respond() { return []; },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
+    }
   };
 
   const seedRuntime = new AgentRuntime({ reasoner, skillStore: store });
@@ -707,7 +713,10 @@ test("explicit file runtime migration backfills procedural skills, then runtime 
     const reasoner = {
       name: "persisted-procedural-snapshot-reasoner",
       async plan() { return []; },
-      async respond() { return []; }
+      async respond() { return []; },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
+      }
     };
     const restoredRuntime = new AgentRuntime({
       reasoner,
@@ -795,6 +804,9 @@ test("persisted runtime session reloads procedural skills from SQLite memory per
           tool_args: { query: "persisted-sql-skill" },
           side_effect_level: "none"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     };
     const seedRuntime = new AgentRuntime({
@@ -837,7 +849,10 @@ test("persisted runtime session reloads procedural skills from SQLite memory per
       reasoner: {
         name: "persisted-procedural-slim-runtime-read-reasoner",
         async plan() { return []; },
-        async respond() { return []; }
+        async respond() { return []; },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
+        }
       },
       stateStore: new FileRuntimeStateStore({ directory: stateDir }),
       memoryPersistence: createSqliteMemoryPersistence({
@@ -885,7 +900,10 @@ test("E2E: matched toolchain skill synthesizes and executes tool action without 
   const reasoner = {
     name: "skill-only-reasoner",
     async plan() { return []; },
-    async respond() { return []; }
+    async respond() { return []; },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
+    }
   };
 
   const runtime = new AgentRuntime({ reasoner, skillStore: store });
@@ -997,6 +1015,9 @@ test("E2E: skill promotion via AgentRuntime after 3 successful tool calls", asyn
         tool_args: { query: "test" },
         side_effect_level: "none"
       }];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   };
 
@@ -1109,6 +1130,9 @@ test("E2E: AgentRuntime reloads SQLite-backed procedural skills without explicit
           tool_args: { query: "sqlite-skill" },
           side_effect_level: "none"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     };
 
@@ -1144,7 +1168,10 @@ test("E2E: AgentRuntime reloads SQLite-backed procedural skills without explicit
       reasoner: {
         name: "read-sql-skill-reasoner",
         async plan() { return []; },
-        async respond() { return []; }
+        async respond() { return []; },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
+        }
       },
       memoryPersistence: createSqliteMemoryPersistence({
         filename: join(stateDir, "memory.db")
@@ -1208,6 +1235,9 @@ test("E2E: skill trace records and defineAgent integration", async () => {
           tool_args: { query: "trace-test" },
           side_effect_level: "none"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .registerTool({

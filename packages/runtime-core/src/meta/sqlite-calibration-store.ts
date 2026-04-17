@@ -14,6 +14,7 @@ export class SqliteCalibrationStore implements CalibrationStore {
   public constructor(options: SqliteCalibrationStoreOptions) {
     mkdirSync(dirname(options.filename), { recursive: true });
     this.db = new DatabaseSync(options.filename);
+    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 2000;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS meta_calibration_records (
         record_id TEXT PRIMARY KEY,

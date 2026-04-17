@@ -20,6 +20,7 @@ export interface SqliteSemanticMemoryRecord {
   source_episode_ids: string[];
   session_ids: string[];
   pattern_key: string;
+  valence: "positive" | "negative";
   last_updated_at: string;
 }
 
@@ -29,6 +30,7 @@ export class SqliteSemanticMemoryStore {
   public constructor(options: SqliteSemanticMemoryStoreOptions) {
     mkdirSync(dirname(options.filename), { recursive: true });
     this.db = new DatabaseSync(options.filename);
+    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 2000;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS semantic_patterns (
         tenant_id TEXT NOT NULL,
@@ -55,8 +57,8 @@ export class SqliteSemanticMemoryStore {
     `);
   }
 
-  public appendEpisode(sessionId: string, tenantId: string, episode: Episode): void {
-    if (episode.outcome !== "success") {
+  public appendEpisode(sessionId: string, tenantId: string, episode: Episode, includeNegative = false): void {
+    if (!shouldStoreSemanticEpisode(episode, includeNegative)) {
       return;
     }
 
@@ -72,14 +74,15 @@ export class SqliteSemanticMemoryStore {
   public replaceSession(
     sessionId: string,
     tenantId: string,
-    episodesOrContributions: Episode[] | SemanticMemoryContribution[]
+    episodesOrContributions: Episode[] | SemanticMemoryContribution[],
+    includeNegative = false
   ): void {
     const contributions = isSemanticContributionArray(episodesOrContributions)
       ? episodesOrContributions
       : buildContributionsFromEpisodes(
           tenantId,
           sessionId,
-          episodesOrContributions.filter((episode) => episode.outcome === "success")
+          episodesOrContributions.filter((episode) => shouldStoreSemanticEpisode(episode, includeNegative))
         );
 
     this.db
@@ -179,7 +182,7 @@ export class SqliteSemanticMemoryStore {
         }
 
         return {
-          memory_id: `sem_${row.pattern_key}`,
+          memory_id: semanticMemoryId(row.pattern_key),
           tenant_id: row.tenant_id,
           summary: row.summary,
           relevance: Number(row.relevance),
@@ -187,6 +190,7 @@ export class SqliteSemanticMemoryStore {
           source_episode_ids: [...sourceEpisodeIds],
           session_ids: [...sessionIds],
           pattern_key: row.pattern_key,
+          valence: deriveContributionValence(row.pattern_key),
           last_updated_at: row.last_updated_at
         };
       })
@@ -300,7 +304,9 @@ export class SqliteSemanticMemoryStore {
       }
 
       const occurrenceCount = sourceEpisodeIds.size;
-      const relevance = Math.min(0.98, 0.68 + occurrenceCount * 0.08);
+      const relevance = deriveContributionValence(patternKey) === "negative"
+        ? Math.min(0.9, 0.56 + occurrenceCount * 0.06)
+        : Math.min(0.98, 0.68 + occurrenceCount * 0.08);
 
       this.db
         .prepare(`
@@ -354,7 +360,7 @@ function buildContributionsFromEpisodes(
         tenant_id: tenantId,
         session_id: sessionId,
         pattern_key: patternKey,
-        summary: episode.outcome_summary,
+        summary: deriveSemanticSummary(episode),
         source_episode_ids: [episode.episode_id],
         last_updated_at: episode.created_at
       });
@@ -365,7 +371,7 @@ function buildContributionsFromEpisodes(
       existing.source_episode_ids.push(episode.episode_id);
     }
     if (Date.parse(episode.created_at) > Date.parse(existing.last_updated_at)) {
-      existing.summary = episode.outcome_summary;
+      existing.summary = deriveSemanticSummary(episode);
       existing.last_updated_at = episode.created_at;
     }
   }
@@ -388,7 +394,7 @@ function mergeEpisodeIntoContributions(
       tenant_id: tenantId,
       session_id: sessionId,
       pattern_key: patternKey,
-      summary: episode.outcome_summary,
+      summary: deriveSemanticSummary(episode),
       source_episode_ids: [episode.episode_id],
       last_updated_at: episode.created_at
     });
@@ -399,7 +405,7 @@ function mergeEpisodeIntoContributions(
     existing.source_episode_ids.push(episode.episode_id);
   }
   if (Date.parse(episode.created_at) > Date.parse(existing.last_updated_at)) {
-    existing.summary = episode.outcome_summary;
+    existing.summary = deriveSemanticSummary(episode);
     existing.last_updated_at = episode.created_at;
   }
 
@@ -407,12 +413,37 @@ function mergeEpisodeIntoContributions(
 }
 
 function deriveSemanticPatternKey(episode: Episode): string {
+  const polarity = episode.outcome === "failure" || episode.valence === "negative" ? "negative" : "positive";
   const toolName =
     episode.metadata && typeof episode.metadata.tool_name === "string"
       ? episode.metadata.tool_name
       : "runtime";
   const normalizedStrategy = episode.selected_strategy.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 48);
-  return `${toolName}:${normalizedStrategy}`;
+  return `${polarity}:${toolName}:${normalizedStrategy}`;
+}
+
+function shouldStoreSemanticEpisode(episode: Episode, includeNegative: boolean): boolean {
+  if (episode.outcome === "success") {
+    return true;
+  }
+  return includeNegative && (episode.outcome === "failure" || episode.valence === "negative");
+}
+
+function deriveSemanticSummary(episode: Episode): string {
+  if (episode.outcome === "failure" || episode.valence === "negative") {
+    return `Avoid: ${episode.outcome_summary}`;
+  }
+  return episode.outcome_summary;
+}
+
+function deriveContributionValence(patternKey: string): "positive" | "negative" {
+  return patternKey.startsWith("negative:") ? "negative" : "positive";
+}
+
+function semanticMemoryId(patternKey: string): string {
+  return patternKey.startsWith("positive:")
+    ? `sem_${patternKey.slice("positive:".length)}`
+    : `sem_${patternKey}`;
 }
 
 function parseStringArray(value: string): string[] {

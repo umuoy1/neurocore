@@ -6,6 +6,7 @@ import test from "node:test";
 import { FileRuntimeStateStore } from "@neurocore/runtime-core";
 import { connectRemoteAgent, defineAgent } from "@neurocore/sdk-core";
 import { createRuntimeServer } from "@neurocore/runtime-server";
+import { InMemoryWorldStateGraph } from "@neurocore/world-model";
 
 test("local session exposes events, checkpoints, and cleanup", async () => {
   const agent = defineAgent({
@@ -62,6 +63,12 @@ test("local session exposes events, checkpoints, and cleanup", async () => {
             side_effect_level: "none"
           }
         ];
+      },
+      async *streamText(_ctx, action) {
+        const text = action.description ?? action.title;
+        const midpoint = Math.max(1, Math.floor(text.length / 2));
+        yield text.slice(0, midpoint);
+        yield text.slice(midpoint);
       }
     })
     .registerTool({
@@ -100,7 +107,13 @@ test("local session exposes events, checkpoints, and cleanup", async () => {
   const eventTypes = session.getEvents().map((event) => event.event_type);
   assert.ok(eventTypes.includes("session.created"));
   assert.ok(eventTypes.includes("action.executed"));
+  assert.ok(eventTypes.includes("checkpoint.created"));
   assert.ok(eventTypes.includes("session.completed"));
+  const sequenceNumbers = session.getEvents().map((event) => event.sequence_no);
+  assert.deepEqual(
+    sequenceNumbers,
+    [...sequenceNumbers].sort((left, right) => left - right)
+  );
 
   assert.ok(session.getCheckpoints().length >= 2);
   assert.ok(session.getTraceRecords().length >= 2);
@@ -109,6 +122,68 @@ test("local session exposes events, checkpoints, and cleanup", async () => {
 
   assert.equal(session.getSession(), undefined);
   assert.throws(() => session.getGoals(), /Unknown session/);
+});
+
+test("local session emits suspend/resume events and checkpoint schema version", async () => {
+  const agent = defineAgent({
+    id: "test-suspend-resume-agent",
+    role: "Deterministic suspend resume test agent."
+  }).useReasoner({
+    name: "test-suspend-resume-reasoner",
+    async plan(ctx) {
+      return [
+        {
+          proposal_id: ctx.services.generateId("prp"),
+          schema_version: ctx.profile.schema_version,
+          session_id: ctx.session.session_id,
+          cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+          module_name: this.name,
+          proposal_type: "plan",
+          salience_score: 0.8,
+          confidence: 0.9,
+          risk: 0,
+          payload: {
+            summary: "Ask user to continue."
+          }
+        }
+      ];
+    },
+    async respond(ctx) {
+      return [
+        {
+          action_id: ctx.services.generateId("act"),
+          action_type: "ask_user",
+          title: "Ask for more",
+          description: ctx.runtime_state.current_input_content,
+          side_effect_level: "none"
+        }
+      ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
+    }
+  });
+
+  const session = agent.createSession({
+    agent_id: "test-suspend-resume-agent",
+    tenant_id: "local",
+    initial_input: {
+      content: "first turn"
+    }
+  });
+
+  const first = await session.run();
+  assert.equal(first.finalState, "waiting");
+  const checkpoint = session.suspend();
+  assert.equal(checkpoint.schema_version, session.getSession()?.schema_version);
+
+  const second = await session.resumeText("second turn");
+  assert.equal(second.finalState, "waiting");
+
+  const eventTypes = session.getEvents().map((event) => event.event_type);
+  assert.ok(eventTypes.includes("session.suspended"));
+  assert.ok(eventTypes.includes("session.resumed"));
+  assert.ok(eventTypes.includes("checkpoint.created"));
 });
 
 test("hosted runtime supports async and stream flows through remote client", async () => {
@@ -167,6 +242,9 @@ test("hosted runtime supports async and stream flows through remote client", asy
             side_effect_level: "none"
           }
         ];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .registerTool({
@@ -234,7 +312,7 @@ test("hosted runtime supports async and stream flows through remote client", asy
 
     const streamedEvents = [];
     const subscription = await streamSession.subscribeToEvents((event) => {
-      streamedEvents.push(event.event_type);
+      streamedEvents.push(event);
     });
 
     const started = await streamSession.run();
@@ -244,8 +322,20 @@ test("hosted runtime supports async and stream flows through remote client", asy
     await subscription.done;
 
     assert.equal(settled.session.state, "completed");
-    assert.ok(streamedEvents.includes("action.executed"));
-    assert.ok(streamedEvents.includes("session.completed"));
+    const eventTypes = streamedEvents.map((event) => event.event_type);
+    assert.ok(eventTypes.includes("action.executed"));
+    assert.ok(eventTypes.includes("session.completed"));
+    const outputEvents = streamedEvents.filter((event) => event.event_type === "runtime.output");
+    assert.ok(outputEvents.length >= 2);
+    assert.equal(outputEvents.at(-1)?.payload.state, "completed");
+    assert.equal(outputEvents.at(-1)?.payload.mode, "token_stream");
+    assert.equal(outputEvents.at(-1)?.payload.text, "delayed echo: hosted runtime ready");
+    const statusPhases = streamedEvents
+      .filter((event) => event.event_type === "runtime.status")
+      .map((event) => event.payload.phase);
+    assert.ok(statusPhases.includes("memory_retrieval"));
+    assert.ok(statusPhases.includes("reasoning"));
+    assert.ok(statusPhases.includes("response_generation"));
   } finally {
     await server.close();
   }
@@ -307,6 +397,9 @@ test("hosted cleanup removes persisted terminal sessions across restart", async 
             side_effect_level: "none"
           }
         ];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .useRuntimeStateStore(() => new FileRuntimeStateStore({ directory: stateDir }))
@@ -403,6 +496,9 @@ test("resume with explicit input rebases the active root goal", async () => {
           side_effect_level: "none"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   });
 
@@ -427,6 +523,330 @@ test("resume with explicit input rebases the active root goal", async () => {
   assert.equal(second.finalState, "waiting");
   assert.equal(second.outputText, "second request");
   assert.equal(session.getGoals()[0]?.description, "second request");
+});
+
+test("structured ask_user schema is preserved in runtime observation payload", async () => {
+  const agent = defineAgent({
+    id: "structured-ask-user-agent",
+    role: "Structured ask_user test agent."
+  }).useReasoner({
+    name: "structured-ask-user-reasoner",
+    async plan(ctx) {
+      return [{
+        proposal_id: ctx.services.generateId("prp"),
+        schema_version: ctx.profile.schema_version,
+        session_id: ctx.session.session_id,
+        cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+        module_name: this.name,
+        proposal_type: "plan",
+        salience_score: 0.7,
+        payload: { summary: "Ask user for structured input." }
+      }];
+    },
+    async respond(ctx) {
+      return [{
+        action_id: ctx.services.generateId("act"),
+        action_type: "ask_user",
+        title: "Collect date",
+        description: "Which date works best?",
+        ask_user_schema: {
+          mode: "form",
+          title: "Schedule follow-up",
+          fields: [
+            {
+              name: "scheduled_date",
+              label: "Scheduled date",
+              type: "date",
+              required: true
+            }
+          ]
+        },
+        side_effect_level: "none"
+      }];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
+    }
+  });
+
+  const session = agent.createSession({
+    tenant_id: "tenant-ask-user",
+    initial_input: {
+      content: "schedule something",
+      created_at: new Date().toISOString()
+    }
+  });
+
+  const result = await session.run();
+  assert.equal(result.finalState, "waiting");
+  const step = result.steps[0];
+  assert.deepEqual(
+    step?.observation?.structured_payload?.ask_user_schema,
+    {
+      mode: "form",
+      title: "Schedule follow-up",
+      fields: [
+        {
+          name: "scheduled_date",
+          label: "Scheduled date",
+          type: "date",
+          required: true
+        }
+      ]
+    }
+  );
+});
+
+test("structured ask_user responses are validated before resume and exposed to runtime_state", async () => {
+  let lastStructuredResponse = null;
+
+  const agent = defineAgent({
+    id: "structured-ask-user-validation-agent",
+    role: "Structured ask_user validation test agent."
+  }).useReasoner({
+    name: "structured-ask-user-validation-reasoner",
+    async plan(ctx) {
+      return [{
+        proposal_id: ctx.services.generateId("prp"),
+        schema_version: ctx.profile.schema_version,
+        session_id: ctx.session.session_id,
+        cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+        module_name: this.name,
+        proposal_type: "plan",
+        salience_score: 0.7,
+        payload: { summary: "Collect a structured yes/no answer." }
+      }];
+    },
+    async respond(ctx) {
+      if (ctx.runtime_state.current_input_structured_response) {
+        lastStructuredResponse = ctx.runtime_state.current_input_structured_response;
+        return [{
+          action_id: ctx.services.generateId("act"),
+          action_type: "respond",
+          title: "Return answer",
+          description: `answer=${String(ctx.runtime_state.current_input_structured_response)}`,
+          side_effect_level: "none"
+        }];
+      }
+      return [{
+        action_id: ctx.services.generateId("act"),
+        action_type: "ask_user",
+        title: "Choose one",
+        description: "Select yes or no.",
+        ask_user_schema: {
+          mode: "options",
+          title: "Decision",
+          options: [
+            { value: "yes", label: "Yes" },
+            { value: "no", label: "No" }
+          ]
+        },
+        side_effect_level: "none"
+      }];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
+    }
+  });
+
+  const session = agent.createSession({
+    tenant_id: "tenant-ask-user-validation",
+    initial_input: {
+      content: "start",
+      created_at: new Date().toISOString()
+    }
+  });
+
+  const first = await session.run();
+  assert.equal(first.finalState, "waiting");
+
+  await assert.rejects(
+    () =>
+      session.resume({
+        input_id: "inp_invalid",
+        content: "maybe",
+        created_at: new Date().toISOString()
+      }),
+    /must match one of: yes, no/
+  );
+  assert.equal(session.getState(), "waiting");
+
+  const second = await session.resume({
+    input_id: "inp_valid",
+    content: "yes",
+    created_at: new Date().toISOString()
+  });
+  assert.equal(second.finalState, "completed");
+  assert.equal(second.outputText, "answer=yes");
+  assert.equal(lastStructuredResponse, "yes");
+});
+
+test("multi-turn conversation history is available in runtime_state with token-aware truncation", async () => {
+  let lastHistory = [];
+  let lastHistoryTokens = 0;
+  let lastHistoryTruncated = false;
+
+  const agent = defineAgent({
+    id: "conversation-history-agent",
+    role: "Conversation history test agent."
+  })
+    .useReasoner({
+      name: "conversation-history-reasoner",
+      async plan(ctx) {
+        return [{
+          proposal_id: ctx.services.generateId("prp"),
+          schema_version: ctx.profile.schema_version,
+          session_id: ctx.session.session_id,
+          cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+          module_name: this.name,
+          proposal_type: "plan",
+          salience_score: 0.7,
+          payload: { summary: "Track conversation history." }
+        }];
+      },
+      async respond(ctx) {
+        lastHistory = Array.isArray(ctx.runtime_state.conversation_history)
+          ? ctx.runtime_state.conversation_history
+          : [];
+        lastHistoryTokens = Number(ctx.runtime_state.conversation_history_tokens ?? 0);
+        lastHistoryTruncated = Boolean(ctx.runtime_state.conversation_history_truncated);
+        return [{
+          action_id: ctx.services.generateId("act"),
+          action_type: "ask_user",
+          title: "Continue",
+          description: "continue",
+          side_effect_level: "none"
+        }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
+      }
+    });
+
+  const firstTurn = `first ${"alpha ".repeat(95)}`;
+  const secondTurn = `second ${"beta ".repeat(95)}`;
+  const thirdTurn = `third ${"gamma ".repeat(90)}`;
+
+  const session = agent.createSession({
+    tenant_id: "tenant-history",
+    initial_input: {
+      content: firstTurn,
+      created_at: new Date().toISOString()
+    }
+  });
+
+  await session.run();
+  await session.resumeText(secondTurn);
+  await session.resumeText(thirdTurn);
+
+  assert.ok(lastHistory.length >= 2);
+  assert.equal(lastHistory.at(-1)?.role, "assistant");
+  assert.ok(lastHistory.some((message) => message.role === "user"));
+  assert.ok(lastHistoryTokens > 0);
+  assert.equal(lastHistoryTruncated, true);
+});
+
+test("action preconditions are enforced before execution", async () => {
+  const worldStateGraph = new InMemoryWorldStateGraph();
+  worldStateGraph.addEntity({
+    entity_id: "cup_01",
+    entity_type: "object",
+    properties: { reachable: false },
+    confidence: 1,
+    last_observed: new Date().toISOString()
+  });
+
+  const agent = defineAgent({
+    id: "precondition-runtime-agent",
+    role: "Precondition test agent."
+  })
+    .useRuntimeInfrastructure({
+      worldStateGraph
+    })
+    .useReasoner({
+      name: "precondition-runtime-reasoner",
+      async plan(ctx) {
+        return [{
+          proposal_id: ctx.services.generateId("prp"),
+          schema_version: ctx.profile.schema_version,
+          session_id: ctx.session.session_id,
+          cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+          module_name: this.name,
+          proposal_type: "plan",
+          salience_score: 0.8,
+          payload: { summary: "Pick up the cup if reachable." }
+        }];
+      },
+      async respond(ctx) {
+        const currentInput =
+          typeof ctx.runtime_state.current_input_content === "string"
+            ? ctx.runtime_state.current_input_content
+            : "";
+        if (currentInput.startsWith("Tool observation: Preconditions not met")) {
+          return [{
+            action_id: ctx.services.generateId("act"),
+            action_type: "ask_user",
+            title: "Need retry",
+            description: "Fix the environment and try again.",
+            side_effect_level: "none"
+          }];
+        }
+        if (currentInput.startsWith("Tool observation:")) {
+          return [{
+            action_id: ctx.services.generateId("act"),
+            action_type: "respond",
+            title: "Done",
+            description: currentInput.replace(/^Tool observation:\s*/, "").trim(),
+            side_effect_level: "none"
+          }];
+        }
+        return [{
+          action_id: ctx.services.generateId("act"),
+          action_type: "call_tool",
+          title: "Pick cup",
+          tool_name: "pick-cup",
+          tool_args: {},
+          preconditions: ["entity:cup_01:reachable=true"],
+          side_effect_level: "none"
+        }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
+      }
+    })
+    .registerTool({
+      name: "pick-cup",
+      description: "Picks the cup.",
+      sideEffectLevel: "none",
+      inputSchema: {},
+      async invoke() {
+        return {
+          summary: "cup picked"
+        };
+      }
+    });
+
+  const session = agent.createSession({
+    tenant_id: "tenant-precondition",
+    initial_input: {
+      content: "pick up the cup",
+      created_at: new Date().toISOString()
+    }
+  });
+
+  const first = await session.run();
+  assert.equal(first.finalState, "waiting");
+  const failedStep = first.steps.find((step) => step.observation?.status === "failure");
+  assert.equal(failedStep?.observation?.status, "failure");
+  assert.match(failedStep?.observation?.summary ?? "", /Preconditions not met/);
+
+  worldStateGraph.updateEntity("cup_01", {
+    properties: { reachable: true }
+  });
+
+  const second = await session.resumeText("try again");
+  assert.equal(second.finalState, "completed");
+  assert.equal(second.outputText, "cup picked");
 });
 
 function delay(ms) {

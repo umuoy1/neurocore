@@ -54,6 +54,9 @@ function makeReasoner() {
         title: "Respond",
         expected_outcome: "Done"
       }];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   };
 }
@@ -136,6 +139,9 @@ test("Integration: forwardSimulator injection adds simulation-based predictions"
           title: "Test simulation",
           side_effect_level: "low"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     },
     worldStateGraph: graph,
@@ -169,6 +175,9 @@ test("Integration: no device injection preserves existing behavior (regression)"
       async plan() { return []; },
       async respond() {
         return [{ action_id: "act_1", action_type: "complete", title: "Done" }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     }
   });

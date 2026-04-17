@@ -1,6 +1,7 @@
 import type {
   ActionExecution,
   AgentSession,
+  ApprovalRequest,
   CandidateAction,
   CycleTrace,
   Episode,
@@ -8,16 +9,24 @@ import type {
   Observation,
   Prediction,
   PredictionError,
-  Proposal,
+  RuntimeOutput,
+  RuntimeStatus,
+  SessionCheckpoint,
   SkillDefinition,
-  WorkspaceSnapshot
+  WorkspaceSnapshot,
+  Proposal
 } from "./types.js";
 
 export type NeuroCoreEventType =
   | "session.created"
   | "session.state_changed"
+  | "session.suspended"
+  | "session.resumed"
+  | "runtime.status"
+  | "runtime.output"
   | "goal.created"
   | "goal.updated"
+  | "goal.completed"
   | "cycle.started"
   | "proposal.submitted"
   | "workspace.committed"
@@ -30,7 +39,9 @@ export type NeuroCoreEventType =
   | "skill.matched"
   | "skill.executed"
   | "skill.promoted"
+  | "approval.requested"
   | "budget.exceeded"
+  | "checkpoint.created"
   | "session.completed"
   | "session.failed"
   | "sensor.reading"
@@ -59,27 +70,72 @@ export type NeuroCoreEventType =
   | "world_state.conflict_detected"
   | "world_state.conflict_resolved";
 
-export interface EventEnvelope<T> {
+export interface NeuroCoreEventPayloadMap {
+  "session.created": AgentSession;
+  "session.state_changed": AgentSession;
+  "session.suspended": AgentSession;
+  "session.resumed": AgentSession;
+  "runtime.status": RuntimeStatus;
+  "runtime.output": RuntimeOutput;
+  "goal.created": Goal;
+  "goal.updated": Goal;
+  "goal.completed": Goal;
+  "cycle.started": CycleTrace;
+  "proposal.submitted": Proposal;
+  "workspace.committed": WorkspaceSnapshot;
+  "action.selected": CandidateAction;
+  "action.executed": ActionExecution;
+  "observation.recorded": Observation;
+  "prediction.recorded": Prediction;
+  "prediction_error.recorded": PredictionError;
+  "memory.written": Episode;
+  "skill.matched": SkillDefinition;
+  "skill.executed": ActionExecution;
+  "skill.promoted": SkillDefinition;
+  "approval.requested": ApprovalRequest;
+  "budget.exceeded": WorkspaceSnapshot;
+  "checkpoint.created": SessionCheckpoint;
+  "session.completed": AgentSession;
+  "session.failed": AgentSession;
+  "sensor.reading": Observation;
+  "actuator.command": CandidateAction;
+  "actuator.result": Observation;
+  "world_state.updated": WorkspaceSnapshot;
+  "simulation.completed": Prediction;
+  "device.registered": WorkspaceSnapshot;
+  "device.error": Observation;
+  "agent.registered": WorkspaceSnapshot;
+  "agent.deregistered": WorkspaceSnapshot;
+  "agent.status_changed": WorkspaceSnapshot;
+  "agent.heartbeat_lost": WorkspaceSnapshot;
+  "delegation.requested": CandidateAction;
+  "delegation.accepted": Observation;
+  "delegation.rejected": Observation;
+  "delegation.completed": Observation;
+  "delegation.failed": Observation;
+  "delegation.timeout": Observation;
+  "auction.started": WorkspaceSnapshot;
+  "auction.bid_received": WorkspaceSnapshot;
+  "auction.completed": WorkspaceSnapshot;
+  "coordination.started": WorkspaceSnapshot;
+  "coordination.assignment_created": WorkspaceSnapshot;
+  "coordination.completed": WorkspaceSnapshot;
+  "world_state.conflict_detected": WorkspaceSnapshot;
+  "world_state.conflict_resolved": WorkspaceSnapshot;
+}
+
+export interface EventEnvelope<T extends NeuroCoreEventType = NeuroCoreEventType> {
   event_id: string;
-  event_type: NeuroCoreEventType;
+  event_type: T;
   schema_version: string;
   tenant_id: string;
   session_id?: string;
   cycle_id?: string;
   timestamp: string;
-  payload: T;
+  sequence_no: number;
+  payload: NeuroCoreEventPayloadMap[T];
 }
 
-export type NeuroCoreEvent =
-  | EventEnvelope<AgentSession>
-  | EventEnvelope<Goal>
-  | EventEnvelope<Proposal>
-  | EventEnvelope<WorkspaceSnapshot>
-  | EventEnvelope<CandidateAction>
-  | EventEnvelope<ActionExecution>
-  | EventEnvelope<Observation>
-  | EventEnvelope<Episode>
-  | EventEnvelope<Prediction>
-  | EventEnvelope<PredictionError>
-  | EventEnvelope<CycleTrace>
-  | EventEnvelope<SkillDefinition>;
+export type NeuroCoreEvent = {
+  [T in NeuroCoreEventType]: EventEnvelope<T>;
+}[NeuroCoreEventType];

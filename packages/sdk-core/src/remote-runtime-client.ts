@@ -1,17 +1,21 @@
 import type {
   AgentSession,
   ApprovalRequest,
-  CreateSessionCommand,
   CycleTraceRecord,
   Episode,
   NeuroCoreEvent,
+  NeuroCoreEventType,
+  SessionCheckpoint,
   UserInput,
   WorkspaceSnapshot
 } from "@neurocore/protocol";
+import { randomUUID } from "node:crypto";
 import type {
+  SessionEventFilter,
   SessionApprovalDecisionInput,
   SessionApprovalDecisionResult
 } from "./types.js";
+import type { LocalSessionCreateInput } from "./session-handle.js";
 
 export interface SessionRunSummary {
   final_state: AgentSession["state"];
@@ -50,6 +54,12 @@ export interface RemoteSessionEventStream {
   done: Promise<void>;
 }
 
+export interface RemoteSessionSubscribeOptions {
+  reconnect?: boolean;
+  maxReconnects?: number;
+  eventFilter?: SessionEventFilter;
+}
+
 interface ApprovalDecisionResponse extends RemoteSessionRecord {
   approval: ApprovalRequest;
 }
@@ -72,17 +82,20 @@ export class RemoteAgentClient {
   }
 
   public async createSession(
-    command: CreateSessionCommand,
+    command: LocalSessionCreateInput,
     options?: { runImmediately?: boolean }
   ): Promise<RemoteSessionHandle> {
     const record = await this.request<RemoteSessionRecord>(
       "POST",
       `/v1/agents/${encodeURIComponent(this.agentId)}/sessions`,
       {
+        command_type: "create_session",
+        agent_id: this.agentId,
         tenant_id: command.tenant_id,
         user_id: command.user_id,
         session_mode: command.session_mode,
         initial_input: command.initial_input,
+        overrides: command.overrides,
         run_immediately: options?.runImmediately ?? false
       }
     );
@@ -109,6 +122,24 @@ export class RemoteAgentClient {
 
   public async cancelSession(sessionId: string): Promise<RemoteSessionRecord> {
     return this.request("POST", `/v1/sessions/${encodeURIComponent(sessionId)}/cancel`, {});
+  }
+
+  public async checkpointSession(sessionId: string): Promise<SessionCheckpoint> {
+    const response = await this.request<{ checkpoint: SessionCheckpoint }>(
+      "POST",
+      `/v1/sessions/${encodeURIComponent(sessionId)}/checkpoint`,
+      {}
+    );
+    return response.checkpoint;
+  }
+
+  public async suspendSession(sessionId: string): Promise<SessionCheckpoint> {
+    const response = await this.request<{ checkpoint: SessionCheckpoint }>(
+      "POST",
+      `/v1/sessions/${encodeURIComponent(sessionId)}/suspend`,
+      {}
+    );
+    return response.checkpoint;
   }
 
   public async cleanupSession(sessionId: string, options?: { force?: boolean }): Promise<void> {
@@ -192,63 +223,22 @@ export class RemoteAgentClient {
 
   public async subscribeToSessionEvents(
     sessionId: string,
-    listener: (event: NeuroCoreEvent) => void
+    listener: (event: NeuroCoreEvent) => void,
+    options: RemoteSessionSubscribeOptions = {}
   ): Promise<RemoteSessionEventStream> {
     const controller = new AbortController();
-    const response = await this.fetchImpl(`${this.baseUrl}/v1/sessions/${encodeURIComponent(sessionId)}/events/stream`, {
-      method: "GET",
-      headers: {
-        ...this.defaultHeaders,
-        accept: "text/event-stream"
-      },
-      signal: controller.signal
+    const reconnect = options.reconnect ?? true;
+    const maxReconnects = options.maxReconnects ?? this.maxRetries;
+    const eventFilter = options.eventFilter;
+
+    const done = this.runEventStreamLoop({
+      sessionId,
+      controller,
+      listener,
+      reconnect,
+      maxReconnects,
+      eventFilter
     });
-
-    if (!response.ok) {
-      let message = "Unknown error.";
-      try {
-        const payload = (await response.json()) as Record<string, unknown>;
-        if (typeof payload.message === "string") {
-          message = payload.message;
-        }
-      } catch {}
-
-      throw new Error(
-        `GET /v1/sessions/${encodeURIComponent(sessionId)}/events/stream failed with status ${response.status}: ${message}`
-      );
-    }
-
-    if (!response.body) {
-      throw new Error("Runtime server did not provide a readable event stream.");
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    const done = (async () => {
-      try {
-        while (true) {
-          const chunk = await reader.read();
-          if (chunk.done) {
-            break;
-          }
-
-          buffer += decoder.decode(chunk.value, { stream: true });
-          ({ buffer } = drainSseBuffer(buffer, listener));
-        }
-
-        buffer += decoder.decode();
-        ({ buffer } = drainSseBuffer(buffer, listener, true));
-      } catch (error) {
-        if (isAbortError(error)) {
-          return;
-        }
-        throw error;
-      } finally {
-        reader.releaseLock();
-      }
-    })();
 
     return {
       close() {
@@ -256,6 +246,110 @@ export class RemoteAgentClient {
       },
       done
     };
+  }
+
+  private async runEventStreamLoop(input: {
+    sessionId: string;
+    controller: AbortController;
+    listener: (event: NeuroCoreEvent) => void;
+    reconnect: boolean;
+    maxReconnects: number;
+    eventFilter?: SessionEventFilter;
+  }): Promise<void> {
+    let reconnectCount = 0;
+    let lastEventId: string | undefined;
+
+    while (!input.controller.signal.aborted) {
+      try {
+        const response = await this.fetchImpl(
+          `${this.baseUrl}/v1/sessions/${encodeURIComponent(input.sessionId)}/events/stream`,
+          {
+            method: "GET",
+            headers: {
+              ...this.defaultHeaders,
+              accept: "text/event-stream",
+              ...(lastEventId ? { "Last-Event-ID": lastEventId } : {})
+            },
+            signal: input.controller.signal
+          }
+        );
+
+        if (!response.ok) {
+          let message = "Unknown error.";
+          try {
+            const payload = (await response.json()) as Record<string, unknown>;
+            if (typeof payload.message === "string") {
+              message = payload.message;
+            }
+          } catch {}
+
+          throw new Error(
+            `GET /v1/sessions/${encodeURIComponent(input.sessionId)}/events/stream failed with status ${response.status}: ${message}`
+          );
+        }
+
+        if (!response.body) {
+          throw new Error("Runtime server did not provide a readable event stream.");
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        try {
+          while (true) {
+            const chunk = await reader.read();
+            if (chunk.done) {
+              break;
+            }
+
+            buffer += decoder.decode(chunk.value, { stream: true });
+            ({ buffer, lastEventId } = drainSseBuffer(
+              buffer,
+              (event) => {
+                if (matchesEventFilter(event, input.eventFilter)) {
+                  input.listener(event);
+                }
+              },
+              false,
+              lastEventId
+            ));
+          }
+
+          buffer += decoder.decode();
+          ({ buffer, lastEventId } = drainSseBuffer(
+            buffer,
+            (event) => {
+              if (matchesEventFilter(event, input.eventFilter)) {
+                input.listener(event);
+              }
+            },
+            true,
+            lastEventId
+          ));
+        } finally {
+          reader.releaseLock();
+        }
+
+        if (!input.reconnect || input.controller.signal.aborted) {
+          return;
+        }
+        if (reconnectCount >= input.maxReconnects) {
+          return;
+        }
+        reconnectCount += 1;
+        await sleep(250 * Math.pow(2, reconnectCount - 1));
+      } catch (error) {
+        if (isAbortError(error)) {
+          return;
+        }
+        if (!input.reconnect || reconnectCount >= input.maxReconnects) {
+          throw error;
+        }
+        reconnectCount += 1;
+        await sleep(250 * Math.pow(2, reconnectCount - 1));
+      }
+    }
   }
 
   private async request<T>(
@@ -279,7 +373,7 @@ export class RemoteAgentClient {
 
         const payload = (await response.json()) as Record<string, unknown>;
         if (!response.ok) {
-          if (response.status >= 500 && attempt < this.maxRetries) {
+          if (isRetryableHttpStatus(response.status) && attempt < this.maxRetries) {
             lastError = new Error(
               `${method} ${path} failed with status ${response.status}: ${
                 typeof payload.message === "string" ? payload.message : "Unknown error."
@@ -333,6 +427,18 @@ export class RemoteSessionHandle {
     return structuredClone(this.record.session);
   }
 
+  public getState(): AgentSession["state"] {
+    return this.record.session.state;
+  }
+
+  public isTerminal(): boolean {
+    return this.getState() === "completed" || this.getState() === "failed" || this.getState() === "aborted";
+  }
+
+  public isRunning(): boolean {
+    return this.getState() === "running";
+  }
+
   public getLastRun(): SessionRunSummary | null {
     return this.record.last_run ? structuredClone(this.record.last_run) : null;
   }
@@ -372,7 +478,7 @@ export class RemoteSessionHandle {
 
   public async runText(content: string, metadata?: Record<string, unknown>): Promise<RemoteSessionRecord> {
     return this.runInput({
-      input_id: `inp_${Date.now()}`,
+      input_id: `inp_${randomUUID()}`,
       content,
       created_at: new Date().toISOString(),
       metadata
@@ -386,7 +492,7 @@ export class RemoteSessionHandle {
 
   public async resumeText(content: string, metadata?: Record<string, unknown>): Promise<RemoteSessionRecord> {
     return this.resume({
-      input_id: `inp_${Date.now()}`,
+      input_id: `inp_${randomUUID()}`,
       content,
       created_at: new Date().toISOString(),
       metadata
@@ -396,6 +502,16 @@ export class RemoteSessionHandle {
   public async cancel(): Promise<RemoteSessionRecord> {
     this.record = await this.client.cancelSession(this.id);
     return structuredClone(this.record);
+  }
+
+  public async checkpoint(): Promise<SessionCheckpoint> {
+    return this.client.checkpointSession(this.id);
+  }
+
+  public async suspend(): Promise<SessionCheckpoint> {
+    const checkpoint = await this.client.suspendSession(this.id);
+    await this.refresh();
+    return checkpoint;
   }
 
   public async cleanup(options?: { force?: boolean }): Promise<void> {
@@ -419,6 +535,10 @@ export class RemoteSessionHandle {
     return this.client.fetchEvents(this.id);
   }
 
+  public async getFilteredEvents(filter: SessionEventFilter): Promise<NeuroCoreEvent[]> {
+    return filterEvents(await this.getEvents(), filter);
+  }
+
   public async getWorkspace(cycleId: string): Promise<WorkspaceSnapshot> {
     return this.client.fetchWorkspace(this.id, cycleId);
   }
@@ -432,9 +552,10 @@ export class RemoteSessionHandle {
   }
 
   public async subscribeToEvents(
-    listener: (event: NeuroCoreEvent) => void
+    listener: (event: NeuroCoreEvent) => void,
+    options?: RemoteSessionSubscribeOptions
   ): Promise<RemoteSessionEventStream> {
-    return this.client.subscribeToSessionEvents(this.id, listener);
+    return this.client.subscribeToSessionEvents(this.id, listener, options);
   }
 
   public async decideApproval(input: SessionApprovalDecisionInput): Promise<SessionApprovalDecisionResult> {
@@ -446,7 +567,8 @@ export class RemoteSessionHandle {
     const response = await this.client.decideApproval(approvalId, {
       approver_id: input.approver_id,
       decision: input.decision,
-      comment: input.comment
+      comment: input.comment,
+      reviewer_identity: input.reviewer_identity
     });
     this.record = {
       agent_id: response.agent_id,
@@ -493,8 +615,9 @@ function normalizeBaseUrl(baseUrl: string): string {
 function drainSseBuffer(
   rawBuffer: string,
   listener: (event: NeuroCoreEvent) => void,
-  flush = false
-): { buffer: string } {
+  flush = false,
+  lastEventId?: string
+): { buffer: string; lastEventId?: string } {
   let buffer = rawBuffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
   while (true) {
@@ -505,28 +628,36 @@ function drainSseBuffer(
 
     const frame = buffer.slice(0, boundaryIndex);
     buffer = buffer.slice(boundaryIndex + 2);
-    const parsed = parseSseFrame(frame);
+    const parsed = parseSseFrame(frame, lastEventId);
     if (parsed) {
+      lastEventId = parsed.event_id;
       listener(parsed);
     }
   }
 
   if (flush && buffer.trim().length > 0) {
-    const parsed = parseSseFrame(buffer);
+    const parsed = parseSseFrame(buffer, lastEventId);
     if (parsed) {
+      lastEventId = parsed.event_id;
       listener(parsed);
     }
     buffer = "";
   }
 
-  return { buffer };
+  return { buffer, lastEventId };
 }
 
-function parseSseFrame(frame: string): NeuroCoreEvent | undefined {
+function parseSseFrame(frame: string, lastEventId?: string): NeuroCoreEvent | undefined {
+  let declaredEventId: string | undefined;
   const dataLines: string[] = [];
 
   for (const line of frame.split("\n")) {
     if (!line || line.startsWith(":")) {
+      continue;
+    }
+
+    if (line.startsWith("id:")) {
+      declaredEventId = line.slice(3).trim();
       continue;
     }
 
@@ -539,11 +670,46 @@ function parseSseFrame(frame: string): NeuroCoreEvent | undefined {
     return undefined;
   }
 
-  return JSON.parse(dataLines.join("\n")) as NeuroCoreEvent;
+  const parsed = JSON.parse(dataLines.join("\n")) as NeuroCoreEvent;
+  if (declaredEventId && parsed.event_id !== declaredEventId) {
+    parsed.event_id = declaredEventId;
+  }
+  if (parsed.event_id === lastEventId) {
+    return undefined;
+  }
+  return parsed;
 }
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+function isRetryableHttpStatus(status: number): boolean {
+  return status === 429 || status === 502 || status === 503 || status === 504 || status >= 500;
+}
+
+function matchesEventFilter(event: NeuroCoreEvent, filter?: SessionEventFilter): boolean {
+  if (!filter) {
+    return true;
+  }
+  if (filter.event_types && !filter.event_types.includes(event.event_type as NeuroCoreEventType)) {
+    return false;
+  }
+  if (filter.cycle_id && event.cycle_id !== filter.cycle_id) {
+    return false;
+  }
+  if (
+    typeof filter.since_sequence_no === "number" &&
+    Number.isFinite(filter.since_sequence_no) &&
+    event.sequence_no <= filter.since_sequence_no
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function filterEvents(events: NeuroCoreEvent[], filter?: SessionEventFilter): NeuroCoreEvent[] {
+  return events.filter((event) => matchesEventFilter(event, filter));
 }
 
 function sleep(ms: number): Promise<void> {

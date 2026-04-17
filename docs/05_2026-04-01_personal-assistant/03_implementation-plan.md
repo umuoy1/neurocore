@@ -69,7 +69,11 @@ Phase C (高级能力) ─── M-PA-9 ~ M-PA-11 ── 约 6~8 周
 
 - 基于 `ws` 库的 WebSocket 服务
 - 每个连接分配唯一 `chat_id`
-- 简单文本收发，用于本地开发测试
+- 支持消息发送与编辑两类推送，前端通过 `Reasoner.streamText -> runtime.output -> edit` 原生文本流增量更新同一条 assistant 回复
+- 暴露 `runtime.status` 运行状态流，至少覆盖 `session / memory_retrieval / reasoning / tool_execution / response_generation / approval`
+- Web 页面把聊天消息与运行活动分开展示，用于本地开发测试与调试
+- Hosted Runtime / SSE 订阅与飞书推送都复用同一套 `runtime.output / runtime.status` 事件，不保留单独的旧文本输出路径
+- Web Chat 活动面板与 Console `SessionDetailPage` 均展示结构化 `phase/state/detail/data`，不再只显示最终文本
 
 **ConversationRouter 细节**：
 
@@ -82,11 +86,14 @@ Phase C (高级能力) ─── M-PA-9 ~ M-PA-11 ── 约 6~8 周
 
 - AC-1.1：飞书 Bot 可收发文本消息，消息归一化为 `UnifiedMessage`
 - AC-1.2：Web Chat 可通过 WebSocket 收发消息
+- AC-1.2a：Web Chat 通过原生 `streamText` 文本流支持 assistant 文本增量编辑，前端无需等待最终整段回复
+- AC-1.2b：Web Chat 通过 `runtime.status` 可实时展示 Agent 当前运行阶段、工具调用状态和检索/思考过程
+- AC-1.2c：飞书 Adapter 复用同一套 `runtime.output / runtime.status` 活动流，工具执行、检索、审批与最终文本不再走独立消息路径
 - AC-1.3：`ConversationRouter` 正确映射 `(platform, chat_id)` 到 session
 - AC-1.4：超时 session 自动 checkpoint 并创建新 session
 - AC-1.5：审批卡片按钮回调正确映射为 approval decision
 - AC-1.6：命令（`/new`、`/reset`）正确拦截处理
-- AC-1.7：15+ 个单元测试覆盖 adapter、router、mapping、checkpoint、命令逻辑
+- AC-1.7：adapter、router、mapping、checkpoint、approval、proactive、Hosted Runtime 与 Web Chat/Feishu 原生活动流均有 focused 回归覆盖
 
 **依赖**：`@neurocore/protocol`、`@neurocore/sdk-core`、`@larksuiteoapi/node-sdk`、`ws`
 

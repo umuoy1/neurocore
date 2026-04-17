@@ -1,4 +1,10 @@
-import type { AgentProfile, AgentSession, CreateSessionCommand, SessionState } from "@neurocore/protocol";
+import type {
+  AgentProfile,
+  AgentSession,
+  CreateSessionCommand,
+  RuntimeConfig,
+  SessionState
+} from "@neurocore/protocol";
 import { generateId, nowIso } from "../utils/ids.js";
 
 const ALLOWED_SESSION_TRANSITIONS: Record<SessionState, readonly SessionState[]> = {
@@ -20,12 +26,32 @@ export class SessionStateConflictError extends Error {
   }
 }
 
+interface SessionRetentionPolicy {
+  ttl_ms?: number;
+  idle_ttl_ms?: number;
+}
+
+const SESSION_RETENTION_METADATA_KEY = "__session_retention";
+
 export class SessionManager {
   private readonly sessions = new Map<string, AgentSession>();
   private runningSessionId: string | undefined;
   private readonly sessionLocks = new Map<string, Promise<void>>();
+  private readonly sessionRetention = new Map<string, SessionRetentionPolicy>();
+  private maxInMemorySessions?: number;
+
+  public applyRuntimeConfig(config?: RuntimeConfig): void {
+    if (
+      typeof config?.max_in_memory_sessions === "number" &&
+      Number.isFinite(config.max_in_memory_sessions) &&
+      config.max_in_memory_sessions > 0
+    ) {
+      this.maxInMemorySessions = config.max_in_memory_sessions;
+    }
+  }
 
   public create(profile: AgentProfile, command: CreateSessionCommand): AgentSession {
+    this.applyRuntimeConfig(profile.runtime_config);
     const session: AgentSession = {
       session_id: generateId("ses"),
       schema_version: profile.schema_version,
@@ -46,6 +72,10 @@ export class SessionManager {
       started_at: nowIso()
     };
 
+    const retentionPolicy = toSessionRetentionPolicy(profile.runtime_config);
+    applyRetentionPolicyMetadata(session, retentionPolicy);
+    this.sessionRetention.set(session.session_id, retentionPolicy);
+
     this.sessions.set(session.session_id, session);
     return session;
   }
@@ -58,6 +88,7 @@ export class SessionManager {
     if (this.sessions.has(session.session_id)) {
       throw new Error(`Session ${session.session_id} already exists. Remove it first.`);
     }
+    this.sessionRetention.set(session.session_id, readRetentionPolicyMetadata(session));
     this.sessions.set(session.session_id, session);
     return session;
   }
@@ -69,6 +100,7 @@ export class SessionManager {
   public deleteSession(sessionId: string): void {
     this.sessions.delete(sessionId);
     this.sessionLocks.delete(sessionId);
+    this.sessionRetention.delete(sessionId);
   }
 
   public updateState(sessionId: string, state: SessionState): AgentSession {
@@ -202,6 +234,83 @@ export class SessionManager {
     };
   }
 
+  public collectExpiredSessionIds(
+    nowMs = Date.now(),
+    protectedSessionIds: ReadonlySet<string> = new Set<string>()
+  ): string[] {
+    const expired: string[] = [];
+
+    for (const [sessionId, session] of this.sessions.entries()) {
+      if (protectedSessionIds.has(sessionId) || this.sessionLocks.has(sessionId) || session.state === "running") {
+        continue;
+      }
+
+      const policy = this.sessionRetention.get(sessionId);
+      if (!policy) {
+        continue;
+      }
+
+      const startedAt = parseTimestamp(session.started_at);
+      const lastActiveAt = parseTimestamp(session.last_active_at) ?? startedAt;
+
+      if (
+        typeof policy.ttl_ms === "number" &&
+        Number.isFinite(policy.ttl_ms) &&
+        policy.ttl_ms > 0 &&
+        startedAt !== undefined &&
+        nowMs - startedAt >= policy.ttl_ms
+      ) {
+        expired.push(sessionId);
+        continue;
+      }
+
+      if (
+        typeof policy.idle_ttl_ms === "number" &&
+        Number.isFinite(policy.idle_ttl_ms) &&
+        policy.idle_ttl_ms > 0 &&
+        lastActiveAt !== undefined &&
+        nowMs - lastActiveAt >= policy.idle_ttl_ms
+      ) {
+        expired.push(sessionId);
+      }
+    }
+
+    return expired;
+  }
+
+  public collectLruEvictionSessionIds(
+    protectedSessionIds: ReadonlySet<string> = new Set<string>()
+  ): string[] {
+    if (
+      typeof this.maxInMemorySessions !== "number" ||
+      !Number.isFinite(this.maxInMemorySessions) ||
+      this.maxInMemorySessions <= 0 ||
+      this.sessions.size <= this.maxInMemorySessions
+    ) {
+      return [];
+    }
+
+    const overflow = this.sessions.size - this.maxInMemorySessions;
+    if (overflow <= 0) {
+      return [];
+    }
+
+    return [...this.sessions.values()]
+      .filter(
+        (session) =>
+          !protectedSessionIds.has(session.session_id) &&
+          !this.sessionLocks.has(session.session_id) &&
+          session.state !== "running"
+      )
+      .sort((left, right) => {
+        const leftTs = parseTimestamp(left.last_active_at) ?? parseTimestamp(left.started_at) ?? 0;
+        const rightTs = parseTimestamp(right.last_active_at) ?? parseTimestamp(right.started_at) ?? 0;
+        return leftTs - rightTs;
+      })
+      .slice(0, overflow)
+      .map((session) => session.session_id);
+  }
+
   private require(sessionId: string): AgentSession {
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -235,4 +344,62 @@ export class SessionManager {
     }
     return session;
   }
+}
+
+function toSessionRetentionPolicy(config?: RuntimeConfig): SessionRetentionPolicy {
+  return {
+    ttl_ms:
+      typeof config?.session_ttl_ms === "number" && Number.isFinite(config.session_ttl_ms) && config.session_ttl_ms > 0
+        ? config.session_ttl_ms
+        : undefined,
+    idle_ttl_ms:
+      typeof config?.session_idle_ttl_ms === "number" &&
+      Number.isFinite(config.session_idle_ttl_ms) &&
+      config.session_idle_ttl_ms > 0
+        ? config.session_idle_ttl_ms
+        : undefined
+  };
+}
+
+function readRetentionPolicyMetadata(session: AgentSession): SessionRetentionPolicy {
+  const raw =
+    session.metadata &&
+    typeof session.metadata[SESSION_RETENTION_METADATA_KEY] === "object" &&
+    session.metadata[SESSION_RETENTION_METADATA_KEY] !== null
+      ? (session.metadata[SESSION_RETENTION_METADATA_KEY] as Record<string, unknown>)
+      : undefined;
+
+  return {
+    ttl_ms:
+      typeof raw?.ttl_ms === "number" && Number.isFinite(raw.ttl_ms) && raw.ttl_ms > 0
+        ? raw.ttl_ms
+        : undefined,
+    idle_ttl_ms:
+      typeof raw?.idle_ttl_ms === "number" && Number.isFinite(raw.idle_ttl_ms) && raw.idle_ttl_ms > 0
+        ? raw.idle_ttl_ms
+        : undefined
+  };
+}
+
+function applyRetentionPolicyMetadata(session: AgentSession, policy: SessionRetentionPolicy): void {
+  if (policy.ttl_ms === undefined && policy.idle_ttl_ms === undefined) {
+    if (session.metadata && SESSION_RETENTION_METADATA_KEY in session.metadata) {
+      delete session.metadata[SESSION_RETENTION_METADATA_KEY];
+    }
+    return;
+  }
+
+  const metadata = (session.metadata ??= {});
+  metadata[SESSION_RETENTION_METADATA_KEY] = {
+    ...(policy.ttl_ms !== undefined ? { ttl_ms: policy.ttl_ms } : {}),
+    ...(policy.idle_ttl_ms !== undefined ? { idle_ttl_ms: policy.idle_ttl_ms } : {})
+  };
+}
+
+function parseTimestamp(value: string | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? undefined : parsed;
 }

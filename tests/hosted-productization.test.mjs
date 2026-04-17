@@ -45,6 +45,9 @@ const echoAgent = defineAgent({
         side_effect_level: "none"
       }
     ];
+  },
+  async *streamText(_ctx, action) {
+    yield action.description ?? action.title;
   }
 });
 
@@ -231,6 +234,34 @@ test("M6.1: Auth middleware - valid key allows session creation", async () => {
     });
     assert.equal(res.status, 201);
     assert.ok(res.body.session);
+  } finally {
+    await server.close();
+  }
+});
+
+test("M6.1: Request-time permission checks reject writes for read-only keys", async () => {
+  const keys = new Map([
+    ["read-only", { tenant_id: "tenant-1", permissions: ["read"] }]
+  ]);
+  const server = createRuntimeServer({
+    agents: [echoAgent],
+    authenticator: new ApiKeyAuthenticator(keys)
+  });
+  const { url } = await server.listen();
+  try {
+    const res = await httpRequest(`${url}/v1/agents/test-hosted-agent/sessions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer read-only"
+      },
+      body: JSON.stringify({
+        tenant_id: "tenant-1",
+        initial_input: { content: "hi" }
+      })
+    });
+    assert.equal(res.status, 403);
+    assert.equal(res.body.error, "insufficient_permissions");
   } finally {
     await server.close();
   }
@@ -495,6 +526,46 @@ test("M6.3: GET /v1/metrics returns metrics", async () => {
   }
 });
 
+test("M6.3: GET /v1/metrics/prometheus exports Prometheus text format", async () => {
+  const server = createRuntimeServer({ agents: [echoAgent] });
+  const { url } = await server.listen();
+  try {
+    await httpRequest(`${url}/v1/agents/test-hosted-agent/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tenant_id: "t1", initial_input: { content: "metrics export" } })
+    });
+
+    const res = await httpRequest(`${url}/v1/metrics/prometheus`);
+    assert.equal(res.status, 200);
+    assert.match(res.body, /neurocore_sessions_created_total/);
+    assert.match(res.body, /neurocore_cycle_latency_ms/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("M6.3: GET /v1/runtime/saturation returns runtime pressure snapshot", async () => {
+  const server = createRuntimeServer({ agents: [echoAgent] });
+  const { url } = await server.listen();
+  try {
+    await httpRequest(`${url}/v1/agents/test-hosted-agent/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tenant_id: "t1", initial_input: { content: "saturation" } })
+    });
+
+    const res = await httpRequest(`${url}/v1/runtime/saturation`);
+    assert.equal(res.status, 200);
+    assert.equal(typeof res.body.active_session_count, "number");
+    assert.equal(typeof res.body.active_run_ratio, "number");
+    assert.equal(typeof res.body.queue_pressure, "number");
+    assert.equal(typeof res.body.sessions_per_agent["test-hosted-agent"], "number");
+  } finally {
+    await server.close();
+  }
+});
+
 test("M6.2: GET /v1/sessions/:id/replay returns SessionReplay", async () => {
   const server = createRuntimeServer({ agents: [echoAgent] });
   const { url } = await server.listen();
@@ -512,6 +583,35 @@ test("M6.2: GET /v1/sessions/:id/replay returns SessionReplay", async () => {
     assert.equal(typeof replayRes.body.cycle_count, "number");
     assert.ok(replayRes.body.cycle_count >= 1);
     assert.ok(Array.isArray(replayRes.body.traces));
+  } finally {
+    await server.close();
+  }
+});
+
+test("M6.2: GET /v1/sessions/:id/traces/export supports json and ndjson", async () => {
+  const server = createRuntimeServer({ agents: [echoAgent] });
+  const { url } = await server.listen();
+  try {
+    const createRes = await httpRequest(`${url}/v1/agents/test-hosted-agent/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tenant_id: "t1", initial_input: { content: "trace export" } })
+    });
+    const sessionId = createRes.body.session.session_id;
+
+    const jsonRes = await httpRequest(`${url}/v1/sessions/${sessionId}/traces/export`);
+    assert.equal(jsonRes.status, 200);
+    assert.equal(jsonRes.body.session_id, sessionId);
+    assert.ok(Array.isArray(jsonRes.body.traces));
+
+    const ndjsonRes = await httpRequest(`${url}/v1/sessions/${sessionId}/traces/export?format=ndjson`);
+    assert.equal(ndjsonRes.status, 200);
+    const entries = typeof ndjsonRes.body === "string"
+      ? String(ndjsonRes.body).trim().split("\n").filter(Boolean).map((line) => JSON.parse(line))
+      : [ndjsonRes.body];
+    assert.ok(entries.length >= 1);
+    const first = entries[0];
+    assert.equal(first.trace.session_id, sessionId);
   } finally {
     await server.close();
   }
@@ -757,6 +857,9 @@ const approvalAgent = defineAgent({
         side_effect_level: "high"
       }
     ];
+  },
+  async *streamText(_ctx, action) {
+    yield action.description ?? action.title;
   }
 }).registerTool({
   name: "risky_op",
@@ -801,6 +904,9 @@ function makeApprovalAgent(approvalPolicy) {
           side_effect_level: "high"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   }).registerTool({
     name: "risky_op",
@@ -922,6 +1028,61 @@ test("M6.4: Tenant mismatch in approval decision is rejected", async () => {
     });
     assert.equal(decisionRes.status, 403);
     assert.equal(decisionRes.body.error, "tenant_mismatch");
+  } finally {
+    await server.close();
+  }
+});
+
+test("M6.4: Approval decisions persist reviewer identity and audit log", async () => {
+  const keys = new Map([
+    ["key-t1", { tenant_id: "tenant-1", permissions: ["write", "approve", "read"] }]
+  ]);
+  const server = createRuntimeServer({
+    agents: [approvalAgent],
+    authenticator: new ApiKeyAuthenticator(keys)
+  });
+  const { url } = await server.listen();
+  try {
+    const createRes = await httpRequest(`${url}/v1/agents/test-approval-agent/sessions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer key-t1"
+      },
+      body: JSON.stringify({
+        tenant_id: "tenant-1",
+        initial_input: { content: "run risky op" }
+      })
+    });
+    const pendingApproval = createRes.body.pending_approval;
+    assert.ok(pendingApproval);
+
+    const decisionRes = await httpRequest(`${url}/v1/approvals/${pendingApproval.approval_id}/decision`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer key-t1"
+      },
+      body: JSON.stringify({
+        approver_id: "admin",
+        decision: "approved"
+      })
+    });
+    assert.equal(decisionRes.status, 200);
+    assert.equal(decisionRes.body.approval.reviewer_identity.api_key_id, "key-t1");
+    assert.equal(decisionRes.body.approval.reviewer_identity.tenant_id, "tenant-1");
+    assert.ok(decisionRes.body.approval.reviewer_identity.permissions.includes("approve"));
+
+    const auditRes = await httpRequest(`${url}/v1/audit-logs?action=approval.approved`, {
+      headers: {
+        authorization: "Bearer key-t1"
+      }
+    });
+    assert.equal(auditRes.status, 200);
+    assert.ok(auditRes.body.entries.some((entry) =>
+      entry.target_id === pendingApproval.approval_id &&
+      entry.details?.reviewer_identity?.api_key_id === "key-t1"
+    ));
   } finally {
     await server.close();
   }

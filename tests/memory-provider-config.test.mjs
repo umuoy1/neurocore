@@ -263,6 +263,42 @@ test("WorkingMemoryProvider reads from SQLite persistence when a fresh provider 
   }
 });
 
+test("WorkingMemoryProvider prunes expired entries from memory and SQLite stores", () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "neurocore-working-ttl-"));
+  try {
+    const sqliteStore = new SqliteWorkingMemoryStore({
+      filename: join(stateDir, "memory.db"),
+      maxEntries: 8
+    });
+    const provider = new WorkingMemoryProvider(8, sqliteStore);
+
+    provider.append("ses_memory", {
+      memory_id: "mem_expired",
+      summary: "expired entry",
+      relevance: 0.5,
+      created_at: "2026-01-01T00:00:00.000Z",
+      expires_at: "2026-01-01T00:00:01.000Z"
+    });
+    provider.append("ses_memory", {
+      memory_id: "mem_live",
+      summary: "live entry",
+      relevance: 1
+    });
+
+    assert.deepEqual(
+      provider.list("ses_memory").map((entry) => entry.memory_id),
+      ["mem_live"]
+    );
+    assert.deepEqual(
+      sqliteStore.list("ses_memory").map((entry) => entry.memory_id),
+      ["mem_live"]
+    );
+    sqliteStore.close();
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("AgentRuntime respects memory_config.working_memory_max_entries", async () => {
   const reasoner = {
     name: "working-memory-cap-reasoner",
@@ -275,6 +311,9 @@ test("AgentRuntime respects memory_config.working_memory_max_entries", async () 
         description: "Need more input",
         side_effect_level: "none"
       }];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   };
   const runtime = new AgentRuntime({ reasoner });
@@ -321,6 +360,9 @@ test("AgentRuntime mirrors working and episodic writes into configured SQLite me
           description: "Need more input",
           side_effect_level: "none"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     };
     const runtime = new AgentRuntime({ reasoner, memoryPersistence });
@@ -373,6 +415,9 @@ test("defineAgent runtime infrastructure passes SQLite memory persistence into r
             description: "Need more input",
             side_effect_level: "none"
           }];
+        },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
         }
       })
       .useRuntimeInfrastructure({
@@ -421,6 +466,9 @@ test("defineAgent runtime infrastructure passes SQLite checkpoint store into run
             description: "Need more input",
             side_effect_level: "none"
           }];
+        },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
         }
       })
       .useRuntimeInfrastructure({
@@ -472,6 +520,9 @@ test("defineAgent defaults to SQL-first persistence when no runtime persistence 
           description: "Need more input",
           side_effect_level: "none"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     });
 
@@ -495,7 +546,10 @@ test("defineAgent defaults to SQL-first persistence when no runtime persistence 
     }).useReasoner({
       name: "default-sql-first-reload-reasoner",
       async plan() { return []; },
-      async respond() { return []; }
+      async respond() { return []; },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
+      }
     });
 
     const connected = reloadedAgent.connectSession(session.id);
@@ -531,6 +585,9 @@ test("defineAgent auto-derives SQL-first memory and checkpoint persistence from 
             description: "Need more input",
             side_effect_level: "none"
           }];
+        },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
         }
       })
       .useRuntimeStateStore(() => new SqliteRuntimeStateStore({ filename }));
@@ -553,7 +610,10 @@ test("defineAgent auto-derives SQL-first memory and checkpoint persistence from 
       .useReasoner({
         name: "derived-sql-first-reload-reasoner",
         async plan() { return []; },
-        async respond() { return []; }
+        async respond() { return []; },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
+        }
       })
       .useRuntimeStateStore(() => new SqliteRuntimeStateStore({ filename }));
 
@@ -585,6 +645,9 @@ test("AgentRuntime auto-derives SQL-first memory and checkpoint persistence from
           description: "Need more input",
           side_effect_level: "none"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     };
     const runtime = new AgentRuntime({ reasoner, stateStore });
@@ -613,7 +676,10 @@ test("AgentRuntime auto-derives SQL-first memory and checkpoint persistence from
       reasoner: {
         name: "runtime-derived-sql-first-read-reasoner",
         async plan() { return []; },
-        async respond() { return []; }
+        async respond() { return []; },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
+        }
       },
       stateStore: new SqliteRuntimeStateStore({ filename })
     });
@@ -678,7 +744,10 @@ test("AgentRuntime rejects legacy runtime snapshot payloads until explicit migra
       reasoner: {
         name: "legacy-runtime-reject-reasoner",
         async plan() { return []; },
-        async respond() { return []; }
+        async respond() { return []; },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
+        }
       },
       stateStore: new SqliteRuntimeStateStore({ filename }),
       memoryPersistence: createSqliteMemoryPersistence({ filename }),
@@ -789,7 +858,10 @@ test("explicit SQL runtime migration backfills legacy memory and checkpoints, th
       reasoner: {
         name: "runtime-migration-read-reasoner",
         async plan() { return []; },
-        async respond() { return []; }
+        async respond() { return []; },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
+        }
       },
       stateStore: new SqliteRuntimeStateStore({ filename }),
       memoryPersistence: createSqliteMemoryPersistence({ filename }),
@@ -863,6 +935,9 @@ test("persisted runtime snapshot omits working, episodic, and semantic payloads 
           description: "Need more input",
           side_effect_level: "none"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     };
     const runtime = new AgentRuntime({ reasoner, stateStore, memoryPersistence });
@@ -908,6 +983,9 @@ test("persisted runtime snapshot omits checkpoints when SQLite checkpoint store 
             description: "Need more input",
             side_effect_level: "none"
           }];
+        },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
         }
       },
       stateStore,
@@ -954,6 +1032,9 @@ test("runtime reloads working and episodic state from SQLite memory persistence 
             description: "Need more input",
             side_effect_level: "none"
           }];
+        },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
         }
       },
       stateStore,
@@ -979,7 +1060,10 @@ test("runtime reloads working and episodic state from SQLite memory persistence 
       reasoner: {
         name: "slim-reload-read-reasoner",
         async plan() { return []; },
-        async respond() { return []; }
+        async respond() { return []; },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
+        }
       },
       stateStore,
       memoryPersistence: createSqliteMemoryPersistence({
@@ -1016,6 +1100,9 @@ test("runtime reloads checkpoints from independent SQLite checkpoint store", asy
             description: "Need more input",
             side_effect_level: "none"
           }];
+        },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
         }
       },
       stateStore,
@@ -1042,7 +1129,10 @@ test("runtime reloads checkpoints from independent SQLite checkpoint store", asy
       reasoner: {
         name: "checkpoint-reload-read-reasoner",
         async plan() { return []; },
-        async respond() { return []; }
+        async respond() { return []; },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
+        }
       },
       stateStore,
       checkpointStore: restoredCheckpointStore
@@ -1078,6 +1168,9 @@ test("checkpoint omits memory payloads when SQLite memory persistence is configu
             description: "Need more input",
             side_effect_level: "none"
           }];
+        },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
         }
       },
       memoryPersistence
@@ -1130,6 +1223,9 @@ test("restoreSession reloads state from SQLite memory persistence when checkpoin
             description: "Need more input",
             side_effect_level: "none"
           }];
+        },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
         }
       },
       memoryPersistence: seedPersistence
@@ -1158,7 +1254,10 @@ test("restoreSession reloads state from SQLite memory persistence when checkpoin
       reasoner: {
         name: "slim-checkpoint-restore-read-reasoner",
         async plan() { return []; },
-        async respond() { return []; }
+        async respond() { return []; },
+        async *streamText(_ctx, action) {
+          yield action.description ?? action.title;
+        }
       },
       memoryPersistence: restoredPersistence
     });
@@ -1470,6 +1569,94 @@ test("SemanticMemoryProvider reads from SQLite persistence when a fresh provider
   }
 });
 
+test("SemanticMemoryProvider stores repeated failed episodes as negative patterns when enabled", async () => {
+  const provider = new SemanticMemoryProvider();
+  const writerCtx = makeCtx({ semantic_negative_learning_enabled: true });
+
+  await provider.writeEpisode(writerCtx, makeEpisode({
+    session_id: "ses_negative_seed",
+    episode_id: "epi_negative_1",
+    outcome: "failure",
+    valence: "negative",
+    selected_strategy: "Call tool: send_email",
+    outcome_summary: "sending email without confirmation caused a failure",
+    metadata: {
+      action_type: "call_tool",
+      tool_name: "email_send"
+    }
+  }));
+  await provider.writeEpisode(writerCtx, makeEpisode({
+    session_id: "ses_negative_seed",
+    episode_id: "epi_negative_2",
+    outcome: "failure",
+    valence: "negative",
+    selected_strategy: "Call tool: send_email",
+    outcome_summary: "sending email without confirmation caused a failure",
+    metadata: {
+      action_type: "call_tool",
+      tool_name: "email_send"
+    }
+  }));
+
+  const queryCtx = {
+    ...makeCtx({ semantic_negative_learning_enabled: true }),
+    session: {
+      ...makeSession(),
+      session_id: "ses_negative_query"
+    },
+    runtime_state: {
+      current_input_content: "please send an email",
+      current_input_metadata: {
+        tool_name: "email_send"
+      }
+    }
+  };
+  const [proposal] = await provider.retrieve(queryCtx);
+
+  assert.equal(proposal.payload.records[0].valence, "negative");
+  assert.match(proposal.payload.records[0].summary, /^Avoid:/);
+});
+
+test("SemanticMemoryProvider ignores failed episodes when negative learning is disabled", async () => {
+  const provider = new SemanticMemoryProvider();
+  const ctx = makeCtx({ semantic_negative_learning_enabled: false });
+
+  await provider.writeEpisode(ctx, makeEpisode({
+    session_id: "ses_negative_seed",
+    episode_id: "epi_negative_1",
+    outcome: "failure",
+    valence: "negative",
+    selected_strategy: "Call tool: send_email",
+    outcome_summary: "sending email without confirmation caused a failure",
+    metadata: {
+      action_type: "call_tool",
+      tool_name: "email_send"
+    }
+  }));
+  await provider.writeEpisode(ctx, makeEpisode({
+    session_id: "ses_negative_seed",
+    episode_id: "epi_negative_2",
+    outcome: "failure",
+    valence: "negative",
+    selected_strategy: "Call tool: send_email",
+    outcome_summary: "sending email without confirmation caused a failure",
+    metadata: {
+      action_type: "call_tool",
+      tool_name: "email_send"
+    }
+  }));
+
+  const queryCtx = {
+    ...makeCtx({ semantic_negative_learning_enabled: false }),
+    session: {
+      ...makeSession(),
+      session_id: "ses_negative_query"
+    }
+  };
+
+  assert.deepEqual(await provider.retrieve(queryCtx), []);
+});
+
 test("CycleEngine filters non-memory proposals from memory providers", async () => {
   const engine = new CycleEngine();
   const profile = makeProfile();
@@ -1498,6 +1685,9 @@ test("CycleEngine filters non-memory proposals from memory providers", async () 
           description: "Respond",
           side_effect_level: "none"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     },
     metaController: new DefaultMetaController(),
@@ -1807,7 +1997,10 @@ test("explicit file runtime migration backfills semantic memory, then runtime re
     const reasoner = {
       name: "semantic-snapshot-reasoner",
       async plan() { return []; },
-      async respond() { return []; }
+      async respond() { return []; },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
+      }
     };
 
     const restoredRuntime = new AgentRuntime({

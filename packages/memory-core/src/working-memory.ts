@@ -24,20 +24,25 @@ export class WorkingMemoryStore {
 
   public append(sessionId: string, entry: WorkingMemoryEntry, maxEntriesOverride?: number): void {
     const current = this.entries.get(sessionId) ?? [];
-    current.push(entry);
+    current.push(normalizeWorkingMemoryEntry(entry));
     const limit = maxEntriesOverride ?? this.maxEntries;
-    if (limit && current.length > limit) {
-      current.splice(0, current.length - limit);
-    }
-    this.entries.set(sessionId, current);
+    this.entries.set(sessionId, pruneWorkingMemoryEntries(current, limit));
   }
 
   public list(sessionId: string): WorkingMemoryEntry[] {
-    return this.entries.get(sessionId) ?? [];
+    const current = this.entries.get(sessionId) ?? [];
+    const pruned = pruneWorkingMemoryEntries(current, this.maxEntries);
+    if (pruned.length !== current.length) {
+      this.entries.set(sessionId, pruned);
+    }
+    return pruned;
   }
 
   public replace(sessionId: string, entries: WorkingMemoryEntry[]): void {
-    this.entries.set(sessionId, entries);
+    this.entries.set(
+      sessionId,
+      pruneWorkingMemoryEntries(entries.map((entry) => normalizeWorkingMemoryEntry(entry)), this.maxEntries)
+    );
   }
 
   public deleteSession(sessionId: string): void {
@@ -69,15 +74,25 @@ export class WorkingMemoryProvider implements MemoryProvider {
   }
 
   public append(sessionId: string, entry: WorkingMemoryEntry, maxEntriesOverride?: number): void {
-    this.store.append(sessionId, entry, maxEntriesOverride);
-    this.persistenceStore?.append(sessionId, entry, maxEntriesOverride);
+    const normalized = normalizeWorkingMemoryEntry(entry);
+    this.store.append(sessionId, normalized, maxEntriesOverride);
+    this.persistenceStore?.append(sessionId, normalized, maxEntriesOverride);
   }
 
-  public appendObservation(sessionId: string, observation: Observation, maxEntriesOverride?: number): void {
+  public appendObservation(
+    sessionId: string,
+    observation: Observation,
+    maxEntriesOverride?: number,
+    ttlMs?: number
+  ): void {
     this.append(sessionId, {
       memory_id: observation.observation_id,
       summary: observation.summary,
-      relevance: 1
+      relevance: 1,
+      created_at: observation.created_at,
+      expires_at: ttlMs && ttlMs > 0
+        ? new Date(Date.parse(observation.created_at) + ttlMs).toISOString()
+        : undefined
     }, maxEntriesOverride);
   }
 
@@ -89,13 +104,18 @@ export class WorkingMemoryProvider implements MemoryProvider {
   }
 
   public replace(sessionId: string, entries: WorkingMemoryEntry[]): void {
-    this.store.replace(sessionId, entries);
-    this.persistenceStore?.replace(sessionId, entries);
+    const normalized = entries.map((entry) => normalizeWorkingMemoryEntry(entry));
+    this.store.replace(sessionId, normalized);
+    this.persistenceStore?.replace(sessionId, normalized);
   }
 
   public deleteSession(sessionId: string): void {
     this.store.deleteSession(sessionId);
     this.persistenceStore?.deleteSession(sessionId);
+  }
+
+  public evictSession(sessionId: string): void {
+    this.store.deleteSession(sessionId);
   }
 
   public digest(sessionId: string): MemoryDigest[] {
@@ -155,4 +175,26 @@ export class WorkingMemoryProvider implements MemoryProvider {
   public async writeEpisode(_ctx: ModuleContext, _episode: Episode): Promise<void> {
     // MVP: working memory is session-scoped and does not persist episode writes yet.
   }
+}
+
+function normalizeWorkingMemoryEntry(entry: WorkingMemoryEntry): WorkingMemoryEntry {
+  return {
+    ...entry,
+    created_at: entry.created_at ?? new Date().toISOString()
+  };
+}
+
+function pruneWorkingMemoryEntries(entries: WorkingMemoryEntry[], limit?: number): WorkingMemoryEntry[] {
+  const now = Date.now();
+  const active = entries.filter((entry) => {
+    if (!entry.expires_at) {
+      return true;
+    }
+    const expiresAt = Date.parse(entry.expires_at);
+    return Number.isNaN(expiresAt) || expiresAt > now;
+  });
+  if (limit && active.length > limit) {
+    return active.slice(active.length - limit);
+  }
+  return active;
 }

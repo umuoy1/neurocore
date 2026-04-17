@@ -1,5 +1,5 @@
-import type { AgentBuilder } from "@neurocore/sdk-core";
-import type { ApprovalRequest } from "@neurocore/protocol";
+import type { AgentBuilder, AgentSessionHandle } from "@neurocore/sdk-core";
+import type { ApprovalRequest, NeuroCoreEvent, RuntimeOutput, RuntimeStatus } from "@neurocore/protocol";
 import { createUserInput } from "./input/input-factory.js";
 import type { ApprovalBindingStore } from "./approval/approval-binding-store.js";
 import type { IMAdapter } from "./adapter/im-adapter.js";
@@ -11,6 +11,17 @@ import type { IMAdapterConfig, IMPlatform, MessageContent, PushNotificationOptio
 interface RegisteredAdapter {
   adapter: IMAdapter;
   config: IMAdapterConfig;
+}
+
+interface ProgressStreamHandle {
+  dispose(): void;
+  hasOutput: boolean;
+  chain: Promise<void>;
+}
+
+interface OutputForwardState {
+  messageId?: string;
+  lastText?: string;
 }
 
 export interface IMGatewayOptions {
@@ -106,35 +117,61 @@ export class IMGateway {
     });
 
     const resolved = this.options.router.resolveOrCreate(message, input);
-    const result = resolved.is_new
-      ? await resolved.handle.run()
-      : await resolved.handle.runText(prompt, input.metadata);
+    const progress = shouldForwardProgress(message.platform)
+      ? this.attachProgressStream(message, resolved.session_id, resolved.handle)
+      : undefined;
 
-    const lastStep = result.steps.at(-1);
-    if (lastStep?.approval) {
-      const sent = await this.options.dispatcher.sendToChat(
-        message.platform,
-        message.chat_id,
-        buildApprovalMessage(lastStep.approval)
-      );
+    try {
+      if (shouldForwardProgress(message.platform)) {
+        await this.options.dispatcher.sendToChat(message.platform, message.chat_id, {
+          type: "status",
+          text: resolved.is_new ? "Started a new assistant session." : "Reusing the existing assistant session.",
+          phase: "session",
+          state: "started",
+          session_id: resolved.session_id
+        });
+      }
 
-      this.options.approvalBindingStore.upsertBinding({
-        platform: message.platform,
-        platform_message_id: sent.message_id,
-        session_id: resolved.session_id,
-        approval_id: lastStep.approval.approval_id,
-        chat_id: message.chat_id,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
-      return;
+      await this.getAdapter(message.platform)?.typingIndicator?.(message.chat_id);
+    } catch {}
+
+    try {
+      const result = resolved.is_new
+        ? await resolved.handle.run()
+        : await resolved.handle.runText(prompt, input.metadata);
+      await progress?.chain;
+
+      const lastStep = result.steps.at(-1);
+      if (lastStep?.approval) {
+        const sent = await this.options.dispatcher.sendToChat(
+          message.platform,
+          message.chat_id,
+          buildApprovalMessage(lastStep.approval)
+        );
+
+        this.options.approvalBindingStore.upsertBinding({
+          platform: message.platform,
+          platform_message_id: sent.message_id,
+          session_id: resolved.session_id,
+          approval_id: lastStep.approval.approval_id,
+          chat_id: message.chat_id,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+        return;
+      }
+
+      const output = result.outputText ?? "The assistant completed without emitting a textual response.";
+      if (!shouldStreamAssistantOutput(message.platform) || !progress?.hasOutput) {
+        await this.options.dispatcher.sendToChat(message.platform, message.chat_id, {
+          type: "text",
+          text: output
+        });
+      }
+    } finally {
+      await progress?.chain;
+      progress?.dispose();
     }
-
-    const output = result.outputText ?? "The assistant completed without emitting a textual response.";
-    await this.options.dispatcher.sendToChat(message.platform, message.chat_id, {
-      type: "text",
-      text: output
-    });
   }
 
   private async handleActionMessage(message: UnifiedMessage): Promise<boolean> {
@@ -190,6 +227,108 @@ export class IMGateway {
     }
     return true;
   }
+
+  private attachProgressStream(
+    message: UnifiedMessage,
+    sessionId: string,
+    handle: AgentSessionHandle
+  ): ProgressStreamHandle {
+    const outputState: OutputForwardState = {};
+    const progress: ProgressStreamHandle = {
+      hasOutput: false,
+      chain: Promise.resolve(),
+      dispose() {
+        unsubscribe();
+      }
+    };
+
+    const unsubscribe = handle.subscribeToEvents((event) => {
+      progress.chain = progress.chain
+        .then(() => this.forwardRuntimeEvent(message, sessionId, event, progress, outputState))
+        .catch(() => {});
+    });
+
+    return progress;
+  }
+
+  private async forwardRuntimeEvent(
+    message: UnifiedMessage,
+    sessionId: string,
+    event: NeuroCoreEvent,
+    progress: ProgressStreamHandle,
+    outputState: OutputForwardState
+  ): Promise<void> {
+    if (!shouldForwardProgress(message.platform)) {
+      return;
+    }
+
+    if (event.event_type === "runtime.output") {
+      const payload = event.payload as RuntimeOutput;
+      progress.hasOutput = true;
+      if (payload.text === outputState.lastText) {
+        return;
+      }
+      if (!outputState.messageId) {
+        try {
+          const sent = await this.options.dispatcher.sendToChat(message.platform, message.chat_id, {
+            type: "text",
+            text: payload.text
+          });
+          outputState.messageId = sent.message_id;
+          outputState.lastText = payload.text;
+        } catch {}
+        return;
+      }
+
+      try {
+        await this.options.dispatcher.editChat(message.platform, message.chat_id, outputState.messageId, {
+          type: "text",
+          text: payload.text
+        });
+        outputState.lastText = payload.text;
+      } catch {}
+      return;
+    }
+
+    if (event.event_type === "runtime.status") {
+      const payload = event.payload as RuntimeStatus;
+      try {
+        await this.options.dispatcher.sendToChat(message.platform, message.chat_id, {
+          type: "status",
+          text: payload.summary,
+          phase: payload.phase,
+          state: payload.state,
+          detail: payload.detail,
+          session_id: sessionId,
+          cycle_id: payload.cycle_id,
+          data: payload.data
+        });
+      } catch {}
+      return;
+    }
+
+    if (event.event_type === "session.state_changed") {
+      const payload = event.payload as { state?: string };
+      try {
+        await this.options.dispatcher.sendToChat(message.platform, message.chat_id, {
+          type: "status",
+          text: `Session state: ${payload.state ?? "unknown"}`,
+          phase: "session",
+          state: payload.state === "failed" ? "failed" : payload.state === "completed" ? "completed" : "in_progress",
+          session_id: sessionId,
+          cycle_id: event.cycle_id
+        });
+      } catch {}
+    }
+  }
+}
+
+function shouldForwardProgress(platform: IMPlatform): boolean {
+  return platform === "web" || platform === "feishu";
+}
+
+function shouldStreamAssistantOutput(platform: IMPlatform): boolean {
+  return platform === "web" || platform === "feishu";
 }
 
 function messageToPrompt(message: UnifiedMessage): string | undefined {

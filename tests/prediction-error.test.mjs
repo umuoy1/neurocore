@@ -257,6 +257,9 @@ test("E2E: predictor predicts success but tool fails → prediction_error.record
             side_effect_level: "none"
           }
         ];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .registerPredictor({

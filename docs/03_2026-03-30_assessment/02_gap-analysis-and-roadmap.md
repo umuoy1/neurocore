@@ -10,6 +10,7 @@
 > - 因此，下文中的“已完成”表示“该阶段的主体交付已进入代码库”，不表示所有 hosted / Console 端到端验证都已结束。
 > - 更精确的代码反推结论见 [`03_code-audit-checklist.md`](./03_code-audit-checklist.md)。
 > - 2026-04-14 补充：Prefrontal / Meta 的代码现状已确认仍属“轻量门控”，深层自评估设计见 [`../06_2026-04-14_metacognition-evolution/01_deep-metacognition-and-self-evaluation.md`](../06_2026-04-14_metacognition-evolution/01_deep-metacognition-and-self-evaluation.md)。
+> - 2026-04-18 补充：当前实施顺序已切到 `SDK / Protocol Tightening -> Core Gaps -> Meta 后半段`；第一批 SDK / Protocol 收口已完成，包含判别化 `RuntimeCommand`、`SessionCheckpoint.schema_version`、受限 overrides、`PolicyDecision.severity`、完全判别的 `NeuroCoreEvent`、缺失命令/事件、事件 `sequence_no`、remote client `AbortSignal` 超时/429+503 重试/SSE `Last-Event-ID` 重连，以及 local/remote session handle 的基础对齐。第二批 Core Gaps 已继续收口：`ToolGateway` 已补 `idempotency_key` 结果缓存、TTL 与 namespace-based invalidation，`PolicyProvider.evaluateInput / evaluateOutput` 已进入主链，input/output screening 已能真正影响 cycle / response，`ask_user` 已具备结构化 prompt schema 透传与 resume 前输入校验能力，多轮会话历史、role-annotated conversation buffer、token-aware truncation 与 conversational token counting 也已进入 runtime / reasoner 主链，`runtime.output` 现在也显式区分 `token_stream / buffered` 语义；同时第三批已开始收口，`CandidateAction.preconditions` 已在执行前真实校验，不再只是协议字段。
 
 ## 完成度
 
@@ -35,9 +36,9 @@
 
 | 阶段 | 工作流 | 当前状态 |
 |---|---|---|
-| 当前 | 个人助理 + Console 准备 | 以 `docs/05_2026-04-01_personal-assistant/` 为主线推进产品化；Console 侧仅保留接口契约整理、后端支持梳理与预实现维护 |
-| 下一阶段 | 记忆系统演进 | 进入 `docs/05_2026-04-01_memory-evolution/` 的需求收敛、迁移计划与验证设计 |
-| 更后阶段 | Prefrontal 深化 + M11 运营控制台 | 待个人助理和记忆系统演进阶段收口后，先推进深层元认知与自评估，再恢复 M11 的完整联调、E2E 与正式交付 |
+| 当前 | SDK / Protocol Tightening | 第一批已完成：判别化 `RuntimeCommand`、`SessionCheckpoint.schema_version`、受限 overrides、`PolicyDecision.severity`、完全判别的 `NeuroCoreEvent`、缺失命令/事件、事件 `sequence_no`、remote client `AbortSignal` 超时/429+503 重试/SSE `Last-Event-ID` 重连，以及 local/remote session handle 的基础对齐；下一步继续 builder validation、shared session-handle interface、remote pagination |
+| 下一阶段 | Core Gaps | 当前已完成 `structured ask_user / tool cache / content filtering / multi-turn conversation / token streaming semantics` 基础收口，且 `CandidateAction.preconditions` 已开始在执行前真实生效；下一步继续做 parallel tools、delegate 闭环、conditional planning 的 branching/DAG、多模态输入骨架 |
+| 更后阶段 | Meta 后半段 | 在前两批收口后，按 `provider-level calibration -> verifier isolation / budget -> provider reliability -> online meta eval -> ReflectionLearner` 推进 |
 
 ## 已实现核心能力
 
@@ -46,20 +47,24 @@
 - **Goal Tree**：root goal、分解、父子状态派生、显式输入 rebase
 - **Tool Gateway**：注册、schema 校验、超时、重试、失败观测、执行指标
 - **记忆四层**：working + episodic + semantic + procedural，tenant-scoped cross-session recall
-- **预算与压缩**：token/tool/cycle/cost budget assessment、token accounting、graded context compression
+- **预算与压缩**：token/tool/cycle/cost budget assessment、token accounting、cost budget tracking、graded context compression，以及 tenant/risk 级审批策略与 per-tenant / per-tool rate limiting
 - **托管 Runtime**：HTTP API、async/stream、SSE、webhook（重试 + 投递日志）、文件/SQLite 持久化、远程 client（超时 + 重试）
-- **Trace / Replay / Eval**：本地 eval runner、remote eval API、session replay、eval 持久化、baseline eval cases 共享模块
+- **治理与租户**：runtime-server 已具备 API key auth、request-time permission gating、tenant isolation，以及带 reviewer identity 的 approval audit
+- **可观测性**：runtime-server 已具备 structured JSON logs、`/v1/metrics` + Prometheus export、trace export 与 runtime saturation snapshot
+- **Runtime Hardening**：cycle 现已支持 `reasoner.plan/respond` 与 memory/skill/policy/predictor provider 超时保护，单点慢调用不再拖死整轮执行
+- **Trace / Replay / Eval**：本地 eval runner、remote eval API、session replay、eval 持久化（含 runtime-server SQLite durable reports）、baseline eval cases 共享模块
 - **世界模型与设备**：Perception Pipeline、Device Registry、WorldStateGraph、ForwardSimulator、SimulationBasedPredictor
 - **多 Agent**：Agent Registry、Inter-Agent Bus、Task Delegator、Coordination Strategies、Shared State、Lifecycle Manager
 - **运营控制台骨架**：Dashboard / Session / Trace / Goal / Memory / Workspace / Eval / Approval / Multi-Agent / World Model / Device / Config 页面及对应 Zustand store
 
 ## 当前收尾项（截至 2026-04-02）
 
-- 个人助理 Phase A 需要落地 IM Gateway、Web Chat、搜索/浏览器连接器和 Agent 组装。
+- 个人助理 Phase A 已落地 IM Gateway、Web Chat、飞书 Adapter、搜索/浏览器连接器和 Agent 组装；当前 Web Chat / Feishu / Hosted Runtime / Console 已完成原生 `streamText -> runtime.output` 文本流和 `runtime.status` 活动流对齐，Focused 回归已覆盖审批恢复、`auto_approve`、proactive、Web Chat、飞书消息转发与 Hosted Runtime SSE；收口重点转向飞书真实平台联调与更大范围端到端稳定性验证。
 - Console API 基础层未完全统一，存在 `/v1/v1/*` 路径重复和若干返回结构不一致问题；当前只做整理和校准，不把其视为 M11 全量交付。
 - `WsServer` 已实现但仍需完成 `runtime-server` 启动接线、鉴权协商与前端订阅联调，这部分作为未来 M11 的输入资产保留。
 - 多 Agent 的 `delegate` 结果回流尚未与 `call_tool` 路径形成等价自动续跑闭环，这一点影响 M9 的“完成”口径。
-- `docs/05_2026-04-01_memory-evolution/` 是下一阶段主线，当前已完成 SQL 记忆库迁移设计、normalized SQLite store、四层记忆的 SQLite persistence 接线、独立 `SqliteCheckpointStore`、`RuntimeSessionSnapshot` 与 `SessionCheckpoint` 的记忆瘦身、默认 SQL-first 持久化路径、legacy SQLite/File runtime state 的显式迁移入口，以及 LongMemEval retrieval benchmark harness、recursive full-bundle loader、matrix/aggregate runner、vendored official retrieval/QA wrapper、hypothesis generation 与 full-run 脚本；runtime 已不再消费 fat runtime snapshot 的 memory/checkpoint payload；后续继续推进官方全量数据基线跑数、SQL-first 默认路径的长期兼容性验证和后续 schema 演进。
+- `docs/05_2026-04-01_memory-evolution/` 是下一阶段主线，当前已完成 SQL 记忆库迁移设计、normalized SQLite store、四层记忆的 SQLite persistence 接线、独立 `SqliteCheckpointStore`、`RuntimeSessionSnapshot` 与 `SessionCheckpoint` 的记忆瘦身、默认 SQL-first 持久化路径、legacy SQLite/File runtime state 的显式迁移入口，以及 LongMemEval retrieval benchmark harness、recursive full-bundle loader、matrix/aggregate runner、vendored official retrieval/QA wrapper、hypothesis generation 与 full-run 脚本；working memory TTL、semantic negative-pattern learning 与 cost budget tracking 也已接入主链；runtime 已不再消费 fat runtime snapshot 的 memory/checkpoint payload；后续继续推进官方全量数据基线跑数、SQL-first 默认路径的长期兼容性验证和后续 schema 演进。
+- Runtime Hardening 新收口：`ToolGateway` 已补 transient/permanent error 区分、tool circuit breaker 与更保守的 retry 行为；`RuntimeStateStore` 写失败会转为 degraded persistence status + `runtime.status` 事件，而不是直接中断 session 主链；`SessionManager` 与 `AgentRuntime` 已补 session TTL / idle expiration / resident LRU eviction。
 - Prefrontal / Meta 当前代码能力仍主要是 action 级 confidence / risk / conflict gating，尚未进入深层自评估；新的方向性设计已补在 `docs/06_2026-04-14_metacognition-evolution/01_deep-metacognition-and-self-evaluation.md`。
 - 2026-04-14 已进一步形成代码实施单：`docs/06_2026-04-14_metacognition-evolution/04_code-first-implementation-tasklist.md`，下一步可直接进入协议与 runtime 主链改造。
 - 2026-04-14 已完成第一批实现：`MetaSignalBus`、`FastMonitor`、结构化 `MetaAssessment / SelfEvaluationReport`、`WorkspaceSnapshot.metacognitive_state` 与 `CycleTraceRecord` 元认知字段已进入代码库。
@@ -72,6 +77,7 @@
 - 2026-04-15 M8.5 Phase 2 补充：`ControlAllocator` 已成为最终控制动作单真源，`DefaultMetaController` 已瘦身为 adapter；`Calibrator` 已升级为 `query + calibrate + record` 单一路径，`SqliteCalibrationStore`、task bucket、决策前 bucket reliability 查询与执行后写回均已进入代码库；下一步严格转向 `DeepEvaluator SPI 化`，不提前做 provider 化和 learner 扩展。
 - 2026-04-15 M8.5 Phase 3 补充：`DeepEvaluator` 已切到 `Verifier SPI` 编排层，默认 `logic / evidence / tool / safety / process` verifiers 与可选 `CounterfactualSimulator SPI` 已进入主链，支持并发执行、部分失败降级和 budget-aware 选择；下一步严格转向 `MetaSignalBus provider 化`。
 - 2026-04-16 M8.5 Phase 4 补充：`MetaSignalBus` 已完成 family-provider 第一版，`task / evidence / reasoning / prediction / action / governance` 六类 `Heuristic*Provider`、provider registry、family merge rules、degraded/fallback provenance 与关键缺失值保守化已进入代码库；provider 失败时总线仍可产出 frame，缺失 prediction family 时下游不会继续判成 `routine-safe`；下一步严格转向真实 meta benchmark 数据集与 CI/online eval。
+- 2026-04-16 M8.5 Phase 5 第一批补充：`@neurocore/eval-core` 已补 `MetaBenchmarkBundle`、summary API、human-readable summary formatter、summary diff 与 benchmark artifacts builder；仓库已新增 families A~G 的本地 case bundle、`examples/demo-meta-benchmark.mjs`、`examples/demo-meta-benchmark-compare.mjs`、`.neurocore/benchmarks/meta/` 持久化输出，以及 GitHub Actions 中独立 `meta-stack` lane 与 benchmark artifact 上传；下一步严格转向 online meta eval。
 
 ## 关键风险（历史记录）
 

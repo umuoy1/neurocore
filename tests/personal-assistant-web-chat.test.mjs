@@ -7,7 +7,7 @@ import test from "node:test";
 import WebSocket from "ws";
 import { startPersonalAssistantApp } from "../examples/personal-assistant/dist/main.js";
 
-test("personal assistant web chat serves a local page and health endpoint", async (t) => {
+test("personal assistant web chat serves a local page and health endpoint", { concurrency: false }, async (t) => {
   const fixture = await createFixtureOrSkip(t, {
     reasoner: createRespondReasoner((input) => `echo:${input}`)
   });
@@ -35,7 +35,7 @@ test("personal assistant web chat serves a local page and health endpoint", asyn
   }
 });
 
-test("personal assistant web chat reconnects the same chat to the same waiting session", async (t) => {
+test("personal assistant web chat reconnects the same chat to the same waiting session", { concurrency: false }, async (t) => {
   const fixture = await createFixtureOrSkip(t, {
     reasoner: createAskUserReasoner()
   });
@@ -76,11 +76,47 @@ test("personal assistant web chat reconnects the same chat to the same waiting s
   }
 });
 
-test("personal assistant web chat resumes high-risk approval actions after approve", async (t) => {
+test("personal assistant web chat streams runtime status and incremental reply updates", { concurrency: false }, async (t) => {
+  const fixture = await createFixtureOrSkip(t, {
+    reasoner: createRespondReasoner(() => "This is a deliberately long assistant reply used to verify incremental frontend updates over the web chat stream.")
+  });
+
+  if (!fixture) {
+    return;
+  }
+
+  try {
+    const client = await connectWebSocket(fixture.port, "chat-stream", "user-stream");
+
+    client.socket.send("show me progress");
+    const status = await client.nextMessage({ includeStatus: true, onlyStatus: true });
+    assert.equal(status.type, "message");
+    assert.equal(status.content.type, "status");
+    assert.match(status.content.phase, /memory_retrieval|reasoning|response_generation|session/);
+
+    const firstReply = await client.nextMessage();
+    assert.equal(firstReply.type, "message");
+    assert.equal(firstReply.content.type, "text");
+    assert.match(firstReply.content.text, /deliberately long assistant reply/i);
+
+    const editedReply = await client.nextMessage({ includeStatus: true, onlyEdits: true });
+    assert.equal(editedReply.type, "edit");
+    assert.equal(editedReply.message_id, firstReply.message_id);
+    assert.ok(editedReply.content.text.length > firstReply.content.text.length);
+
+    client.socket.close();
+    await client.closed;
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("personal assistant web chat reports tool execution progress before final reply", { concurrency: false }, async (t) => {
   const emailSendCalls = [];
   const fixture = await createFixtureOrSkip(t, {
     reasoner: createApprovalReasoner(),
     agent: {
+      auto_approve: true,
       approvers: ["approved-user"],
       required_approval_tools: ["email_send"]
     },
@@ -107,19 +143,11 @@ test("personal assistant web chat resumes high-risk approval actions after appro
     const client = await connectWebSocket(fixture.port, "chat-approval", "approved-user");
 
     client.socket.send("please send the email");
-    const approvalMessage = await client.nextMessage();
-    assert.equal(approvalMessage.type, "message");
-    assert.equal(approvalMessage.content.type, "approval_request");
-    assert.ok(approvalMessage.content.approval_id);
-
-    client.socket.send(JSON.stringify({
-      type: "action",
-      action: "approve",
-      params: {
-        approval_id: approvalMessage.content.approval_id
-      },
-      reply_to: approvalMessage.message_id
-    }));
+    const toolStatus = await client.nextMessage({ includeStatus: true, onlyStatus: true, phase: "tool_execution" });
+    assert.equal(toolStatus.type, "message");
+    assert.equal(toolStatus.content.type, "status");
+    assert.equal(toolStatus.content.phase, "tool_execution");
+    assert.match(toolStatus.content.text, /Calling tool email_send|Tool email_send finished/);
 
     const finalMessage = await client.nextMessage();
     assert.equal(finalMessage.type, "message");
@@ -186,12 +214,11 @@ async function connectWebSocket(port, chatId, userId) {
   const waiters = [];
   socket.on("message", (raw) => {
     const payload = JSON.parse(raw.toString());
-    if (waiters.length > 0) {
-      const resolve = waiters.shift();
-      resolve(payload);
-      return;
-    }
     queue.push(payload);
+    while (waiters.length > 0) {
+      const resolve = waiters.shift();
+      resolve();
+    }
   });
 
   const opened = new Promise((resolve, reject) => {
@@ -203,26 +230,76 @@ async function connectWebSocket(port, chatId, userId) {
   });
 
   await opened;
+  await new Promise((resolve) => setTimeout(resolve, 10));
 
   return {
     socket,
     closed,
-    async nextMessage() {
-      if (queue.length > 0) {
-        return queue.shift();
-      }
+    async nextMessage(options = {}) {
+      const predicate = createPayloadPredicate(options);
 
-      return await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error("Timed out waiting for WebSocket message."));
-        }, 5000);
+      while (true) {
+        const index = queue.findIndex(predicate);
+        if (index >= 0) {
+          return queue.splice(index, 1)[0];
+        }
 
-        waiters.push((payload) => {
-          clearTimeout(timeout);
-          resolve(payload);
+        await new Promise((resolve, reject) => {
+          let wrapped;
+          const timeout = setTimeout(() => {
+            const waiterIndex = waiters.indexOf(wrapped);
+            if (waiterIndex >= 0) {
+              waiters.splice(waiterIndex, 1);
+            }
+            reject(new Error("Timed out waiting for WebSocket message."));
+          }, 5000);
+
+          wrapped = () => {
+            clearTimeout(timeout);
+            resolve();
+          };
+
+          waiters.push(wrapped);
         });
-      });
+      }
     }
+  };
+}
+
+function createPayloadPredicate(options) {
+  return (payload) => {
+    if (payload.type === "typing" && !options.includeTyping) {
+      return false;
+    }
+
+    const contentType = payload?.content?.type;
+    if (contentType === "status" && !options.includeStatus) {
+      return false;
+    }
+
+    if (options.onlyStatus) {
+      if (contentType !== "status") {
+        return false;
+      }
+      if (options.phase && payload?.content?.phase !== options.phase) {
+        return false;
+      }
+      return true;
+    }
+
+    if (options.onlyEdits) {
+      return payload.type === "edit";
+    }
+
+    if (!options.includeEdits && payload.type === "edit") {
+      return false;
+    }
+
+    if (options.phase && payload?.content?.phase !== options.phase) {
+      return false;
+    }
+
+    return true;
   };
 }
 
@@ -265,6 +342,12 @@ function createRespondReasoner(responder) {
           side_effect_level: "none"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      const text = action.description ?? action.title;
+      const midpoint = Math.max(1, Math.floor(text.length / 2));
+      yield text.slice(0, midpoint);
+      yield text.slice(midpoint);
     }
   };
 }
@@ -298,6 +381,9 @@ function createAskUserReasoner() {
           side_effect_level: "none"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   };
 }
@@ -352,6 +438,9 @@ function createApprovalReasoner() {
           side_effect_level: "high"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   };
 }

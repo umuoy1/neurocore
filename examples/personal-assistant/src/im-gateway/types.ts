@@ -5,6 +5,16 @@ export type NotificationPriority = "silent" | "normal" | "urgent";
 export type MessageContent =
   | { type: "text"; text: string }
   | { type: "markdown"; text: string }
+  | {
+      type: "status";
+      text: string;
+      phase: string;
+      state: "started" | "in_progress" | "completed" | "failed";
+      detail?: string;
+      session_id?: string;
+      cycle_id?: string;
+      data?: Record<string, unknown>;
+    }
   | { type: "image"; url: string; caption?: string }
   | { type: "file"; url: string; filename: string }
   | { type: "action"; action: string; params?: Record<string, unknown> }

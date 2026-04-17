@@ -73,7 +73,8 @@ export class DefaultControlAllocator implements ControlAllocator {
     const controlAction = normalizeFinalControlAction(
       input.fastAssessment,
       input.metaAssessment,
-      candidates
+      candidates,
+      input.policies
     );
     const selected = this.resolveSelected(scored, input.predictions, controlAction, input.metaAssessment);
     const confidence = resolveDecisionConfidence(input.fastAssessment, input.metaAssessment);
@@ -133,14 +134,18 @@ export class DefaultControlAllocator implements ControlAllocator {
       : undefined;
 
     if (controlAction === "request-more-evidence") {
-      return scored.find((candidate) => candidate.action.action_type === "ask_user") ??
-        safestCandidate(scored) ??
-        byId ??
-        scored[0];
+      return interactiveCandidate(scored, ["ask_user"]) ??
+        interactiveCandidate(scored, ["respond"]) ??
+        nonToolCandidate(byId) ??
+        safestNonToolCandidate(scored) ??
+        safestLowRiskExecutionCandidate(scored);
     }
 
     if (controlAction === "switch-to-safe-response") {
-      return safestCandidate(scored) ?? byId ?? scored[0];
+      return interactiveCandidate(scored, ["respond", "ask_user"]) ??
+        nonToolCandidate(byId) ??
+        safestNonToolCandidate(scored) ??
+        safestLowRiskExecutionCandidate(scored);
     }
 
     if (controlAction === "ask-human" || controlAction === "execute-with-approval" || controlAction === "execute-now") {
@@ -154,8 +159,27 @@ export class DefaultControlAllocator implements ControlAllocator {
 function normalizeFinalControlAction(
   fastAssessment: FastMetaAssessment,
   metaAssessment: MetaAssessment,
-  candidates: CandidateAction[]
+  candidates: CandidateAction[],
+  policies: PolicyDecision[]
 ): MetaControlAction {
+  const warnedIds = new Set(
+    policies
+      .filter((decision) => decision.level === "warn" && typeof decision.target_id === "string")
+      .map((decision) => decision.target_id as string)
+  );
+  const hasWarnedCandidate = candidates.some((candidate) => warnedIds.has(candidate.action_id));
+  const hasApprovalCandidate = candidates.some((candidate) => hasElevatedExecutionRisk(candidate));
+  const hasInteractiveCandidate = candidates.some((candidate) => isInteractiveAction(candidate));
+  const requestMoreEvidenceFallback = hasInteractiveCandidate
+    ? "request-more-evidence"
+    : hasApprovalCandidate
+      ? "execute-with-approval"
+      : "execute-now";
+
+  if (hasWarnedCandidate) {
+    return "execute-with-approval";
+  }
+
   const calibratedConfidence =
     metaAssessment.calibrated_confidence ??
     metaAssessment.confidence.overall_confidence ??
@@ -164,27 +188,36 @@ function normalizeFinalControlAction(
   if (calibratedConfidence < 0.3) {
     return candidates.some((candidate) => candidate.action_type === "ask_user")
       ? "request-more-evidence"
-      : "switch-to-safe-response";
+      : hasApprovalCandidate && !hasInteractiveCandidate
+        ? "execute-with-approval"
+        : hasInteractiveCandidate
+          ? "switch-to-safe-response"
+          : "execute-now";
   }
 
   if (metaAssessment.meta_state === "high-risk" && calibratedConfidence < 0.55) {
-    return "ask-human";
+    return hasApprovalCandidate ? "ask-human" : "switch-to-safe-response";
   }
 
   const preferred = metaAssessment.recommended_control_action;
+  if (preferred === "switch-to-safe-response" && !hasInteractiveCandidate && hasApprovalCandidate) {
+    return "execute-with-approval";
+  }
   if (
     preferred === "execute-now" ||
     preferred === "execute-with-approval" ||
-    preferred === "request-more-evidence" ||
     preferred === "switch-to-safe-response" ||
     preferred === "ask-human" ||
     preferred === "abort"
   ) {
     return preferred;
   }
+  if (preferred === "request-more-evidence") {
+    return requestMoreEvidenceFallback;
+  }
 
   if (fastAssessment.meta_state === "evidence-insufficient") {
-    return "request-more-evidence";
+    return requestMoreEvidenceFallback;
   }
   if (fastAssessment.meta_state === "high-risk") {
     return "execute-with-approval";
@@ -199,6 +232,28 @@ function safestCandidate(scored: ScoredCandidate[]) {
   return [...scored].sort((left, right) => compareSafety(left.action, right.action))[0];
 }
 
+function safestNonToolCandidate(scored: ScoredCandidate[]) {
+  return [...scored]
+    .filter((candidate) => candidate.action.action_type !== "call_tool")
+    .sort((left, right) => compareSafety(left.action, right.action))[0];
+}
+
+function safestLowRiskExecutionCandidate(scored: ScoredCandidate[]) {
+  return [...scored]
+    .filter((candidate) => !hasElevatedExecutionRisk(candidate.action))
+    .sort((left, right) => compareSafety(left.action, right.action))[0];
+}
+
+function interactiveCandidate(scored: ScoredCandidate[], actionTypes: Array<"respond" | "ask_user">) {
+  return [...scored]
+    .filter((candidate) => actionTypes.includes(candidate.action.action_type as "respond" | "ask_user"))
+    .sort((left, right) => compareSafety(left.action, right.action))[0];
+}
+
+function nonToolCandidate(candidate: ScoredCandidate | undefined) {
+  return candidate?.action.action_type === "call_tool" ? undefined : candidate;
+}
+
 function bestPredictedCandidate(scored: ScoredCandidate[], predictions: Prediction[]) {
   const predictionMap = new Map(predictions.map((prediction) => [prediction.action_id, prediction]));
   return [...scored].sort((left, right) => {
@@ -210,6 +265,14 @@ function bestPredictedCandidate(scored: ScoredCandidate[], predictions: Predicti
 
 function compareSafety(left: CandidateAction, right: CandidateAction) {
   return safetyRank(left) - safetyRank(right);
+}
+
+function isInteractiveAction(action: CandidateAction) {
+  return action.action_type === "respond" || action.action_type === "ask_user";
+}
+
+function hasElevatedExecutionRisk(action: CandidateAction) {
+  return action.side_effect_level === "high";
 }
 
 function safetyRank(action: CandidateAction) {

@@ -66,6 +66,15 @@ interface ResponseLike {
   json?: () => Promise<unknown>;
 }
 
+interface ChatCompletionChunk {
+  choices?: Array<{
+    delta?: {
+      content?: string | Array<{ type?: string; text?: string }>;
+    };
+    finish_reason?: string | null;
+  }>;
+}
+
 const DEFAULT_MAX_OUTPUT_TOKENS = 31_999;
 const DEFAULT_TEMPERATURE = 0.2;
 const MIN_RETRY_MAX_OUTPUT_TOKENS = 4096;
@@ -241,6 +250,62 @@ export class OpenAICompatibleReasoner implements Reasoner {
     return mapped;
   }
 
+  public async *streamText(
+    ctx: ModuleContext,
+    action: CandidateAction
+  ): AsyncIterable<string> {
+    if (action.action_type !== "respond" && action.action_type !== "ask_user") {
+      throw new Error(`streamText only supports respond/ask_user actions, got ${action.action_type}.`);
+    }
+
+    const controller = new AbortController();
+    const timeoutMs = this.config.timeoutMs ?? 60_000;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const url = resolveChatCompletionsUrl(this.config.apiUrl);
+    const requestPayload = {
+      model: this.config.model,
+      temperature: this.options.temperature ?? DEFAULT_TEMPERATURE,
+      stream: true,
+      max_tokens: this.options.max_tokens ?? this.options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+      messages: [
+        { role: "system", content: buildTextStreamSystemPrompt(action) },
+        { role: "user", content: buildTextStreamUserPrompt(ctx, action) }
+      ]
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${this.config.bearerToken}`,
+          ...this.config.headers
+        },
+        body: JSON.stringify(requestPayload),
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        const responseText = await readResponseText(response);
+        throw new Error(
+          `Streamed text request failed with ${response.status} ${response.statusText}: ${responseText}`
+        );
+      }
+
+      if (!response.body) {
+        throw new Error("Model response did not provide a readable stream.");
+      }
+
+      for await (const delta of readChatCompletionStream(response.body)) {
+        if (delta) {
+          yield delta;
+        }
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   private async completeJson<T>(systemPrompt: string, userPrompt: string): Promise<T> {
     const firstBudget =
       this.options.max_tokens ?? this.options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
@@ -395,6 +460,77 @@ function extractContent(response: ChatCompletionResponse): string {
     return stripMarkdownCodeFence(joined);
   }
   throw new Error("Model response did not include message content.");
+}
+
+function extractChunkContent(response: ChatCompletionChunk): string {
+  const content = response.choices?.[0]?.delta?.content;
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content.map((part) => part.text ?? "").join("");
+  }
+  return "";
+}
+
+async function* readChatCompletionStream(stream: ReadableStream<Uint8Array>): AsyncIterable<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let pendingText = "";
+
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) {
+      break;
+    }
+
+    buffer += decoder.decode(chunk.value, { stream: true });
+    while (true) {
+      const boundary = buffer.indexOf("\n\n");
+      if (boundary < 0) {
+        break;
+      }
+
+      const rawEvent = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const dataLines = rawEvent
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trim());
+
+      if (dataLines.length === 0) {
+        continue;
+      }
+
+      const data = dataLines.join("\n");
+      if (data === "[DONE]") {
+        return;
+      }
+
+      const parsed = JSON.parse(data) as ChatCompletionChunk;
+      const delta = extractChunkContent(parsed);
+      if (delta) {
+        pendingText += delta;
+        if (shouldFlushStreamChunk(pendingText)) {
+          yield pendingText;
+          pendingText = "";
+        }
+      }
+    }
+  }
+
+  if (pendingText) {
+    yield pendingText;
+  }
+}
+
+function shouldFlushStreamChunk(text: string): boolean {
+  if (text.length >= 24) {
+    return true;
+  }
+
+  return /[\n。！？!?.,;:)]$/.test(text);
 }
 
 async function readResponseText(response: ResponseLike): Promise<string> {
@@ -608,6 +744,9 @@ function buildRespondUserPrompt(ctx: ModuleContext): string {
   const memoryRecall = Array.isArray(ctx.runtime_state.memory_recall_proposals)
     ? ctx.runtime_state.memory_recall_proposals.map(summarizeMemoryProposal)
     : [];
+  const conversationHistory = Array.isArray(ctx.runtime_state.conversation_history)
+    ? ctx.runtime_state.conversation_history
+    : [];
 
   return JSON.stringify(
     {
@@ -615,14 +754,65 @@ function buildRespondUserPrompt(ctx: ModuleContext): string {
       goals: ctx.goals.map(summarizeGoal),
       tools: getToolCatalog(ctx),
       memoryRecall,
+      conversationHistory,
+      conversationHistoryTokens: ctx.runtime_state.conversation_history_tokens ?? null,
+      conversationHistoryTruncated: ctx.runtime_state.conversation_history_truncated ?? false,
       context: typeof ctx.runtime_state.current_input_content === "string"
         ? ctx.runtime_state.current_input_content
         : ctx.workspace?.context_summary ?? null,
       inputMetadata: ctx.runtime_state.current_input_metadata ?? null,
+      structuredResponse: ctx.runtime_state.current_input_structured_response ?? null,
       workspace: ctx.workspace
         ? {
             memoryDigest: ctx.workspace.memory_digest,
             candidateActions: ctx.workspace.candidate_actions
+          }
+        : null
+    },
+    null,
+    2
+  );
+}
+
+function buildTextStreamSystemPrompt(action: CandidateAction): string {
+  return [
+    "You are the user-facing response composer inside a structured agent runtime.",
+    "Return plain text only.",
+    action.action_type === "ask_user"
+      ? "Produce a concise follow-up question that asks only for the missing information."
+      : "Produce the final assistant reply for the user.",
+    "Do not emit JSON, markdown fences, XML, or meta commentary.",
+    "Use the selected action, current context, active goals, and workspace state."
+  ].join("\n");
+}
+
+function buildTextStreamUserPrompt(ctx: ModuleContext, action: CandidateAction): string {
+  return JSON.stringify(
+    {
+      role: ctx.profile.role,
+      goals: ctx.goals.map(summarizeGoal),
+      conversationHistory: Array.isArray(ctx.runtime_state.conversation_history)
+        ? ctx.runtime_state.conversation_history
+        : [],
+      conversationHistoryTokens: ctx.runtime_state.conversation_history_tokens ?? null,
+      conversationHistoryTruncated: ctx.runtime_state.conversation_history_truncated ?? false,
+      context:
+        typeof ctx.runtime_state.current_input_content === "string"
+          ? ctx.runtime_state.current_input_content
+          : ctx.workspace?.context_summary ?? null,
+      inputMetadata: ctx.runtime_state.current_input_metadata ?? null,
+      structuredResponse: ctx.runtime_state.current_input_structured_response ?? null,
+      selectedAction: {
+        action_type: action.action_type,
+        title: action.title,
+        description: action.description,
+        expected_outcome: action.expected_outcome,
+        preconditions: action.preconditions
+      },
+      workspace: ctx.workspace
+        ? {
+            contextSummary: ctx.workspace.context_summary,
+            memoryDigest: ctx.workspace.memory_digest
           }
         : null
     },

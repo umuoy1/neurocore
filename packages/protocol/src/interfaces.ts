@@ -2,6 +2,7 @@ import type {
   ActionExecution,
   AgentProfile,
   AgentSession,
+  AskUserPromptSchema,
   BudgetAssessment,
   CandidateAction,
   SessionCheckpoint,
@@ -53,6 +54,7 @@ export interface Reasoner {
   name: string;
   plan(ctx: ModuleContext): Promise<Proposal[]>;
   respond(ctx: ModuleContext): Promise<CandidateAction[]>;
+  streamText(ctx: ModuleContext, action: CandidateAction): AsyncIterable<string>;
   decomposeGoal?(ctx: ModuleContext, goal: Goal): Promise<Goal[]>;
 }
 
@@ -78,7 +80,13 @@ export interface SkillProvider {
 
 export interface PolicyProvider {
   name: string;
+  evaluateInput?(ctx: ModuleContext, input: import("./types.js").UserInput | import("./types.js").SystemInput): Promise<PolicyDecision[]>;
   evaluateAction(ctx: ModuleContext, action: CandidateAction): Promise<PolicyDecision[]>;
+  evaluateOutput?(ctx: ModuleContext, output: {
+    action: CandidateAction;
+    text: string;
+    ask_user_schema?: AskUserPromptSchema;
+  }): Promise<PolicyDecision[]>;
 }
 
 export interface ToolContext {

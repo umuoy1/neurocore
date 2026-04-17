@@ -66,6 +66,16 @@ export type SideEffectLevel = "none" | "low" | "medium" | "high";
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
 
 export type EventSource = "system" | "user" | "reasoner" | "memory" | "tool" | "runtime";
+export type RuntimeStatusPhase =
+  | "session"
+  | "memory_retrieval"
+  | "reasoning"
+  | "tool_execution"
+  | "response_generation"
+  | "approval";
+export type RuntimeStatusState = "started" | "in_progress" | "completed" | "failed";
+export type RuntimeOutputState = "delta" | "completed";
+export type RuntimeOutputMode = "token_stream" | "buffered";
 
 export interface ModelRef {
   provider?: string;
@@ -90,6 +100,11 @@ export interface RuntimeConfig {
   max_cycles: number;
   max_runtime_ms?: number;
   default_sync_timeout_ms?: number;
+  reasoner_timeout_ms?: number;
+  module_provider_timeout_ms?: number;
+  session_ttl_ms?: number;
+  session_idle_ttl_ms?: number;
+  max_in_memory_sessions?: number;
   cycle_mode?: "fast" | "standard" | "deep";
   allow_parallel_modules?: boolean;
   allow_async_tools?: boolean;
@@ -98,11 +113,27 @@ export interface RuntimeConfig {
   auto_approve?: boolean;
 }
 
+export interface RateLimitWindow {
+  window_ms: number;
+  max_calls: number;
+}
+
+export interface ToolRateLimitPolicy {
+  per_tenant?: RateLimitWindow;
+  per_tool?: Record<string, RateLimitWindow>;
+}
+
 export interface ToolExecutionPolicy {
   timeout_ms?: number;
   max_retries?: number;
   retry_backoff_ms?: number;
   retry_on_timeout?: boolean;
+  cache_ttl_ms?: number;
+  cache_namespace?: string;
+  invalidate_cache_namespaces?: string[];
+  circuit_breaker_failure_threshold?: number;
+  circuit_breaker_open_ms?: number;
+  rate_limits?: ToolRateLimitPolicy;
 }
 
 export interface MemoryConfig {
@@ -113,6 +144,8 @@ export interface MemoryConfig {
   write_policy: "immediate" | "deferred" | "hybrid";
   retrieval_top_k?: number;
   working_memory_max_entries?: number;
+  working_memory_ttl_ms?: number;
+  semantic_negative_learning_enabled?: boolean;
   consolidation_enabled?: boolean;
 }
 
@@ -172,7 +205,12 @@ export interface AgentProfile {
   context_budget?: ContextBudget;
   cost_per_token?: number;
   cost_budget?: number;
-  approval_policy?: { allowed_approvers?: string[] };
+  approval_policy?: {
+    allowed_approvers?: string[];
+    allowed_approvers_by_tenant?: Record<string, string[]>;
+    allowed_approvers_by_risk?: Partial<Record<SideEffectLevel, string[]>>;
+    allowed_approvers_by_tenant_and_risk?: Record<string, Partial<Record<SideEffectLevel, string[]>>>;
+  };
   device_config?: {
     health_check_interval_ms?: number;
     perception_timeout_ms?: number;
@@ -263,6 +301,8 @@ export interface WorkingMemoryRecord {
   memory_id: string;
   summary: string;
   relevance: number;
+  created_at?: Timestamp;
+  expires_at?: Timestamp;
 }
 
 export interface SkillDigest {
@@ -642,11 +682,33 @@ export interface Proposal {
   metadata?: Record<string, unknown>;
 }
 
+export interface AskUserOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+export interface AskUserField {
+  name: string;
+  label: string;
+  type: "text" | "textarea" | "select" | "date" | "number" | "boolean";
+  required?: boolean;
+  options?: AskUserOption[];
+}
+
+export interface AskUserPromptSchema {
+  mode: "options" | "form";
+  title?: string;
+  options?: AskUserOption[];
+  fields?: AskUserField[];
+}
+
 export interface CandidateAction {
   action_id: string;
   action_type: ActionType;
   title: string;
   description?: string;
+  ask_user_schema?: AskUserPromptSchema;
   tool_name?: string;
   tool_args?: Record<string, unknown>;
   expected_outcome?: string;
@@ -732,6 +794,31 @@ export interface ActionExecution {
   };
 }
 
+export interface RuntimeStatus {
+  status_id: string;
+  session_id: string;
+  cycle_id?: string;
+  phase: RuntimeStatusPhase;
+  state: RuntimeStatusState;
+  summary: string;
+  detail?: string;
+  data?: Record<string, unknown>;
+  created_at: Timestamp;
+}
+
+export interface RuntimeOutput {
+  output_id: string;
+  session_id: string;
+  cycle_id: string;
+  action_id: string;
+  action_type: "respond" | "ask_user";
+  state: RuntimeOutputState;
+  mode: RuntimeOutputMode;
+  delta: string;
+  text: string;
+  created_at: Timestamp;
+}
+
 export interface ApprovalRequest {
   approval_id: string;
   session_id: string;
@@ -746,7 +833,14 @@ export interface ApprovalRequest {
   comment?: string;
   review_reason?: string;
   approval_token?: string;
+  reviewer_identity?: ApprovalReviewerIdentity;
   action: CandidateAction;
+}
+
+export interface ApprovalReviewerIdentity {
+  api_key_id?: string;
+  tenant_id?: string;
+  permissions?: string[];
 }
 
 export interface Observation {
@@ -859,10 +953,19 @@ export interface SkillDefinition {
   metadata?: Record<string, unknown>;
 }
 
+export interface ConversationMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+  created_at: Timestamp;
+  cycle_id?: string;
+  source_id?: string;
+}
+
 export interface UserInput {
   input_id: string;
   content: string;
   created_at: Timestamp;
+  structured_response?: JsonValue;
   metadata?: Record<string, unknown>;
 }
 
@@ -870,6 +973,7 @@ export interface SystemInput {
   input_id: string;
   content: string;
   created_at: Timestamp;
+  structured_response?: JsonValue;
   metadata?: Record<string, unknown>;
 }
 
@@ -877,6 +981,7 @@ export interface PolicyDecision {
   decision_id: string;
   policy_name: string;
   level: "info" | "warn" | "block";
+  severity: 10 | 20 | 30;
   target_type: "input" | "proposal" | "action" | "output";
   target_id?: string;
   reason: string;
@@ -970,6 +1075,7 @@ export interface SemanticMemorySnapshot {
 
 export interface SessionCheckpoint {
   checkpoint_id: string;
+  schema_version: string;
   session: AgentSession;
   goals: Goal[];
   working_memory?: WorkingMemoryRecord[];

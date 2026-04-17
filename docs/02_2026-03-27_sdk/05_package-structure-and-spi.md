@@ -370,6 +370,9 @@ const agent = defineAgent({
 ### 8.2 Hard SPI 列表
 
 - `Reasoner`
+  - `plan(...)` 负责 Proposal
+  - `respond(...)` 负责 CandidateAction 选择
+  - `streamText(...)` 负责 `respond / ask_user` 的原生文本流输出
 - `Tool`
 - `PolicyProvider`
 - `TraceStore`

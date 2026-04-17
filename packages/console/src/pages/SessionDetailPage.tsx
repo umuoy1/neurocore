@@ -74,6 +74,10 @@ export function SessionDetailPage() {
   };
 
   const allEvents = [...events, ...liveEvents].slice(-100);
+  const runtimeActivity = allEvents
+    .filter((event) => event.event_type === "runtime.status" || event.event_type === "runtime.output")
+    .slice(-12)
+    .reverse();
 
   return (
     <div className="p-6 space-y-4">
@@ -189,6 +193,40 @@ export function SessionDetailPage() {
 
         <div className="col-span-5 space-y-3">
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+            <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">Runtime Activity</h3>
+            <div className="max-h-[220px] overflow-y-auto space-y-2">
+              {runtimeActivity.length === 0 ? (
+                <div className="text-zinc-600 text-xs py-3">No runtime activity yet</div>
+              ) : (
+                runtimeActivity.map((ev) => {
+                  const phase = getRuntimePhase(ev);
+                  const state = getRuntimeState(ev);
+                  const detail = summarizeRuntimeDetail(ev);
+                  const facts = extractRuntimeFacts(ev);
+                  return (
+                    <div key={ev.event_id} className="rounded border border-zinc-800 bg-zinc-950/70 px-3 py-2">
+                      <div className="flex items-center justify-between gap-3 text-[11px]">
+                        <span className="text-zinc-300 uppercase tracking-wide">{phase}</span>
+                        <span className={stateTone(state)}>{state}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-200 break-words">{detail}</div>
+                      {facts.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {facts.map((fact) => (
+                            <span key={fact.key} className="rounded-full bg-blue-500/10 px-2 py-0.5 font-mono text-[10px] text-blue-300">
+                              {fact.key}:{fact.value}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
             <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">Events (live)</h3>
             <div className="max-h-[340px] overflow-y-auto">
               {allEvents.length === 0 ? (
@@ -267,5 +305,70 @@ function summarizeEvent(ev: NeuroCoreEvent): string {
   if (ev.event_type === "cycle.completed") return `cycle ${String(p.cycle_id ?? "").slice(0, 8)} done`;
   if (ev.event_type === "action.executed") return `${p.action_type ?? ""} ${p.status ?? ""}`;
   if (ev.event_type === "goal.status_changed") return `${p.title ?? ""} → ${p.status ?? ""}`;
+  if (ev.event_type === "runtime.status") return `${p.phase ?? "runtime"} ${p.summary ?? ""}`;
+  if (ev.event_type === "runtime.output") return `${p.action_type ?? "output"} ${String(p.text ?? "").slice(0, 48)}`;
   return String(p.summary ?? p.message ?? "").slice(0, 50);
+}
+
+function getRuntimePhase(ev: NeuroCoreEvent): string {
+  const payload = (ev.payload ?? {}) as Record<string, unknown>;
+  if (ev.event_type === "runtime.output") {
+    return String(payload.action_type ?? "output");
+  }
+  return String(payload.phase ?? "runtime");
+}
+
+function getRuntimeState(ev: NeuroCoreEvent): string {
+  const payload = (ev.payload ?? {}) as Record<string, unknown>;
+  return String(payload.state ?? "delta");
+}
+
+function summarizeRuntimeDetail(ev: NeuroCoreEvent): string {
+  const payload = (ev.payload ?? {}) as Record<string, unknown>;
+  if (ev.event_type === "runtime.output") {
+    return String(payload.text ?? "");
+  }
+  return String(payload.summary ?? payload.detail ?? "");
+}
+
+function extractRuntimeFacts(ev: NeuroCoreEvent): Array<{ key: string; value: string }> {
+  const payload = (ev.payload ?? {}) as Record<string, unknown>;
+  const facts: Array<{ key: string; value: string }> = [];
+
+  for (const key of ["cycle_id", "action_id", "action_type", "status"]) {
+    const value = payload[key];
+    if (value === undefined || value === null || value === "") {
+      continue;
+    }
+    facts.push({ key, value: String(value).slice(0, 20) });
+  }
+
+  const data = payload.data;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    for (const key of ["tool_name", "proposal_count", "action_count", "digest_count", "skill_match_count"]) {
+      if (facts.length >= 6) {
+        break;
+      }
+      const value = (data as Record<string, unknown>)[key];
+      if (value === undefined || value === null || value === "") {
+        continue;
+      }
+      facts.push({ key, value: String(value).slice(0, 20) });
+    }
+  }
+
+  return facts;
+}
+
+function stateTone(state: string): string {
+  if (state === "completed") {
+    return "text-emerald-400";
+  }
+  if (state === "failed") {
+    return "text-red-400";
+  }
+  if (state === "started" || state === "in_progress") {
+    return "text-amber-400";
+  }
+  return "text-zinc-400";
 }

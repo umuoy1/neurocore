@@ -2,7 +2,6 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type {
   AgentProfile,
-  CreateSessionCommand,
   MemoryProvider,
   PolicyProvider,
   Predictor,
@@ -21,7 +20,7 @@ import {
   type AgentRuntimeOptions
 } from "@neurocore/runtime-core";
 import { ToolPolicyProvider } from "@neurocore/policy-core";
-import { AgentSessionHandle } from "./session-handle.js";
+import { AgentSessionHandle, type LocalSessionCreateInput } from "./session-handle.js";
 
 export interface DefineAgentOptions {
   id: string;
@@ -141,7 +140,16 @@ export class AgentBuilder {
     return this;
   }
 
-  public configurePolicy(options: { blockedTools?: string[]; requiredApprovalTools?: string[] }): this {
+  public configurePolicy(options: {
+    blockedTools?: string[];
+    requiredApprovalTools?: string[];
+    requiredApprovalRiskLevels?: import("@neurocore/protocol").SideEffectLevel[];
+    tenantPolicies?: Record<string, {
+      blockedTools?: string[];
+      requiredApprovalTools?: string[];
+      requiredApprovalRiskLevels?: import("@neurocore/protocol").SideEffectLevel[];
+    }>;
+  }): this {
     this.policyProviders.push(new ToolPolicyProvider(options));
     this.invalidateRuntime();
     return this;
@@ -232,9 +240,13 @@ export class AgentBuilder {
     return this;
   }
 
-  public createSession(command: CreateSessionCommand): AgentSessionHandle {
+  public createSession(command: LocalSessionCreateInput): AgentSessionHandle {
     const runtime = this.createRuntime();
-    const session = runtime.createSession(this.profile, command);
+    const session = runtime.createSession(this.profile, {
+      command_type: "create_session",
+      agent_id: this.profile.agent_id,
+      ...command
+    });
     return new AgentSessionHandle(runtime, this.profile, session.session_id, command.initial_input);
   }
 

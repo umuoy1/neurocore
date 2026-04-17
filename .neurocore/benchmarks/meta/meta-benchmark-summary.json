@@ -1,0 +1,12 @@
+{
+  "bundle_id": "meta-stack-v1-a-to-g",
+  "case_count": 8,
+  "meta_score": 0.5508763020833334,
+  "strongest_family": "B",
+  "weakest_family": "C",
+  "calibration_score": 0.422671875,
+  "selective_score": 0.225,
+  "risk_score": 0.6000000000000001,
+  "evidence_score": 0.7124999999999999,
+  "learning_score": 0.8666666666666667
+}

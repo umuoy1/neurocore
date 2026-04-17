@@ -2,6 +2,7 @@ import { DefaultPolicyProvider } from "@neurocore/policy-core";
 import type {
   AgentProfile,
   CandidateAction,
+  ConversationMessage,
   ControlAllocator,
   FastMetaAssessment,
   Goal,
@@ -19,9 +20,11 @@ import type {
   Proposal,
   Reasoner,
   SelfEvaluationReport,
+  CycleTraceRecord,
   SkillDigest,
   SkillProvider,
   TokenEstimator,
+  RuntimeStatus,
   UserInput,
   WorldStateDigest,
   WorkspaceSnapshot
@@ -46,6 +49,7 @@ export interface CycleExecutionInput {
   session: ModuleContext["session"];
   profile: AgentProfile;
   input: UserInput;
+  traceRecords?: CycleTraceRecord[];
   goals: Goal[];
   reasoner: Reasoner;
   metaController: ModuleContext["services"] extends never ? never : import("@neurocore/protocol").MetaController;
@@ -61,6 +65,7 @@ export interface CycleExecutionInput {
   worldStateGraph?: WorldStateGraph;
   taskDelegator?: TaskDelegator;
   agentRegistry?: AgentRegistry;
+  statusReporter?: (status: Omit<RuntimeStatus, "status_id" | "session_id" | "created_at">) => void;
 }
 
 export interface CycleExecutionResult {
@@ -98,6 +103,13 @@ export class CycleEngine {
       now: nowIso,
       generateId
     };
+    const configuredPolicies = input.policies ?? [new DefaultPolicyProvider()];
+    input.statusReporter?.({
+      cycle_id: cycleId,
+      phase: "memory_retrieval",
+      state: "started",
+      summary: "Retrieving memory context"
+    });
     const baseContext: ModuleContext = {
       tenant_id: input.tenantId,
       session: { ...input.session, current_cycle_id: cycleId, state: "running" },
@@ -106,6 +118,8 @@ export class CycleEngine {
       runtime_state: {
         current_input_content: input.input.content,
         current_input_metadata: input.input.metadata ?? null,
+        current_input_structured_response: input.input.structured_response ?? null,
+        ...buildConversationRuntimeState(input.traceRecords ?? [], input.profile, input.input.content),
       },
       services,
       memory_config: input.profile.memory_config
@@ -156,8 +170,62 @@ export class CycleEngine {
       }
     }
 
-    const memoryState = await this.collectMemoryState(baseContext, input.memoryProviders ?? []);
-    const skillState = await this.collectSkillState(baseContext, input.skillProviders ?? []);
+    const providerTimeoutMs = input.profile.runtime_config.module_provider_timeout_ms;
+    const reasonerTimeoutMs =
+      input.profile.runtime_config.reasoner_timeout_ms ??
+      input.profile.runtime_config.default_sync_timeout_ms;
+    const inputPolicies = await this.collectInputPolicyDecisions(
+      baseContext,
+      input.input,
+      configuredPolicies,
+      providerTimeoutMs
+    );
+    if (hasBlockingPolicyDecision(inputPolicies)) {
+      const blockedWorkspace = this.workspaceCoordinator.buildSnapshot({
+        sessionId: input.session.session_id,
+        cycleId,
+        contextSummary: input.input.content,
+        goals: input.goals,
+        proposals: [],
+        candidateActions: [],
+        budgetState: input.session.budget_state,
+        memoryDigest: [],
+        skillDigest: [],
+        policyDecisions: inputPolicies,
+        worldStateDigest
+      });
+      return {
+        cycleId,
+        workspace: blockedWorkspace,
+        proposals: [],
+        actions: [],
+        predictions: [],
+        decision: {
+          decision_type: "abort",
+          rejection_reasons: inputPolicies.map((decision) => decision.reason),
+          explanation: "Input rejected by policy screening."
+        }
+      };
+    }
+    const memoryState = await this.collectMemoryState(baseContext, input.memoryProviders ?? [], providerTimeoutMs);
+    input.statusReporter?.({
+      cycle_id: cycleId,
+      phase: "memory_retrieval",
+      state: "completed",
+      summary: "Memory retrieval completed",
+      detail: `Loaded ${memoryState.digest.length} memory digests and ${memoryState.proposals.length} recall proposals.`,
+      data: {
+        digest_count: memoryState.digest.length,
+        proposal_count: memoryState.proposals.length
+      }
+    });
+    input.statusReporter?.({
+      cycle_id: cycleId,
+      phase: "reasoning",
+      state: "started",
+      summary: "Planning next step"
+    });
+    const skillState = await this.collectSkillState(baseContext, input.skillProviders ?? [], providerTimeoutMs);
     const enrichedContext: ModuleContext = {
       ...baseContext,
       runtime_state: {
@@ -168,7 +236,11 @@ export class CycleEngine {
     };
     let reasonerProposals: Proposal[] = [];
     try {
-      reasonerProposals = await input.reasoner.plan(enrichedContext);
+      reasonerProposals = await withTimeout(
+        input.reasoner.plan(enrichedContext),
+        reasonerTimeoutMs,
+        "reasoner.plan()"
+      );
     } catch (error) {
       debugLog("cycle", "reasoner.plan() failed", {
         sessionId: input.session.session_id,
@@ -189,7 +261,11 @@ export class CycleEngine {
     });
     let actions: CandidateAction[] = [];
     try {
-      actions = await input.reasoner.respond(enrichedContext);
+      actions = await withTimeout(
+        input.reasoner.respond(enrichedContext),
+        reasonerTimeoutMs,
+        "reasoner.respond()"
+      );
     } catch (error) {
       debugLog("cycle", "reasoner.respond() failed", {
         sessionId: input.session.session_id,
@@ -201,14 +277,32 @@ export class CycleEngine {
       ...actions,
       ...synthesizeSkillActions(skillState.proposals, actions, enrichedContext)
     ];
+    input.statusReporter?.({
+      cycle_id: cycleId,
+      phase: "reasoning",
+      state: "completed",
+      summary: "Reasoning pass completed",
+      detail: `Prepared ${proposals.length} proposals and ${actions.length} candidate actions.`,
+      data: {
+        proposal_count: proposals.length,
+        action_count: actions.length,
+        skill_match_count: skillState.proposals.length
+      }
+    });
     debugLog("cycle", "Collected candidate actions", {
       sessionId: input.session.session_id,
       cycleId,
       actionCount: actions.length,
       actionTypes: actions.map((action) => action.action_type)
     });
-    const predictions = await this.collectPredictions(enrichedContext, actions, input.predictors ?? []);
-    const policies = await this.collectPolicyDecisions(enrichedContext, actions, input.policies ?? [new DefaultPolicyProvider()]);
+    const predictions = await this.collectPredictions(enrichedContext, actions, input.predictors ?? [], providerTimeoutMs);
+    const policies = await this.collectPolicyDecisions(
+      enrichedContext,
+      actions,
+      configuredPolicies,
+      providerTimeoutMs
+    );
+    const allPolicies = [...inputPolicies, ...policies];
     debugLog("cycle", "Collected predictions and policy decisions", {
       sessionId: input.session.session_id,
       cycleId,
@@ -225,7 +319,7 @@ export class CycleEngine {
       budgetState: input.session.budget_state,
       memoryDigest: memoryState.digest,
       skillDigest: skillState.digest,
-      policyDecisions: policies,
+      policyDecisions: allPolicies,
       worldStateDigest
     });
 
@@ -263,7 +357,7 @@ export class CycleEngine {
       workspace,
       actions,
       predictions,
-      policies,
+      policies: allPolicies,
       predictionErrorRate: input.predictionErrorRate,
       goals: input.goals
     });
@@ -316,7 +410,7 @@ export class CycleEngine {
       },
       actions,
       predictions,
-      policies,
+      policies: allPolicies,
       workspace: annotatedWorkspace,
       budgetAssessment: annotatedWorkspace.budget_assessment,
       fastAssessment: fastMetaAssessment,
@@ -338,7 +432,7 @@ export class CycleEngine {
       },
       actions,
       predictions,
-      policies,
+      allPolicies,
       input.predictionErrorRate
     );
     const selfEvaluationReport = this.fastMonitor.buildSelfEvaluationReport({
@@ -383,14 +477,19 @@ export class CycleEngine {
 
   private async collectMemoryState(
     ctx: ModuleContext,
-    providers: MemoryProvider[]
+    providers: MemoryProvider[],
+    timeoutMs?: number
   ): Promise<{ proposals: Proposal[]; digest: MemoryDigest[] }> {
     const settled = await Promise.allSettled(
       providers.map(async (provider) => {
-        const [proposals, digest] = await Promise.all([
-          provider.retrieve(ctx),
-          provider.getDigest ? provider.getDigest(ctx) : Promise.resolve([])
-        ]);
+        const [proposals, digest] = await withTimeout(
+          Promise.all([
+            provider.retrieve(ctx),
+            provider.getDigest ? provider.getDigest(ctx) : Promise.resolve([])
+          ]),
+          timeoutMs,
+          `MemoryProvider ${provider.name}`
+        );
         return {
           providerName: provider.name,
           proposals,
@@ -433,10 +532,17 @@ export class CycleEngine {
   private async collectPredictions(
     ctx: ModuleContext,
     actions: CandidateAction[],
-    predictors: Predictor[]
+    predictors: Predictor[],
+    timeoutMs?: number
   ): Promise<Prediction[]> {
     const settled = await Promise.allSettled(
-      actions.flatMap((action) => predictors.map(async (predictor) => predictor.predict(ctx, action)))
+      actions.flatMap((action) => predictors.map(async (predictor) =>
+        withTimeout(
+          predictor.predict(ctx, action),
+          timeoutMs,
+          `Predictor ${predictor.name}`
+        )
+      ))
     );
 
     return settled
@@ -456,11 +562,16 @@ export class CycleEngine {
 
   private async collectSkillState(
     ctx: ModuleContext,
-    providers: SkillProvider[]
+    providers: SkillProvider[],
+    timeoutMs?: number
   ): Promise<{ proposals: Proposal[]; digest: SkillDigest[] }> {
     const settled = await Promise.allSettled(
       providers.map(async (provider) => {
-        const proposals = await provider.match(ctx);
+        const proposals = await withTimeout(
+          provider.match(ctx),
+          timeoutMs,
+          `SkillProvider ${provider.name}`
+        );
         return {
           providerName: provider.name,
           proposals,
@@ -503,10 +614,17 @@ export class CycleEngine {
   private async collectPolicyDecisions(
     ctx: ModuleContext,
     actions: CandidateAction[],
-    policies: PolicyProvider[]
+    policies: PolicyProvider[],
+    timeoutMs?: number
   ) {
     const settled = await Promise.allSettled(
-      actions.flatMap((action) => policies.map(async (policy) => policy.evaluateAction(ctx, action)))
+      actions.flatMap((action) => policies.map(async (policy) =>
+        withTimeout(
+          policy.evaluateAction(ctx, action),
+          timeoutMs,
+          `PolicyProvider ${policy.name}`
+        )
+      ))
     );
 
     return settled
@@ -523,6 +641,147 @@ export class CycleEngine {
       .map(r => r.value)
       .flat();
   }
+
+  private async collectInputPolicyDecisions(
+    ctx: ModuleContext,
+    userInput: UserInput,
+    policies: PolicyProvider[],
+    timeoutMs?: number
+  ) {
+    const settled = await Promise.allSettled(
+      policies
+        .filter((policy) => typeof policy.evaluateInput === "function")
+        .map(async (policy) =>
+          withTimeout(
+            policy.evaluateInput!(ctx, userInput),
+            timeoutMs,
+            `PolicyProvider ${policy.name} input screening`
+          )
+        )
+    );
+
+    return settled
+      .filter((r): r is PromiseFulfilledResult<import("@neurocore/protocol").PolicyDecision[]> => {
+        if (r.status === "rejected") {
+          debugLog("cycle", "Input PolicyProvider failed", {
+            sessionId: ctx.session.session_id,
+            error: r.reason instanceof Error ? r.reason.message : String(r.reason)
+          });
+          return false;
+        }
+        return true;
+      })
+      .map((r) => r.value)
+      .flat();
+  }
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number | undefined,
+  label: string
+): Promise<T> {
+  if (!timeoutMs || timeoutMs <= 0) {
+    return promise;
+  }
+
+  return await Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`${label} timed out after ${timeoutMs}ms.`));
+      }, timeoutMs);
+    })
+  ]);
+}
+
+function hasBlockingPolicyDecision(
+  decisions: import("@neurocore/protocol").PolicyDecision[]
+): boolean {
+  return decisions.some((decision) => decision.level === "block" || decision.severity >= 30);
+}
+
+function buildConversationRuntimeState(
+  traceRecords: CycleTraceRecord[],
+  profile: AgentProfile,
+  currentInputContent: string
+): Record<string, unknown> {
+  const history = flattenConversationHistory(traceRecords);
+  const maxContextTokens = profile.context_budget?.max_context_tokens;
+  const historyBudgetTokens = typeof maxContextTokens === "number" && maxContextTokens > 0
+    ? Math.max(32, Math.floor(maxContextTokens * 0.35))
+    : 256;
+  const trimmed = trimConversationHistory(history, historyBudgetTokens);
+  return {
+    conversation_history: trimmed.messages,
+    conversation_history_tokens: trimmed.tokens,
+    conversation_history_truncated: trimmed.truncated,
+    conversation_current_input_tokens: new DefaultTokenEstimator().estimate(currentInputContent)
+  };
+}
+
+function flattenConversationHistory(traceRecords: CycleTraceRecord[]): ConversationMessage[] {
+  const messages: ConversationMessage[] = [];
+  for (const record of traceRecords) {
+    for (const input of record.inputs) {
+      messages.push({
+        role: "user",
+        content: input.content,
+        created_at: input.created_at,
+        cycle_id: record.trace.cycle_id,
+        source_id: input.input_id
+      });
+    }
+    if (
+      record.selected_action &&
+      (record.selected_action.action_type === "respond" || record.selected_action.action_type === "ask_user") &&
+      record.observation?.source_type === "runtime" &&
+      typeof record.observation.summary === "string" &&
+      record.observation.summary.length > 0
+    ) {
+      messages.push({
+        role: "assistant",
+        content: record.observation.summary,
+        created_at: record.observation.created_at,
+        cycle_id: record.trace.cycle_id,
+        source_id: record.observation.observation_id
+      });
+    }
+  }
+  return messages;
+}
+
+function trimConversationHistory(
+  history: ConversationMessage[],
+  maxTokens: number
+): { messages: ConversationMessage[]; tokens: number; truncated: boolean } {
+  const estimator = new DefaultTokenEstimator();
+  let totalTokens = 0;
+  const selected: ConversationMessage[] = [];
+  let truncated = false;
+
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const message = history[index];
+    const messageTokens = estimator.estimate(message.content);
+    if (selected.length > 0 && totalTokens + messageTokens > maxTokens) {
+      truncated = true;
+      break;
+    }
+    if (selected.length === 0 && messageTokens > maxTokens) {
+      selected.unshift(message);
+      totalTokens = messageTokens;
+      truncated = history.length > 1;
+      break;
+    }
+    selected.unshift(message);
+    totalTokens += messageTokens;
+  }
+
+  return {
+    messages: selected,
+    tokens: totalTokens,
+    truncated
+  };
 }
 
 function toSkillDigest(providerName: string, proposal: Proposal): SkillDigest {

@@ -12,13 +12,13 @@ import { IMGateway } from "../examples/personal-assistant/dist/im-gateway/gatewa
 import { NotificationDispatcher } from "../examples/personal-assistant/dist/im-gateway/notification/notification-dispatcher.js";
 import { AssistantRuntimeFactory } from "../examples/personal-assistant/dist/im-gateway/runtime/assistant-runtime-factory.js";
 
-test("personal assistant persists approval binding and resumes execution after approve", async () => {
+test("personal assistant persists approval binding and resumes execution after approve", { concurrency: false }, async () => {
   const harness = createApprovalHarness();
 
   try {
     await harness.gateway.handleMessage(createTextMessage("msg-1", "please send the email"));
 
-    const approvalMessage = harness.adapter.lastMessage();
+    const approvalMessage = harness.adapter.lastMessageOfType("approval_request");
     assert.equal(approvalMessage.content.type, "approval_request");
     const binding = harness.approvalBindingStore.getBindingByApprovalId(
       approvalMessage.content.approval_id
@@ -31,7 +31,7 @@ test("personal assistant persists approval binding and resumes execution after a
       })
     );
 
-    const finalMessage = harness.adapter.lastMessage();
+    const finalMessage = harness.adapter.lastMessageOfType("text");
     assert.equal(finalMessage.content.type, "text");
     assert.match(finalMessage.content.text, /Email sent with id email-1/i);
     assert.equal(harness.emailSendCalls.length, 1);
@@ -44,12 +44,12 @@ test("personal assistant persists approval binding and resumes execution after a
   }
 });
 
-test("personal assistant keeps session resumable after approval rejection", async () => {
+test("personal assistant keeps session resumable after approval rejection", { concurrency: false }, async () => {
   const harness = createApprovalHarness();
 
   try {
     await harness.gateway.handleMessage(createTextMessage("msg-1", "please send the email"));
-    const approvalMessage = harness.adapter.lastMessage();
+    const approvalMessage = harness.adapter.lastMessageOfType("approval_request");
 
     await harness.gateway.handleMessage(
       createActionMessage("msg-2", "reject", "approved-user", {
@@ -57,7 +57,7 @@ test("personal assistant keeps session resumable after approval rejection", asyn
       })
     );
 
-    const rejectionMessage = harness.adapter.lastMessage();
+    const rejectionMessage = harness.adapter.lastMessageOfType("text");
     assert.equal(rejectionMessage.content.type, "text");
     assert.match(rejectionMessage.content.text, /Approval rejected/i);
     assert.equal(harness.emailSendCalls.length, 0);
@@ -76,12 +76,12 @@ test("personal assistant keeps session resumable after approval rejection", asyn
   }
 });
 
-test("personal assistant reports unauthorized approver and keeps approval pending", async () => {
+test("personal assistant reports unauthorized approver and keeps approval pending", { concurrency: false }, async () => {
   const harness = createApprovalHarness();
 
   try {
     await harness.gateway.handleMessage(createTextMessage("msg-1", "please send the email"));
-    const approvalMessage = harness.adapter.lastMessage();
+    const approvalMessage = harness.adapter.lastMessageOfType("approval_request");
 
     await harness.gateway.handleMessage(
       createActionMessage("msg-2", "approve", "intruder", {
@@ -89,7 +89,7 @@ test("personal assistant reports unauthorized approver and keeps approval pendin
       })
     );
 
-    const errorMessage = harness.adapter.lastMessage();
+    const errorMessage = harness.adapter.lastMessageOfType("text");
     assert.equal(errorMessage.content.type, "text");
     assert.match(errorMessage.content.text, /not in the allowed approvers list/i);
     assert.equal(harness.emailSendCalls.length, 0);
@@ -103,7 +103,7 @@ test("personal assistant reports unauthorized approver and keeps approval pendin
   }
 });
 
-test("personal assistant can skip approval when auto_approve is enabled at startup", async () => {
+test("personal assistant can skip approval when auto_approve is enabled at startup", { concurrency: false }, async () => {
   const harness = createApprovalHarness({
     agent: {
       auto_approve: true,
@@ -115,7 +115,7 @@ test("personal assistant can skip approval when auto_approve is enabled at start
   try {
     await harness.gateway.handleMessage(createTextMessage("msg-1", "please send the email"));
 
-    const finalMessage = harness.adapter.lastMessage();
+    const finalMessage = harness.adapter.lastMessageOfType("text");
     assert.equal(finalMessage.content.type, "text");
     assert.match(finalMessage.content.text, /Email sent with id email-1/i);
     assert.equal(harness.emailSendCalls.length, 1);
@@ -265,6 +265,9 @@ function createApprovalReasoner() {
           side_effect_level: "high"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   };
 }
@@ -331,5 +334,11 @@ class FakeAdapter {
   lastMessage() {
     assert.ok(this.messages.length > 0, "expected adapter to have sent messages");
     return this.messages[this.messages.length - 1];
+  }
+
+  lastMessageOfType(type) {
+    const candidate = [...this.messages].reverse().find((message) => message.content.type === type);
+    assert.ok(candidate, `expected adapter to have sent a ${type} message`);
+    return candidate;
   }
 }

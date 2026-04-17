@@ -15,6 +15,7 @@ export class SqliteRuntimeStateStore implements RuntimeStateStore {
     this.filename = options.filename;
     mkdirSync(dirname(options.filename), { recursive: true });
     this.db = new DatabaseSync(options.filename);
+    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 2000;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS runtime_sessions (
         session_id TEXT PRIMARY KEY,

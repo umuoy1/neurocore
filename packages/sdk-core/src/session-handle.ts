@@ -1,6 +1,7 @@
 import type {
   AgentProfile,
   AgentSession,
+  CreateSessionCommand,
   ApprovalRequest,
   CycleTrace,
   CycleTraceRecord,
@@ -12,7 +13,16 @@ import type {
   UserInput
 } from "@neurocore/protocol";
 import type { AgentRuntime } from "@neurocore/runtime-core";
-import type { SessionApprovalDecisionInput, SessionApprovalDecisionResult } from "./types.js";
+import { randomUUID } from "node:crypto";
+import type {
+  SessionApprovalDecisionInput,
+  SessionApprovalDecisionResult,
+  SessionEventFilter
+} from "./types.js";
+
+export interface LocalSessionCreateInput extends Omit<CreateSessionCommand, "command_type" | "agent_id"> {
+  agent_id?: string;
+}
 
 export class AgentSessionHandle {
   public constructor(
@@ -41,7 +51,7 @@ export class AgentSessionHandle {
   public async runText(content: string, metadata?: Record<string, unknown>) {
     const createdAt = new Date().toISOString();
     return this.runInput({
-      input_id: `inp_${Date.now()}`,
+      input_id: `inp_${randomUUID()}`,
       content,
       created_at: createdAt,
       metadata
@@ -56,6 +66,19 @@ export class AgentSessionHandle {
     return this.runtime.getSession(this.sessionId);
   }
 
+  public getState(): AgentSession["state"] | undefined {
+    return this.getSession()?.state;
+  }
+
+  public isTerminal(): boolean {
+    const state = this.getState();
+    return state === "completed" || state === "failed" || state === "aborted";
+  }
+
+  public isRunning(): boolean {
+    return this.getState() === "running";
+  }
+
   public getTraceRecords(): CycleTraceRecord[] {
     return this.runtime.getTraceRecords(this.sessionId);
   }
@@ -64,12 +87,19 @@ export class AgentSessionHandle {
     return this.runtime.getEpisodes(this.sessionId);
   }
 
-  public getEvents(): NeuroCoreEvent[] {
-    return this.runtime.listEvents(this.sessionId);
+  public getEvents(filter?: SessionEventFilter): NeuroCoreEvent[] {
+    return filterEvents(this.runtime.listEvents(this.sessionId), filter);
   }
 
-  public subscribeToEvents(listener: (event: NeuroCoreEvent) => void): () => void {
-    return this.runtime.subscribeToSessionEvents(this.sessionId, listener);
+  public subscribeToEvents(
+    listener: (event: NeuroCoreEvent) => void,
+    filter?: SessionEventFilter
+  ): () => void {
+    return this.runtime.subscribeToSessionEvents(this.sessionId, (event) => {
+      if (matchesEventFilter(event, filter)) {
+        listener(event);
+      }
+    });
   }
 
   public getGoals(): Goal[] {
@@ -117,7 +147,8 @@ export class AgentSessionHandle {
     return this.runtime.decideApproval(this.profile, approvalId, {
       approver_id: input.approver_id,
       decision: input.decision,
-      comment: input.comment
+      comment: input.comment,
+      reviewer_identity: input.reviewer_identity
     });
   }
 
@@ -145,7 +176,7 @@ export class AgentSessionHandle {
 
   public async resumeText(content: string, metadata?: Record<string, unknown>) {
     return this.resume({
-      input_id: `inp_${Date.now()}`,
+      input_id: `inp_${randomUUID()}`,
       content,
       created_at: new Date().toISOString(),
       metadata
@@ -158,4 +189,31 @@ export class AgentSessionHandle {
     }
     return this.initialInput;
   }
+}
+
+function filterEvents(events: NeuroCoreEvent[], filter?: SessionEventFilter): NeuroCoreEvent[] {
+  if (!filter) {
+    return events;
+  }
+  return events.filter((event) => matchesEventFilter(event, filter));
+}
+
+function matchesEventFilter(event: NeuroCoreEvent, filter?: SessionEventFilter): boolean {
+  if (!filter) {
+    return true;
+  }
+  if (filter.event_types && !filter.event_types.includes(event.event_type)) {
+    return false;
+  }
+  if (filter.cycle_id && event.cycle_id !== filter.cycle_id) {
+    return false;
+  }
+  if (
+    typeof filter.since_sequence_no === "number" &&
+    Number.isFinite(filter.since_sequence_no) &&
+    event.sequence_no <= filter.since_sequence_no
+  ) {
+    return false;
+  }
+  return true;
 }

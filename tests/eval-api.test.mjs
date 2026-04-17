@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { existsSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { connectRemoteEval } from "@neurocore/eval-core";
 import { defineAgent } from "@neurocore/sdk-core";
@@ -40,6 +44,9 @@ const agent = defineAgent({
         side_effect_level: "none"
       }
     ];
+  },
+  async *streamText(_ctx, action) {
+    yield action.description ?? action.title;
   }
 });
 
@@ -117,5 +124,55 @@ test("C: remote eval API - POST with unknown agent_id returns 404", async () => 
     );
   } finally {
     await server.close();
+  }
+});
+
+test("C: remote eval API - eval reports persist across server restart with SQLite eval store", async () => {
+  const filename = join(tmpdir(), `neurocore-eval-api-${randomUUID()}.sqlite`);
+  let server = createRuntimeServer({
+    agents: [agent],
+    evalStoreFilename: filename
+  });
+  let url;
+  let running = false;
+
+  try {
+    ({ url } = await server.listen());
+    running = true;
+    const evalClient = connectRemoteEval({ baseUrl: url });
+    const report = await evalClient.runEval("test-eval-api-agent", [
+      {
+        case_id: "echo-persisted",
+        description: "Agent should echo the input.",
+        input: { content: "persist me" },
+        expectations: {
+          final_state: "completed",
+          output_includes: ["persist me"]
+        }
+      }
+    ]);
+
+    await server.close();
+    running = false;
+
+    server = createRuntimeServer({
+      agents: [agent],
+      evalStoreFilename: filename
+    });
+    ({ url } = await server.listen());
+    running = true;
+
+    const restartedClient = connectRemoteEval({ baseUrl: url });
+    const fetched = await restartedClient.getEvalReport(report.run_id);
+    assert.equal(fetched.run_id, report.run_id);
+    assert.equal(fetched.pass_count, 1);
+    assert.equal(fetched.case_count, 1);
+  } finally {
+    if (running) {
+      await server.close();
+    }
+    if (existsSync(filename)) {
+      rmSync(filename, { force: true });
+    }
   }
 });

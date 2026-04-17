@@ -55,6 +55,19 @@ function makeBaseContext() {
   };
 }
 
+function makeReasoner(overrides = {}) {
+  return {
+    async plan() { return []; },
+    async respond() {
+      return [{ action_id: "act_1", action_type: "respond", title: "respond", side_effect_level: "none" }];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
+    },
+    ...overrides
+  };
+}
+
 test("F1: throwing MemoryProvider does not crash cycle, other providers return normally", async () => {
   const engine = new CycleEngine();
   const goodProvider = {
@@ -74,7 +87,7 @@ test("F1: throwing MemoryProvider does not crash cycle, other providers return n
     profile: makeProfile(),
     input: makeInput(),
     goals: [],
-    reasoner: { async plan() { return []; }, async respond() { return [{ action_id: "act_1", action_type: "respond", title: "respond", side_effect_level: "none" }]; } },
+    reasoner: makeReasoner(),
     memoryProviders: [goodProvider, badProvider],
     metaController: { async evaluate(_ctx, actions) { return { decision_type: "execute_action", selected_action_id: actions[0]?.action_id, confidence: 0.8 }; } }
   });
@@ -92,7 +105,7 @@ test("F2: throwing Predictor does not crash cycle", async () => {
     profile: makeProfile(),
     input: makeInput(),
     goals: [],
-    reasoner: { async plan() { return []; }, async respond() { return [{ action_id: "act_1", action_type: "respond", title: "respond", side_effect_level: "none" }]; } },
+    reasoner: makeReasoner(),
     predictors: [{ name: "bad-predictor", async predict() { throw new Error("predictor boom"); } }],
     metaController: { async evaluate(_ctx, actions) { return { decision_type: "execute_action", selected_action_id: actions[0]?.action_id, confidence: 0.8 }; } }
   });
@@ -109,7 +122,7 @@ test("F3: throwing SkillProvider does not crash cycle", async () => {
     profile: makeProfile(),
     input: makeInput(),
     goals: [],
-    reasoner: { async plan() { return []; }, async respond() { return [{ action_id: "act_1", action_type: "respond", title: "respond", side_effect_level: "none" }]; } },
+    reasoner: makeReasoner(),
     skillProviders: [{ name: "bad-skill", async match() { throw new Error("skill boom"); } }],
     metaController: { async evaluate(_ctx, actions) { return { decision_type: "execute_action", selected_action_id: actions[0]?.action_id, confidence: 0.8 }; } }
   });
@@ -125,7 +138,7 @@ test("F4: throwing PolicyProvider does not crash cycle", async () => {
     profile: makeProfile(),
     input: makeInput(),
     goals: [],
-    reasoner: { async plan() { return []; }, async respond() { return [{ action_id: "act_1", action_type: "respond", title: "respond", side_effect_level: "none" }]; } },
+    reasoner: makeReasoner(),
     policies: [{ name: "bad-policy", async evaluateAction() { throw new Error("policy boom"); } }],
     metaController: { async evaluate(_ctx, actions) { return { decision_type: "execute_action", selected_action_id: actions[0]?.action_id, confidence: 0.8 }; } }
   });
@@ -141,10 +154,9 @@ test("F5: reasoner.plan() throwing returns empty proposals but cycle completes",
     profile: makeProfile(),
     input: makeInput(),
     goals: [],
-    reasoner: {
-      async plan() { throw new Error("plan boom"); },
-      async respond() { return [{ action_id: "act_1", action_type: "respond", title: "respond", side_effect_level: "none" }]; }
-    },
+    reasoner: makeReasoner({
+      async plan() { throw new Error("plan boom"); }
+    }),
     metaController: { async evaluate(_ctx, actions) { return { decision_type: "execute_action", selected_action_id: actions[0]?.action_id, confidence: 0.8 }; } }
   });
 
@@ -161,13 +173,96 @@ test("F6: reasoner.respond() throwing returns empty actions but cycle completes"
     profile: makeProfile(),
     input: makeInput(),
     goals: [],
-    reasoner: {
-      async plan() { return []; },
+    reasoner: makeReasoner({
       async respond() { throw new Error("respond boom"); }
-    },
+    }),
     metaController: { async evaluate(_ctx, actions) { return { decision_type: "abort", rejection_reasons: ["no actions"] }; } }
   });
 
   assert.ok(result);
   assert.equal(result.actions.length, 0);
 });
+
+test("F7: reasoner.plan() timeout returns empty proposals but cycle completes", async () => {
+  const engine = new CycleEngine();
+  const profile = makeProfile();
+  profile.runtime_config.reasoner_timeout_ms = 10;
+
+  const result = await engine.run({
+    tenantId: "t1",
+    session: makeSession(),
+    profile,
+    input: makeInput(),
+    goals: [],
+    reasoner: makeReasoner({
+      async plan() {
+        await sleep(50);
+        return [];
+      }
+    }),
+    metaController: { async evaluate(_ctx, actions) { return { decision_type: "execute_action", selected_action_id: actions[0]?.action_id, confidence: 0.8 }; } }
+  });
+
+  assert.ok(result);
+  assert.equal(result.proposals.length, 0);
+  assert.equal(result.actions.length, 1);
+});
+
+test("F8: timed-out MemoryProvider does not crash cycle", async () => {
+  const engine = new CycleEngine();
+  const profile = makeProfile();
+  profile.runtime_config.module_provider_timeout_ms = 10;
+
+  const result = await engine.run({
+    tenantId: "t1",
+    session: makeSession(),
+    profile,
+    input: makeInput(),
+    goals: [],
+    reasoner: makeReasoner(),
+    memoryProviders: [{
+      name: "slow-mem",
+      async retrieve() {
+        await sleep(50);
+        return [];
+      },
+      async getDigest() {
+        await sleep(50);
+        return [];
+      }
+    }],
+    metaController: { async evaluate(_ctx, actions) { return { decision_type: "execute_action", selected_action_id: actions[0]?.action_id, confidence: 0.8 }; } }
+  });
+
+  assert.ok(result);
+  assert.equal(result.proposals.length, 0);
+});
+
+test("F9: timed-out PolicyProvider does not crash cycle", async () => {
+  const engine = new CycleEngine();
+  const profile = makeProfile();
+  profile.runtime_config.module_provider_timeout_ms = 10;
+
+  const result = await engine.run({
+    tenantId: "t1",
+    session: makeSession(),
+    profile,
+    input: makeInput(),
+    goals: [],
+    reasoner: makeReasoner(),
+    policies: [{
+      name: "slow-policy",
+      async evaluateAction() {
+        await sleep(50);
+        return [];
+      }
+    }],
+    metaController: { async evaluate(_ctx, actions) { return { decision_type: "execute_action", selected_action_id: actions[0]?.action_id, confidence: 0.8 }; } }
+  });
+
+  assert.ok(result);
+});
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

@@ -13,6 +13,7 @@ export class SqliteEpisodicMemoryStore {
   public constructor(options: SqliteEpisodicMemoryStoreOptions) {
     mkdirSync(dirname(options.filename), { recursive: true });
     this.db = new DatabaseSync(options.filename);
+    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 2000;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS episodic_episodes (
         episode_id TEXT PRIMARY KEY,

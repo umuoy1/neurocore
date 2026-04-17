@@ -754,6 +754,7 @@ interface Reasoner {
   name: string;
   plan(ctx: ModuleContext): Promise<Proposal[]>;
   respond(ctx: ModuleContext): Promise<CandidateAction[]>;
+  streamText(ctx: ModuleContext, action: CandidateAction): AsyncIterable<string>;
   decomposeGoal?(ctx: ModuleContext, goal: Goal): Promise<Goal[]>;
 }
 ```
@@ -761,7 +762,7 @@ interface Reasoner {
 输出约束：
 
 - 不直接执行业务动作
-- 只提交 Proposal 或 CandidateAction
+- 只提交 Proposal 或 CandidateAction；文本类动作的最终用户输出统一通过 `streamText(...)` 产生
 - 必须给出置信度或不确定性信号
 
 ### 9.3 Memory SPI

@@ -1032,7 +1032,7 @@ test("ControlAllocator escalates high-risk actions through a single approval pat
     }
   });
 
-  assert.equal(decisionV2.control_action, "ask-human");
+  assert.equal(decisionV2.control_action, "execute-with-approval");
   assert.equal(decisionV2.requires_approval, true);
   assert.equal(decisionV2.selected_action_id, "act_tool");
 
@@ -1187,6 +1187,86 @@ test("ControlAllocator uses low calibrated confidence as a conservative control 
   assert.equal(decisionV2.selected_action_id, "act_ask");
 });
 
+test("ControlAllocator keeps warned tool actions on the approval path even under very low confidence", async () => {
+  const allocator = new DefaultControlAllocator();
+  const ctx = {
+    ...makeCtx(),
+    workspace: makeWorkspace()
+  };
+
+  const decisionV2 = await allocator.decide({
+    ctx,
+    actions: [
+      {
+        action_id: "act_tool",
+        action_type: "call_tool",
+        title: "Send external email",
+        tool_name: "email_send",
+        side_effect_level: "high"
+      }
+    ],
+    predictions: [],
+    policies: [
+      {
+        decision_id: "pol_warn",
+        policy_name: "approval-required",
+        level: "warn",
+        target_type: "action",
+        target_id: "act_tool",
+        reason: "External side effect requires approval."
+      }
+    ],
+    workspace: ctx.workspace,
+    fastAssessment: {
+      assessment_id: "fast_warn",
+      session_id: "ses_meta",
+      cycle_id: "cyc_1",
+      meta_state: "high-risk",
+      provisional_confidence: 0.4,
+      trigger_deep_eval: true,
+      recommended_control_actions: ["execute-with-approval"],
+      rationale: "policy warned high-risk action",
+      created_at: ts()
+    },
+    metaAssessment: {
+      assessment_id: "meta_warn",
+      session_id: "ses_meta",
+      cycle_id: "cyc_1",
+      meta_state: "high-risk",
+      confidence: {
+        answer_confidence: 0.5,
+        process_confidence: 0.65,
+        evidence_confidence: 0.3,
+        simulation_confidence: 0.45,
+        action_safety_confidence: 0.1,
+        tool_readiness_confidence: 0.8,
+        calibration_confidence: 0.3,
+        overall_confidence: 0.42
+      },
+      calibrated_confidence: 0.18,
+      bucket_reliability: 0.2,
+      uncertainty_decomposition: {
+        epistemic: 0.8,
+        aleatoric: 0.3,
+        evidence_missing: 0.7,
+        model_disagreement: 0.2,
+        simulator_unreliability: 0.5,
+        calibration_gap: 0.6
+      },
+      failure_modes: ["insufficient_evidence", "policy_block"],
+      recommended_control_action: "abort",
+      recommended_candidate_action_id: "act_tool",
+      rationale: "low confidence but approval path must be preserved",
+      created_at: ts(),
+      deep_evaluation_used: true
+    }
+  });
+
+  assert.equal(decisionV2.control_action, "execute-with-approval");
+  assert.equal(decisionV2.selected_action_id, "act_tool");
+  assert.equal(decisionV2.requires_approval, true);
+});
+
 test("CycleEngine run attaches metacognitive artifacts to workspace and decision", async () => {
   const engine = new CycleEngine();
   const reasoner = {
@@ -1209,6 +1289,9 @@ test("CycleEngine run attaches metacognitive artifacts to workspace and decision
           description: "Provide a concise answer"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   };
 
@@ -1274,6 +1357,9 @@ test("AgentRuntime trace records persist metacognitive artifacts", async () => {
           description: "Runtime response"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   };
 
@@ -1319,6 +1405,9 @@ test("Calibration records persist across runtime restart with sqlite state store
           description: "Runtime response"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   };
 

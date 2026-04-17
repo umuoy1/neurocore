@@ -179,6 +179,7 @@ export const WEB_CHAT_PAGE_HTML = String.raw`<!DOCTYPE html>
       }
 
       .status-card,
+      .activity-card,
       .tips-card {
         border: 1px solid var(--line);
         border-radius: 18px;
@@ -217,6 +218,95 @@ export const WEB_CHAT_PAGE_HTML = String.raw`<!DOCTYPE html>
         color: var(--muted);
         word-break: break-all;
         font-family: var(--font-mono);
+      }
+
+      .activity-current {
+        display: grid;
+        gap: 6px;
+      }
+
+      .activity-phase {
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent-strong);
+      }
+
+      .activity-summary {
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      .activity-detail {
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.45;
+        white-space: pre-wrap;
+      }
+
+      .activity-facts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+      }
+
+      .activity-fact {
+        border-radius: 999px;
+        padding: 4px 8px;
+        font-size: 11px;
+        color: var(--accent-strong);
+        background: var(--accent-soft);
+        font-family: var(--font-mono);
+      }
+
+      .activity-list {
+        margin-top: 14px;
+        display: grid;
+        gap: 10px;
+        max-height: 260px;
+        overflow: auto;
+      }
+
+      .activity-item {
+        border: 1px solid rgba(69, 55, 37, 0.1);
+        border-radius: 14px;
+        padding: 10px 12px;
+        background: rgba(255, 255, 255, 0.5);
+      }
+
+      .activity-item-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 6px;
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .activity-state {
+        border-radius: 999px;
+        padding: 4px 8px;
+        background: rgba(69, 55, 37, 0.08);
+      }
+
+      .activity-state.started,
+      .activity-state.in_progress {
+        background: rgba(157, 95, 18, 0.14);
+        color: var(--warning);
+      }
+
+      .activity-state.completed {
+        background: rgba(47, 125, 74, 0.14);
+        color: var(--success);
+      }
+
+      .activity-state.failed {
+        background: rgba(185, 92, 50, 0.14);
+        color: var(--accent-strong);
       }
 
       .tips-card ul {
@@ -442,6 +532,17 @@ export const WEB_CHAT_PAGE_HTML = String.raw`<!DOCTYPE html>
           <div id="endpoint" class="endpoint"></div>
         </section>
 
+        <section class="activity-card">
+          <div class="eyebrow" style="margin-bottom: 10px;">Agent Activity</div>
+          <div class="activity-current">
+            <div id="current-phase" class="activity-phase">idle</div>
+            <div id="current-summary" class="activity-summary">Waiting for work.</div>
+            <div id="current-detail" class="activity-detail"></div>
+            <div id="current-facts" class="activity-facts"></div>
+          </div>
+          <div id="activity-log" class="activity-list"></div>
+        </section>
+
         <section class="tips-card">
           <div class="eyebrow" style="margin-bottom: 10px;">Useful Commands</div>
           <ul>
@@ -494,10 +595,18 @@ export const WEB_CHAT_PAGE_HTML = String.raw`<!DOCTYPE html>
       const statusText = document.getElementById("status-text");
       const endpoint = document.getElementById("endpoint");
       const sessionBadge = document.getElementById("session-badge");
+      const currentPhase = document.getElementById("current-phase");
+      const currentSummary = document.getElementById("current-summary");
+      const currentDetail = document.getElementById("current-detail");
+      const currentFacts = document.getElementById("current-facts");
+      const activityLog = document.getElementById("activity-log");
 
       const state = {
         socket: null,
-        status: "disconnected"
+        status: "disconnected",
+        messagesById: new Map(),
+        currentSessionId: "",
+        activityItems: []
       };
 
       const params = new URLSearchParams(window.location.search);
@@ -512,6 +621,16 @@ export const WEB_CHAT_PAGE_HTML = String.raw`<!DOCTYPE html>
       sendButton.addEventListener("click", () => sendCurrentMessage());
       clearButton.addEventListener("click", () => {
         messages.innerHTML = "";
+        activityLog.innerHTML = "";
+        state.messagesById.clear();
+        state.activityItems = [];
+        state.currentSessionId = "";
+        setCurrentActivity({
+          phase: "idle",
+          text: "Waiting for work.",
+          detail: "",
+          facts: []
+        });
         renderSystem("Log cleared.");
       });
       composer.addEventListener("keydown", (event) => {
@@ -615,17 +734,21 @@ export const WEB_CHAT_PAGE_HTML = String.raw`<!DOCTYPE html>
         }
 
         if (payload.type === "message" || payload.type === "edit") {
-          sessionBadge.textContent = "Active";
-          renderIncomingContent(payload.content, payload.message_id);
+          renderIncomingContent(payload.content, payload.message_id, payload.type === "edit");
           return;
         }
 
         renderSystem("Received unsupported payload: " + JSON.stringify(payload));
       }
 
-      function renderIncomingContent(content, messageId) {
+      function renderIncomingContent(content, messageId, isEdit) {
         if (!content || typeof content !== "object") {
-          renderMessage({ role: "assistant", label: "assistant", text: JSON.stringify(content) });
+          renderMessage({ role: "assistant", label: "assistant", text: JSON.stringify(content), isEdit });
+          return;
+        }
+
+        if (content.type === "status") {
+          renderStatus(content);
           return;
         }
 
@@ -634,7 +757,8 @@ export const WEB_CHAT_PAGE_HTML = String.raw`<!DOCTYPE html>
             role: "assistant",
             label: "assistant",
             text: content.text || "Approval required",
-            messageId
+            messageId,
+            isEdit
           });
 
           const actions = document.createElement("div");
@@ -666,7 +790,8 @@ export const WEB_CHAT_PAGE_HTML = String.raw`<!DOCTYPE html>
           role: "assistant",
           label: "assistant",
           text,
-          messageId
+          messageId,
+          isEdit
         });
       }
 
@@ -685,29 +810,48 @@ export const WEB_CHAT_PAGE_HTML = String.raw`<!DOCTYPE html>
         renderSystem("Sent " + action + " action.");
       }
 
-      function renderMessage({ role, label, text, messageId }) {
-        const node = document.createElement("article");
-        node.className = "message " + role;
+      function renderMessage({ role, label, text, messageId, isEdit }) {
+        let node = messageId ? state.messagesById.get(messageId) : undefined;
+        if (!node) {
+          node = document.createElement("article");
+          node.className = "message " + role;
 
-        const header = document.createElement("div");
-        header.className = "message-header";
-        const who = document.createElement("strong");
-        who.textContent = label;
-        const time = document.createElement("span");
-        time.textContent = new Date().toLocaleTimeString();
-        header.append(who, time);
-        if (messageId) {
-          const meta = document.createElement("span");
-          meta.textContent = messageId;
-          header.append(meta);
+          const header = document.createElement("div");
+          header.className = "message-header";
+          const who = document.createElement("strong");
+          who.textContent = label;
+          const time = document.createElement("span");
+          time.dataset.part = "time";
+          header.append(who, time);
+          if (messageId) {
+            const meta = document.createElement("span");
+            meta.textContent = messageId;
+            header.append(meta);
+          }
+
+          const body = document.createElement("div");
+          body.className = "message-body";
+
+          node.append(header, body);
+          messages.append(node);
+          if (messageId) {
+            state.messagesById.set(messageId, node);
+          }
         }
 
-        const body = document.createElement("div");
-        body.className = "message-body";
-        body.textContent = text;
+        const time = node.querySelector('[data-part="time"]');
+        if (time) {
+          time.textContent = new Date().toLocaleTimeString();
+        }
 
-        node.append(header, body);
-        messages.append(node);
+        const body = node.querySelector(".message-body");
+        if (body) {
+          body.textContent = text;
+        }
+
+        if (!isEdit && role === "assistant") {
+          sessionBadge.textContent = "Active";
+        }
         messages.scrollTop = messages.scrollHeight;
         return node;
       }
@@ -718,6 +862,84 @@ export const WEB_CHAT_PAGE_HTML = String.raw`<!DOCTYPE html>
           label: "system",
           text
         });
+      }
+
+      function renderStatus(content) {
+        const phase = typeof content.phase === "string" ? content.phase : "runtime";
+        const stateLabel = typeof content.state === "string" ? content.state : "in_progress";
+        const detail = typeof content.detail === "string" ? content.detail : "";
+        const text = typeof content.text === "string" ? content.text : "Working";
+        const sessionId = typeof content.session_id === "string" ? content.session_id : "";
+        const facts = collectActivityFacts(content);
+
+        if (sessionId) {
+          state.currentSessionId = sessionId;
+          sessionBadge.textContent = "Session " + sessionId.slice(0, 8);
+        } else if (phase === "reasoning") {
+          sessionBadge.textContent = "Thinking";
+        } else if (phase === "tool_execution") {
+          sessionBadge.textContent = "Using tool";
+        }
+
+        setCurrentActivity({
+          phase: phase.replaceAll("_", " "),
+          text,
+          detail,
+          facts
+        });
+        prependActivity({
+          phase: phase.replaceAll("_", " "),
+          state: stateLabel,
+          text,
+          detail,
+          facts,
+          timestamp: new Date().toLocaleTimeString()
+        });
+      }
+
+      function setCurrentActivity(activity) {
+        currentPhase.textContent = activity.phase;
+        currentSummary.textContent = activity.text;
+        currentDetail.textContent = activity.detail || "";
+        renderFacts(currentFacts, activity.facts || []);
+      }
+
+      function prependActivity(activity) {
+        const node = document.createElement("div");
+        node.className = "activity-item";
+
+        const header = document.createElement("div");
+        header.className = "activity-item-header";
+
+        const phase = document.createElement("span");
+        phase.textContent = activity.phase;
+
+        const stateBadge = document.createElement("span");
+        stateBadge.className = "activity-state " + activity.state;
+        stateBadge.textContent = activity.state;
+
+        header.append(phase, stateBadge);
+
+        const summary = document.createElement("div");
+        summary.className = "activity-summary";
+        summary.textContent = activity.text;
+
+        const detail = document.createElement("div");
+        detail.className = "activity-detail";
+        detail.textContent = activity.detail ? activity.detail + " · " + activity.timestamp : activity.timestamp;
+
+        const facts = document.createElement("div");
+        facts.className = "activity-facts";
+        renderFacts(facts, activity.facts || []);
+
+        node.append(header, summary, detail, facts);
+        activityLog.prepend(node);
+        state.activityItems.unshift(node);
+
+        while (state.activityItems.length > 14) {
+          const removed = state.activityItems.pop();
+          removed?.remove();
+        }
       }
 
       function buildWsUrl(chatId, userId) {
@@ -744,6 +966,69 @@ export const WEB_CHAT_PAGE_HTML = String.raw`<!DOCTYPE html>
         } else {
           sessionBadge.textContent = "Idle";
         }
+      }
+
+      function collectActivityFacts(content) {
+        const facts = [];
+
+        if (content.session_id) {
+          facts.push({ label: "session", value: String(content.session_id).slice(0, 8) });
+        }
+        if (content.cycle_id) {
+          facts.push({ label: "cycle", value: String(content.cycle_id).slice(0, 8) });
+        }
+
+        const data = content.data && typeof content.data === "object" ? content.data : null;
+        if (data) {
+          const preferredKeys = [
+            "tool_name",
+            "action_type",
+            "action_id",
+            "status",
+            "proposal_count",
+            "action_count",
+            "digest_count",
+            "proposal_count",
+            "skill_match_count"
+          ];
+
+          for (const key of preferredKeys) {
+            if (facts.length >= 6) {
+              break;
+            }
+            if (!(key in data)) {
+              continue;
+            }
+            const value = data[key];
+            if (value === undefined || value === null || value === "") {
+              continue;
+            }
+            facts.push({ label: key, value: formatFactValue(value) });
+          }
+        }
+
+        return facts;
+      }
+
+      function renderFacts(container, facts) {
+        container.innerHTML = "";
+        if (!facts || facts.length === 0) {
+          return;
+        }
+
+        for (const fact of facts) {
+          const badge = document.createElement("span");
+          badge.className = "activity-fact";
+          badge.textContent = fact.label + ":" + fact.value;
+          container.append(badge);
+        }
+      }
+
+      function formatFactValue(value) {
+        if (typeof value === "string") {
+          return value.length > 24 ? value.slice(0, 24) : value;
+        }
+        return String(value);
       }
 
       function shortId() {

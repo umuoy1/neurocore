@@ -14,6 +14,7 @@ export class SqliteApprovalBindingStore implements ApprovalBindingStore {
   public constructor(options: SqliteApprovalBindingStoreOptions) {
     mkdirSync(dirname(options.filename), { recursive: true });
     this.db = new DatabaseSync(options.filename);
+    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 2000;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS approval_bindings (
         platform TEXT NOT NULL,

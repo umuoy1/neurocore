@@ -75,6 +75,10 @@ export class EpisodicMemoryProvider implements MemoryProvider {
     this.persistenceStore?.deleteSession(sessionId);
   }
 
+  public evictSession(sessionId: string): void {
+    this.store.deleteSession(sessionId);
+  }
+
   public async getDigest(ctx: ModuleContext): Promise<MemoryDigest[]> {
     if (ctx.profile.memory_config.episodic_memory_enabled === false) {
       return [];

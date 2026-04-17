@@ -45,6 +45,9 @@ function createEchoAgent({ id, memoryProviders, configureAgent } = {}) {
           side_effect_level: "none"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   });
 
@@ -364,6 +367,9 @@ test("B1: withTokenBudget sets max_context_tokens on the profile", () => {
           description: "ok",
           side_effect_level: "none"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .withTokenBudget(5000);
@@ -390,6 +396,9 @@ test("B2: session initializes token_budget_total from profile context_budget", (
           description: "ok",
           side_effect_level: "none"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .withTokenBudget(8000);
@@ -439,6 +448,9 @@ test("B3: token_budget_used accumulates across cycles in a session", async () =>
           description: "ok",
           side_effect_level: "none"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .withTokenBudget(100000);
@@ -490,6 +502,9 @@ test("B4: session aborts when token budget is exhausted", async () => {
           tool_args: { msg: "still going" },
           side_effect_level: "none"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .withTokenBudget(10)
@@ -544,6 +559,9 @@ test("B5: workspace budget_assessment reports token exceedance on subsequent cyc
           tool_args: { msg: "spend tokens" },
           side_effect_level: "none"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .withTokenBudget(10)
@@ -618,6 +636,9 @@ test("P1: context is automatically compressed when it exceeds max_context_tokens
           description: "compressed result",
           side_effect_level: "none"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .withTokenBudget(2000);
@@ -667,6 +688,9 @@ test("E1: full session with token budget and custom retrieval_top_k completes cl
           description: input,
           side_effect_level: "none"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .configureMemory({ retrieval_top_k: 3 })
@@ -724,6 +748,9 @@ test("E2: two sessions share episodic memory with bounded retrieval", async () =
           description: "processed",
           side_effect_level: "none"
         }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .configureMemory({ retrieval_top_k: 2 })

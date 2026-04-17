@@ -1,10 +1,11 @@
 # NeuroCore Execution Roadmap
 
-> Calibrated against the current codebase on 2026-04-15.
+> Calibrated against the current codebase on 2026-04-18.
 >
 > 当前最重要的变化：
 > - 记忆系统已经从 fat snapshot 路径切到 SQL-first
 > - Prefrontal / Meta 已经从“架构构想期”进入“元认知运行时 v1”
+> - 个人助理交互链已经切到原生 `Reasoner.streamText -> runtime.output / runtime.status`，Web Chat / Feishu / Hosted Runtime / Console 不再各走一套消息路径
 > - 下一阶段关键词不再是扩更多概念模块，而是：收口、闭环、持久化、SPI 化、评估化
 
 ## Milestone 5: Cognitive Core
@@ -29,17 +30,17 @@
   - [x] Add working-memory max entries through agent/runtime configuration
   - [x] Add procedural memory implementation
   - [x] Move default persistence path to SQL-first
-  - [ ] Add TTL-based working memory expiration
-  - [ ] Store failure episodes in semantic memory for negative-pattern learning
+  - [x] Add TTL-based working memory expiration
+  - [x] Store failure episodes in semantic memory for negative-pattern learning
 - [in_progress] Policy and budget upgrades
   - [x] Support custom policy provider registration
   - [x] Replace heuristic budget checks with token/tool/cycle quota checks
   - [x] Add token accounting for context budget usage
   - [x] Add configurable tool allow/deny policy bundles
   - [x] Escalate warn-level/high-risk actions into approval flow
-  - [ ] Expand approval policy by tenant and risk level
-  - [ ] Add cost budget tracking
-  - [ ] Add per-tenant and per-tool rate limiting
+  - [x] Add cost budget tracking
+  - [x] Expand approval policy by tenant and risk level
+  - [x] Add per-tenant and per-tool rate limiting
 
 ## Milestone 6: Hosted Runtime
 
@@ -59,28 +60,29 @@
   - [x] Expose eval run creation on `runtime-server`
   - [x] Add report lookup endpoint on `runtime-server`
   - [x] Add remote client bindings for eval APIs
-  - [ ] Persist eval reports durably across server restarts
+  - [x] Persist eval reports durably across server restarts
 
 ## Milestone 7: Productization
 
 - [in_progress] Automated testing and CI
   - [x] Add unit and integration test suites
   - [x] Add GitHub Actions CI for typecheck and test matrix
+  - [x] Add dedicated meta-stack CI lane
   - [x] Add changesets configuration and release scripts
   - [ ] Add automated publish/release workflow
   - [ ] Separate socket-bound hosted-runtime tests from restricted environments
   - [ ] Gate LLM baseline coverage behind explicit credentials/connectivity in CI
 - [in_progress] Governance and tenancy
   - [x] Flow tenant IDs through session, trace, event, episodic, and semantic memory paths
-  - [ ] Add authentication for `runtime-server`
-  - [ ] Add request-time permission checks and reviewer policy
-  - [ ] Add stronger approval audit identity beyond `approver_id` capture
+  - [x] Add authentication for `runtime-server`
+  - [x] Add request-time permission checks and reviewer policy
+  - [x] Add stronger approval audit identity beyond `approver_id` capture
 - [in_progress] Observability
   - [x] Emit runtime events and local debug logs
   - [x] Add basic `GET /healthz`
-  - [ ] Add structured logs and metrics export
-  - [ ] Add trace export beyond local stores/debug logging
-  - [ ] Add runtime saturation reporting
+  - [x] Add structured logs and metrics export
+  - [x] Add trace export beyond local stores/debug logging
+  - [x] Add runtime saturation reporting
 - [in_progress] Control plane UX
   - [x] Add session detail APIs
   - [x] Add trace/workspace/events/episodes lookup APIs
@@ -94,16 +96,16 @@
 
 - [in_progress] Provider isolation and resilience
   - [x] Isolate memory/skill/policy/predictor failures with `Promise.allSettled`
-  - [ ] Add configurable timeout for reasoner `plan`/`respond` at the runtime layer
-  - [ ] Add configurable timeout for memory/skill/policy provider calls
-  - [ ] Add circuit breaker for consistently failing tools
+  - [x] Add configurable timeout for reasoner `plan`/`respond` at the runtime layer
+  - [x] Add configurable timeout for memory/skill/policy provider calls
+  - [x] Add circuit breaker for consistently failing tools
 - [in_progress] Execution correctness
   - [x] Validate `tool_args` against `tool.inputSchema` before invoking
   - [x] Add exponential backoff with jitter for tool retries
   - [x] Error on unknown `selected_action_id` instead of silent fallback to `actions[0]`
   - [x] Add session-level concurrency guard in `SessionManager` (CAS/lock instead of hosted wrapper only)
-  - [ ] Distinguish transient vs permanent errors in tool retry logic
-  - [ ] Add error handling around `RuntimeStateStore` persistence operations
+  - [x] Distinguish transient vs permanent errors in tool retry logic
+  - [x] Add error handling around `RuntimeStateStore` persistence operations
 - [done] Legacy MetaController improvements
   - [x] Rank candidate actions by predictor uncertainty (risk proxy)
   - [x] Make approval threshold configurable
@@ -113,16 +115,16 @@
 - [in_progress] Session lifecycle
   - [x] Add `last_active_at` tracking
   - [x] Prevent `hydrate` from silently overwriting existing sessions
-  - [ ] Add session TTL with automatic expiration and idle detection
-  - [ ] Add in-memory session eviction (LRU or max count)
+  - [x] Add session TTL with automatic expiration and idle detection
+  - [x] Add in-memory session eviction (LRU or max count)
 
 ## Milestone 9: Core Feature Gaps
 
 - [pending] Multi-turn conversation
-  - [ ] Add conversation history buffer with role-annotated messages (user/assistant/system)
-  - [ ] Add sliding window or token-aware context truncation strategy for conversation history
+  - [x] Add conversation history buffer with role-annotated messages (user/assistant/system)
+  - [x] Add sliding window or token-aware context truncation strategy for conversation history
   - [ ] Add context summarization for long conversations
-  - [ ] Add token counting before reasoner invocation for full conversational context
+  - [x] Add token counting before reasoner invocation for full conversational context
 - [pending] Parallel tool execution
   - [ ] Allow reasoner to propose multiple concurrent tool calls per cycle
   - [ ] Implement fork/join execution with barrier for parallel tool results
@@ -134,25 +136,26 @@
   - [ ] Support shared runtime across sessions from the same built agent
 - [pending] Conditional planning
   - [ ] Support branching/fallback chains in `CandidateAction`
-  - [ ] Evaluate `CandidateAction.preconditions` before execution
+  - [x] Evaluate `CandidateAction.preconditions` before execution
   - [ ] Add DAG-based plan structure beyond flat action lists
 - [pending] Tool result caching
-  - [ ] Implement cache layer in `ToolGateway` keyed by `idempotency_key`
-  - [ ] Add configurable cache TTL and invalidation policy
+  - [x] Implement cache layer in `ToolGateway` keyed by `idempotency_key`
+  - [x] Add configurable cache TTL
+  - [x] Add cache invalidation policy
 - [pending] Structured user interaction
-  - [ ] Extend `ask_user` with structured prompt schema (options, forms, date pickers)
-  - [ ] Add input validation for structured user responses
+  - [x] Extend `ask_user` with structured prompt schema (options, forms, date pickers)
+  - [x] Add input validation for structured user responses
 - [pending] Multi-modal input
   - [ ] Extend `UserInput` to typed content parts (text, image, file)
   - [ ] Add MIME-aware tool result and observation handling
 - [pending] Content filtering
-  - [ ] Add input screening before reasoner invocation
-  - [ ] Add output screening before response delivery
-  - [ ] Add `evaluateInput` / `evaluateOutput` to `PolicyProvider`
+  - [x] Add input screening before reasoner invocation
+  - [x] Add output screening before response delivery
+  - [x] Add `evaluateInput` / `evaluateOutput` to `PolicyProvider`
 - [pending] Token-level streaming
   - [x] Support session-level event streaming over SSE
-  - [ ] Add `AsyncIterable` token streaming for reasoner output
-  - [ ] Differentiate token streaming from background `async` mode semantics
+  - [x] Add `AsyncIterable` token streaming for reasoner output
+  - [x] Differentiate token streaming from background `async` mode semantics
 
 ## Milestone 10: Meta Stack v2 Closure
 
@@ -190,10 +193,10 @@
 - [in_progress] Meta benchmark and evaluation
   - [x] Add `meta-benchmark.ts`
   - [x] Add focused tests for calibration / fast-monitor / deep-eval / control-allocator metrics
-  - [ ] Add real benchmark case bundle for families A-G
+  - [x] Add real benchmark case bundle for families A-G
   - [ ] Add online meta eval pipeline
   - [ ] Add coverage-vs-accuracy and risk-conditioned curve export
-  - [ ] Add benchmark persistence and historical comparison
+  - [x] Add benchmark persistence and historical comparison
 - [pending] Reflection and policy learning
   - [ ] Implement `ReflectionLearner`
   - [ ] Persist reflection memory / rule artifacts
@@ -232,27 +235,27 @@
   - [ ] Add `build()` method returning a reusable Agent instance with shared runtime
   - [ ] Add `validate()` method for pre-flight configuration checks
 - [pending] Session handle improvements
-  - [ ] Use high-resolution IDs for `runText` / `resumeText`
-  - [ ] Add `getState()`, `isTerminal()`, `isRunning()` convenience methods
+  - [x] Use high-resolution IDs for `runText` / `resumeText`
+  - [x] Add `getState()`, `isTerminal()`, `isRunning()` convenience methods
+  - [x] Add remote checkpoint/suspend parity and local event filtering helpers
   - [ ] Align local and remote session handle APIs (checkpoint, replay, waitForSettled)
   - [ ] Add shared session-handle interface for local/remote polymorphism
-  - [ ] Add event filtering helpers
 - [pending] Remote client hardening
-  - [ ] Add request timeout with `AbortSignal`
-  - [ ] Add retry logic for transient HTTP errors (429, 503)
-  - [ ] Add SSE reconnection with `Last-Event-ID`
+  - [x] Add request timeout with `AbortSignal`
+  - [x] Add retry logic for transient HTTP errors (429, 503)
+  - [x] Add SSE reconnection with `Last-Event-ID`
   - [ ] Add pagination for trace/episode/event list endpoints
 
 ## Milestone 13: Protocol Tightening
 
-- [pending] Type safety
-  - [ ] Add discriminator field to `RuntimeCommand` union
-  - [ ] Add `schema_version` to `SessionCheckpoint`
-  - [ ] Restrict `CreateSessionCommand.overrides` to exclude immutable fields
-  - [ ] Add numeric severity ordering to `PolicyDecision.level`
-  - [ ] Add fully discriminated `NeuroCoreEvent` mapping `event_type` to payload type
-- [pending] Missing protocol definitions
-  - [ ] Add `SuspendSessionCommand` and `ResumeSessionCommand`
-  - [ ] Add `CheckpointCommand`
-  - [ ] Add missing event types (`session.suspended`, `session.resumed`, `approval.requested`, `goal.completed`, `checkpoint.created`)
-  - [ ] Add event sequence numbers for causal ordering
+- [done] Type safety
+  - [x] Add discriminator field to `RuntimeCommand` union
+  - [x] Add `schema_version` to `SessionCheckpoint`
+  - [x] Restrict `CreateSessionCommand.overrides` to exclude immutable fields
+  - [x] Add numeric severity ordering to `PolicyDecision.level`
+  - [x] Add fully discriminated `NeuroCoreEvent` mapping `event_type` to payload type
+- [done] Missing protocol definitions
+  - [x] Add `SuspendSessionCommand` and `ResumeSessionCommand`
+  - [x] Add `CheckpointCommand`
+  - [x] Add missing event types (`session.suspended`, `session.resumed`, `approval.requested`, `goal.completed`, `checkpoint.created`)
+  - [x] Add event sequence numbers for causal ordering

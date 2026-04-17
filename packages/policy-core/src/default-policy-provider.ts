@@ -3,6 +3,10 @@ import type { CandidateAction, ModuleContext, PolicyDecision, PolicyProvider } f
 export class DefaultPolicyProvider implements PolicyProvider {
   public readonly name = "default-policy-provider";
 
+  public async evaluateInput(): Promise<PolicyDecision[]> {
+    return [];
+  }
+
   public async evaluateAction(
     _ctx: ModuleContext,
     action: CandidateAction
@@ -13,6 +17,7 @@ export class DefaultPolicyProvider implements PolicyProvider {
           decision_id: `pol_${action.action_id}`,
           policy_name: this.name,
           level: "warn",
+          severity: 20,
           target_type: "action",
           target_id: action.action_id,
           reason: "High side-effect tool actions should require additional review.",
@@ -23,5 +28,8 @@ export class DefaultPolicyProvider implements PolicyProvider {
 
     return [];
   }
-}
 
+  public async evaluateOutput(): Promise<PolicyDecision[]> {
+    return [];
+  }
+}

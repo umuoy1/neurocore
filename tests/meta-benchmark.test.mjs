@@ -1,10 +1,21 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
 import {
+  buildMetaBenchmarkArtifacts,
   brierScore,
+  compareMetaBenchmarkSummaries,
   evaluateMetaBenchmark,
-  expectedCalibrationError
+  expectedCalibrationError,
+  formatMetaBenchmarkComparison,
+  formatMetaBenchmarkSummary,
+  summarizeMetaBenchmarkReport
 } from "@neurocore/eval-core";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const SAMPLE_BUNDLE = resolve(__dirname, "fixtures", "meta-benchmark-suite.json");
 
 function approxEqual(actual, expected, epsilon = 1e-6) {
   assert.ok(Math.abs(actual - expected) <= epsilon, `expected ${expected}, got ${actual}`);
@@ -239,4 +250,55 @@ test("Meta benchmark quantifies knowing when not to proceed", () => {
   const familyG = report.family_reports.find((row) => row.family === "G");
   assert.ok(familyG);
   approxEqual(familyG.control_accuracy, 0.5);
+});
+
+test("Meta benchmark bundle helpers produce stable summary artifacts", async () => {
+  const bundle = JSON.parse(await readFile(SAMPLE_BUNDLE, "utf8"));
+  const { report, summary } = buildMetaBenchmarkArtifacts(bundle);
+
+  assert.equal(report.case_count, 8);
+  assert.equal(summary.bundle_id, "meta-stack-v1-a-to-g");
+  assert.equal(summary.strongest_family, "B");
+  assert.equal(summary.weakest_family, "C");
+
+  const summaryText = formatMetaBenchmarkSummary(summary);
+  assert.match(summaryText, /Meta Benchmark Summary \[meta-stack-v1-a-to-g\]/);
+  assert.match(summaryText, /meta_score=/);
+
+  const directSummary = summarizeMetaBenchmarkReport(report, { bundle_id: bundle.bundle_id });
+  assert.deepEqual(summary, directSummary);
+});
+
+test("Meta benchmark summary comparison reports signed deltas", () => {
+  const baseline = {
+    bundle_id: "baseline",
+    case_count: 8,
+    meta_score: 0.4,
+    strongest_family: "B",
+    weakest_family: "C",
+    calibration_score: 0.3,
+    selective_score: 0.2,
+    risk_score: 0.5,
+    evidence_score: 0.6,
+    learning_score: 0.7
+  };
+  const candidate = {
+    ...baseline,
+    bundle_id: "candidate",
+    meta_score: 0.55,
+    calibration_score: 0.45,
+    selective_score: 0.25,
+    risk_score: 0.6,
+    evidence_score: 0.58,
+    learning_score: 0.72
+  };
+
+  const diff = compareMetaBenchmarkSummaries(baseline, candidate);
+  approxEqual(diff.meta_score_delta, 0.15);
+  approxEqual(diff.evidence_score_delta, -0.02);
+
+  const text = formatMetaBenchmarkComparison(diff);
+  assert.match(text, /Meta Benchmark Comparison \[baseline -> candidate\]/);
+  assert.match(text, /meta_score_delta=\+0.1500/);
+  assert.match(text, /evidence_score_delta=-0.0200/);
 });

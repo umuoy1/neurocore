@@ -213,6 +213,8 @@ export class FeishuAdapter implements IMAdapter {
         return "post";
       case "approval_request":
         return "interactive";
+      case "status":
+        return "text";
       default:
         return "text";
     }
@@ -265,6 +267,10 @@ export class FeishuAdapter implements IMAdapter {
             }
           ]
         };
+      case "status":
+        return {
+          text: formatStatusText(content)
+        };
       case "text":
       default:
         return {
@@ -311,6 +317,66 @@ function pickRecord(value: unknown, key: string): Record<string, unknown> | unde
     return undefined;
   }
   return candidate as Record<string, unknown>;
+}
+
+function formatStatusText(content: Extract<MessageContent, { type: "status" }>): string {
+  const headline = `${formatPhaseLabel(content.phase)} · ${formatStateLabel(content.state)}`;
+  const lines = [headline, content.text];
+
+  if (content.detail) {
+    lines.push(content.detail);
+  }
+
+  if (content.data) {
+    const dataLines = Object.entries(content.data)
+      .filter(([, value]) => value !== undefined && value !== null && value !== "")
+      .slice(0, 4)
+      .map(([key, value]) => `${key}: ${formatDataValue(value)}`);
+    lines.push(...dataLines);
+  }
+
+  return lines.join("\n");
+}
+
+function formatPhaseLabel(phase: string): string {
+  switch (phase) {
+    case "memory_retrieval":
+      return "Memory";
+    case "reasoning":
+      return "Reasoning";
+    case "tool_execution":
+      return "Tool";
+    case "response_generation":
+      return "Response";
+    case "approval":
+      return "Approval";
+    case "session":
+      return "Session";
+    default:
+      return phase;
+  }
+}
+
+function formatStateLabel(state: string): string {
+  switch (state) {
+    case "started":
+      return "started";
+    case "in_progress":
+      return "in progress";
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    default:
+      return state;
+  }
+}
+
+function formatDataValue(value: unknown): string {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(value);
 }
 
 function asString(value: unknown): string | undefined {

@@ -127,7 +127,7 @@ NeuroCore 同时支持两种使用方式：
 
 - Runtime 主链路、Hosted Runtime、World Model、Device 接入、多 Agent 原语已进入代码库
 - M0 ~ M8 已形成主体闭环；M9 的本地多 Agent 核心闭环已补齐
-- Personal Assistant Phase A 已有局部落地
+- Personal Assistant Phase A 已形成统一的原生活动流主链：Web Chat、Feishu、Hosted Runtime SSE 与 Console 均复用 `Reasoner.streamText -> runtime.output / runtime.status`
 - Console 已有文档、接口契约与预实现，但尚未形成完整产品闭环
 - 深层元认知升级已进入实现阶段，但仍在持续演进
 

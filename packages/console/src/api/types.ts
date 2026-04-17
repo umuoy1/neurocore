@@ -149,6 +149,7 @@ export interface PolicyDecision {
   decision_id: string;
   policy_name: string;
   level: "info" | "warn" | "block";
+  severity: 10 | 20 | 30;
   target_type: string;
   reason: string;
   recommendation?: string;

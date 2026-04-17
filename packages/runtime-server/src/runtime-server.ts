@@ -1,4 +1,6 @@
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import type {
   AgentSession,
   ApprovalRequest,
@@ -12,7 +14,7 @@ import { SessionStateConflictError } from "@neurocore/runtime-core";
 import { InProcessAgentMesh, type AgentBuilder, type AgentSessionHandle } from "@neurocore/sdk-core";
 import { EvalRunner, createSessionExecutor, type EvalCase, type EvalRunReport, compareEvalRuns } from "@neurocore/eval-core";
 import type { Authenticator, AuthContext } from "./auth.js";
-import { InMemoryEvalStore, type EvalStore } from "./eval-store.js";
+import { InMemoryEvalStore, SqliteEvalStore, type EvalStore } from "./eval-store.js";
 import { Logger } from "./logger.js";
 import { InMemoryMetricsStore, type MetricsStore } from "./metrics-store.js";
 import { InMemoryAuditStore, type AuditStore } from "./audit-store.js";
@@ -27,6 +29,7 @@ export interface RuntimeServerOptions {
   fetch?: typeof fetch;
   authenticator?: Authenticator;
   evalStore?: EvalStore;
+  evalStoreFilename?: string;
   metricsStore?: MetricsStore;
   auditStore?: AuditStore;
   configStore?: ConfigStore;
@@ -107,7 +110,10 @@ export class NeuroRuntimeServer {
     this.webhookTargets = options.webhooks ?? [];
     this.fetchImpl = options.fetch ?? fetch;
     this.authenticator = options.authenticator;
-    this.evalStore = options.evalStore ?? new InMemoryEvalStore();
+    this.evalStore = options.evalStore ??
+      (options.evalStoreFilename
+        ? new SqliteEvalStore({ filename: options.evalStoreFilename })
+        : new InMemoryEvalStore());
     this.metricsStore = options.metricsStore ?? new InMemoryMetricsStore();
     this.auditStore = options.auditStore ?? new InMemoryAuditStore();
     this.configStore = options.configStore ?? new InMemoryConfigStore();
@@ -203,6 +209,7 @@ export class NeuroRuntimeServer {
     await this.multiAgentMesh?.close();
     this.multiAgentMesh = null;
     this.multiAgentConfigured = false;
+    this.evalStore.close?.();
   }
 
   private async authenticateRequest(req: IncomingMessage, url: URL): Promise<AuthContext | undefined> {
@@ -245,6 +252,8 @@ export class NeuroRuntimeServer {
       return;
     }
 
+    requireRoutePermission(authContext, method, path);
+
     if (method === "GET" && path.length === 2 && path[0] === "v1" && path[1] === "metrics") {
       const pkg = { version: "0.0.0" };
       try {
@@ -276,6 +285,30 @@ export class NeuroRuntimeServer {
     if (method === "GET" && path.length === 3 && path[0] === "v1" && path[1] === "metrics" && path[2] === "latency") {
       const windowMs = parseInt(url.searchParams.get("window_ms") ?? "3600000", 10);
       writeJson(response, 200, this.metricsStore.getLatencyPercentiles(windowMs) as unknown as Record<string, unknown>);
+      return;
+    }
+
+    if (method === "GET" && path.length === 3 && path[0] === "v1" && path[1] === "metrics" && path[2] === "prometheus") {
+      const pkg = { version: "0.0.0" };
+      try {
+        const fs = await import("node:fs");
+        const p = await import("node:path");
+        const raw = fs.readFileSync(p.resolve(import.meta.dirname ?? ".", "..", "package.json"), "utf8");
+        Object.assign(pkg, JSON.parse(raw));
+      } catch {}
+      const snapshot = this.metricsStore.getSnapshot(
+        this.sessions.size,
+        Math.floor((Date.now() - this.startedAt) / 1000),
+        pkg.version,
+        this.sseConnections.size
+      );
+      const latency = this.metricsStore.getLatencyPercentiles(3600000);
+      writeText(response, 200, formatPrometheusMetrics(snapshot, latency), "text/plain; version=0.0.4");
+      return;
+    }
+
+    if (method === "GET" && path.length === 3 && path[0] === "v1" && path[1] === "runtime" && path[2] === "saturation") {
+      writeJson(response, 200, buildRuntimeSaturationReport(this.sessions, this.activeOperations, this.sseConnections.size));
       return;
     }
 
@@ -555,10 +588,55 @@ export class NeuroRuntimeServer {
         return;
       }
 
+      if (method === "POST" && path.length === 4 && path[3] === "checkpoint") {
+        let checkpoint;
+        await this.runSessionOperation(record, "checkpoint", async () => {
+          checkpoint = record.handle.checkpoint();
+        });
+        writeJson(response, 200, {
+          session_id: sessionId,
+          checkpoint
+        });
+        return;
+      }
+
+      if (method === "POST" && path.length === 4 && path[3] === "suspend") {
+        let checkpoint;
+        await this.runSessionOperation(record, "suspend", async () => {
+          checkpoint = record.handle.suspend();
+        });
+        writeJson(response, 200, {
+          session_id: sessionId,
+          checkpoint
+        });
+        return;
+      }
+
       if (method === "GET" && path.length === 4 && path[3] === "traces") {
         writeJson(response, 200, {
           session_id: sessionId,
           traces: record.handle.getTraceRecords()
+        });
+        return;
+      }
+
+      if (method === "GET" && path.length === 5 && path[3] === "traces" && path[4] === "export") {
+        const traces = record.handle.getTraceRecords();
+        const format = url.searchParams.get("format") ?? "json";
+        if (format === "ndjson") {
+          writeText(
+            response,
+            200,
+            traces.map((trace) => JSON.stringify(trace)).join("\n"),
+            "application/x-ndjson"
+          );
+          return;
+        }
+
+        writeJson(response, 200, {
+          session_id: sessionId,
+          trace_count: traces.length,
+          traces
         });
         return;
       }
@@ -659,8 +737,29 @@ export class NeuroRuntimeServer {
             approval_id: approvalId,
             approver_id: getRequiredString(body.approver_id, "approver_id"),
             decision: normalizeApprovalDecision(body.decision),
-            comment: getOptionalString(body.comment)
+            comment: getOptionalString(body.comment),
+            reviewer_identity: authContext
+              ? {
+                  api_key_id: authContext.api_key_id,
+                  tenant_id: authContext.tenant_id,
+                  permissions: authContext.permissions
+                }
+              : undefined
           });
+        });
+
+        this.auditStore.record({
+          tenant_id: authContext?.tenant_id ?? sessionRecord.handle.getSession()?.tenant_id ?? "system",
+          user_id: authContext?.api_key_id ?? getRequiredString(body.approver_id, "approver_id"),
+          action: result.approval.decision === "approved" ? "approval.approved" : "approval.rejected",
+          target_type: "approval",
+          target_id: approvalId,
+          details: {
+            session_id: result.approval.session_id,
+            action_id: result.approval.action_id,
+            approver_id: result.approval.approver_id,
+            reviewer_identity: result.approval.reviewer_identity
+          },
         });
 
         if (result.run) {
@@ -770,6 +869,7 @@ export class NeuroRuntimeServer {
 
     const initialInput = normalizeInput(payload.initial_input, "initial_input");
     const command: CreateSessionCommand = {
+      command_type: "create_session",
       agent_id: agentId,
       tenant_id: tenantId,
       user_id: getOptionalString(payload.user_id),
@@ -1093,8 +1193,10 @@ export class NeuroRuntimeServer {
     response.flushHeaders?.();
 
     this.sseConnections.add(response);
+    const lastEventIdHeader = request.headers["last-event-id"];
+    const lastEventId = Array.isArray(lastEventIdHeader) ? lastEventIdHeader[0] : lastEventIdHeader;
 
-    for (const event of record.handle.getEvents()) {
+    for (const event of eventsSinceLastEventId(record.handle.getEvents(), lastEventId)) {
       writeSseEvent(response, event);
     }
 
@@ -1120,6 +1222,12 @@ export function createRuntimeServer(options: RuntimeServerOptions = {}): NeuroRu
   return new NeuroRuntimeServer(options);
 }
 
+export function resolveDefaultEvalStoreSqlitePath(serverId = "runtime-server"): string {
+  const runtimeDirectory = join(process.cwd(), ".neurocore", "runtime-server");
+  mkdirSync(runtimeDirectory, { recursive: true });
+  return join(runtimeDirectory, `${sanitizeFileSegment(serverId)}-evals.sqlite`);
+}
+
 function summarizeLoopResult(result: {
   finalState: SessionState;
   outputText?: string;
@@ -1132,6 +1240,144 @@ function summarizeLoopResult(result: {
     last_cycle_id: result.steps.at(-1)?.cycleId,
     updated_at: new Date().toISOString()
   };
+}
+
+function sanitizeFileSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, "-");
+}
+
+function buildRuntimeSaturationReport(
+  sessions: Map<string, ManagedSession>,
+  activeOperations: Map<string, string>,
+  sseConnectionCount: number
+) {
+  const activeRuns = [...sessions.values()].filter((record) => Boolean(record.active_run)).length;
+  const sessionStates: Record<string, number> = {};
+  const sessionsPerAgent: Record<string, number> = {};
+
+  for (const record of sessions.values()) {
+    const state = record.handle.getSession()?.state ?? "unknown";
+    sessionStates[state] = (sessionStates[state] ?? 0) + 1;
+    sessionsPerAgent[record.agent_id] = (sessionsPerAgent[record.agent_id] ?? 0) + 1;
+  }
+
+  const sessionCount = sessions.size;
+  return {
+    active_session_count: sessionCount,
+    active_run_count: activeRuns,
+    active_operation_count: activeOperations.size,
+    active_sse_connection_count: sseConnectionCount,
+    active_run_ratio: sessionCount > 0 ? activeRuns / sessionCount : 0,
+    active_operation_ratio: sessionCount > 0 ? activeOperations.size / sessionCount : 0,
+    queue_pressure: Math.max(activeRuns, activeOperations.size, sseConnectionCount),
+    sessions_per_agent: sessionsPerAgent,
+    session_states: sessionStates,
+    active_operations: [...activeOperations.entries()].map(([session_id, operation]) => ({
+      session_id,
+      operation
+    }))
+  };
+}
+
+function formatPrometheusMetrics(
+  snapshot: import("./metrics-store.js").MetricsSnapshot,
+  latency: import("./metrics-store.js").LatencyPercentiles
+): string {
+  const lines = [
+    "# HELP neurocore_sessions_created_total Total sessions created.",
+    "# TYPE neurocore_sessions_created_total counter",
+    `neurocore_sessions_created_total ${snapshot.total_sessions_created}`,
+    "# HELP neurocore_cycles_executed_total Total cycles executed.",
+    "# TYPE neurocore_cycles_executed_total counter",
+    `neurocore_cycles_executed_total ${snapshot.total_cycles_executed}`,
+    "# HELP neurocore_active_sessions Current active session count.",
+    "# TYPE neurocore_active_sessions gauge",
+    `neurocore_active_sessions ${snapshot.active_sessions}`,
+    "# HELP neurocore_eval_runs_total Total eval runs.",
+    "# TYPE neurocore_eval_runs_total counter",
+    `neurocore_eval_runs_total ${snapshot.total_eval_runs}`,
+    "# HELP neurocore_errors_total Total observed server errors.",
+    "# TYPE neurocore_errors_total counter",
+    `neurocore_errors_total ${snapshot.error_count}`,
+    "# HELP neurocore_eval_pass_rate Eval pass rate gauge.",
+    "# TYPE neurocore_eval_pass_rate gauge",
+    `neurocore_eval_pass_rate ${snapshot.eval_pass_rate}`,
+    "# HELP neurocore_runtime_uptime_seconds Runtime uptime in seconds.",
+    "# TYPE neurocore_runtime_uptime_seconds gauge",
+    `neurocore_runtime_uptime_seconds ${snapshot.uptime_seconds}`,
+    "# HELP neurocore_sse_connections Current SSE connection count.",
+    "# TYPE neurocore_sse_connections gauge",
+    `neurocore_sse_connections ${snapshot.active_sse_connections ?? 0}`,
+    "# HELP neurocore_cycle_latency_ms Cycle latency percentiles in milliseconds.",
+    "# TYPE neurocore_cycle_latency_ms gauge",
+    `neurocore_cycle_latency_ms{quantile=\"0.5\"} ${latency.p50}`,
+    `neurocore_cycle_latency_ms{quantile=\"0.95\"} ${latency.p95}`,
+    `neurocore_cycle_latency_ms{quantile=\"0.99\"} ${latency.p99}`
+  ];
+
+  for (const [agentId, percentiles] of Object.entries(latency.by_agent)) {
+    lines.push(`neurocore_cycle_latency_ms{agent_id=${JSON.stringify(agentId)},quantile=\"0.5\"} ${percentiles.p50}`);
+    lines.push(`neurocore_cycle_latency_ms{agent_id=${JSON.stringify(agentId)},quantile=\"0.95\"} ${percentiles.p95}`);
+    lines.push(`neurocore_cycle_latency_ms{agent_id=${JSON.stringify(agentId)},quantile=\"0.99\"} ${percentiles.p99}`);
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
+function requireRoutePermission(
+  authContext: AuthContext | undefined,
+  method: string,
+  path: string[]
+): void {
+  if (!authContext) {
+    return;
+  }
+
+  const permissions = authContext.permissions ?? [];
+  if (permissions.length === 0 || permissions.includes("*") || permissions.includes("admin")) {
+    return;
+  }
+
+  const required = requiredPermissionsForRoute(method, path);
+  if (required.length === 0 || required.some((permission) => permissions.includes(permission))) {
+    return;
+  }
+
+  throw new HttpError(403, "insufficient_permissions", `Missing required permission: ${required.join(" or ")}`);
+}
+
+function requiredPermissionsForRoute(method: string, path: string[]): string[] {
+  if (path.length === 0 || path[0] !== "v1") {
+    return [];
+  }
+
+  if (path[1] === "metrics" || path[1] === "audit-logs" || path[1] === "agents" || path[1] === "sessions" || path[1] === "approvals" || path[1] === "evals") {
+    if (method === "GET") {
+      return ["read"];
+    }
+  }
+
+  if (path[1] === "agents" && path[3] === "sessions" && method === "POST") {
+    return ["write"];
+  }
+
+  if (path[1] === "sessions" && ["POST", "DELETE"].includes(method)) {
+    return ["write"];
+  }
+
+  if (path[1] === "approvals" && path[3] === "decision" && method === "POST") {
+    return ["approve"];
+  }
+
+  if (path[1] === "evals" && ["POST", "DELETE"].includes(method)) {
+    return ["write"];
+  }
+
+  if (path[1] === "policies" || path[1] === "api-keys" || (path[1] === "agents" && path[3] === "profile" && method === "PUT")) {
+    return method === "GET" ? ["read"] : ["admin:config"];
+  }
+
+  return [];
 }
 
 async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
@@ -1214,7 +1460,32 @@ function writeJson(response: ServerResponse, statusCode: number, body: Record<st
   response.end(JSON.stringify(body, null, 2));
 }
 
+function writeText(
+  response: ServerResponse,
+  statusCode: number,
+  body: string,
+  contentType = "text/plain; charset=utf-8"
+): void {
+  response.statusCode = statusCode;
+  response.setHeader("content-type", contentType);
+  response.end(body);
+}
+
 function writeSseEvent(response: ServerResponse, event: NeuroCoreEvent): void {
+  response.write(`id: ${event.event_id}\n`);
   response.write(`event: ${event.event_type}\n`);
   response.write(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+function eventsSinceLastEventId(events: NeuroCoreEvent[], lastEventId?: string): NeuroCoreEvent[] {
+  if (!lastEventId) {
+    return events;
+  }
+
+  const index = events.findIndex((event) => event.event_id === lastEventId);
+  if (index === -1) {
+    return events;
+  }
+
+  return events.slice(index + 1);
 }

@@ -22,6 +22,19 @@ export class NotificationDispatcher {
     return adapter.sendMessage(chatId, content);
   }
 
+  public async editChat(
+    platform: IMPlatform,
+    chatId: string,
+    messageId: string,
+    content: MessageContent
+  ): Promise<void> {
+    const adapter = this.options.getAdapter(platform);
+    if (!adapter) {
+      throw new Error(`Adapter for platform ${platform} is not registered.`);
+    }
+    await adapter.editMessage(chatId, messageId, content);
+  }
+
   public async pushToUser(
     userId: string,
     content: MessageContent,

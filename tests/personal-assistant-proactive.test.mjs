@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { createPersonalAssistantAgent } from "../examples/personal-assistant/dist/app/create-personal-assistant.js";
 import { ProactiveEngine } from "../examples/personal-assistant/dist/proactive/proactive-engine.js";
 
-test("personal assistant proactive heartbeat pushes notification output", async () => {
+test("personal assistant proactive heartbeat pushes notification output", { concurrency: false }, async () => {
   const notifications = [];
   const approvals = [];
   const gateway = createGatewayHarness({ notifications, approvals });
+  const tempDir = mkdtempSync(join(tmpdir(), "neurocore-pa-proactive-"));
   const builder = createPersonalAssistantAgent({
-    db_path: ".neurocore/personal-assistant-proactive.sqlite",
+    db_path: join(tempDir, "personal-assistant-proactive.sqlite"),
     tenant_id: "test-tenant",
     reasoner: createProactiveRespondReasoner()
   });
@@ -37,26 +41,31 @@ test("personal assistant proactive heartbeat pushes notification output", async 
     }
   ]);
 
-  const results = await engine.heartbeatScheduler.runChecks();
+  try {
+    const results = await engine.heartbeatScheduler.runChecks();
 
-  assert.equal(results.length, 1);
-  assert.equal(notifications.length, 1);
-  assert.equal(approvals.length, 0);
-  assert.deepEqual(notifications[0].options, {
-    platform: "web",
-    priority: "urgent"
-  });
-  assert.equal(notifications[0].userId, "user-1");
-  assert.equal(notifications[0].content.type, "text");
-  assert.match(notifications[0].content.text, /Notify the user about: There is one overdue task/i);
+    assert.equal(results.length, 1);
+    assert.equal(notifications.length, 1);
+    assert.equal(approvals.length, 0);
+    assert.deepEqual(notifications[0].options, {
+      platform: "web",
+      priority: "urgent"
+    });
+    assert.equal(notifications[0].userId, "user-1");
+    assert.equal(notifications[0].content.type, "text");
+    assert.match(notifications[0].content.text, /Notify the user about: There is one overdue task/i);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
-test("personal assistant proactive schedule can emit approval requests", async () => {
+test("personal assistant proactive schedule can emit approval requests", { concurrency: false }, async () => {
   const notifications = [];
   const approvals = [];
   const gateway = createGatewayHarness({ notifications, approvals });
+  const tempDir = mkdtempSync(join(tmpdir(), "neurocore-pa-proactive-"));
   const builder = createPersonalAssistantAgent({
-    db_path: ".neurocore/personal-assistant-proactive.sqlite",
+    db_path: join(tempDir, "personal-assistant-proactive.sqlite"),
     tenant_id: "test-tenant",
     reasoner: createProactiveApprovalReasoner(),
     agent: {
@@ -91,16 +100,20 @@ test("personal assistant proactive schedule can emit approval requests", async (
     enabled: true
   });
 
-  await engine.cronScheduler.tick(new Date("2026-04-03T10:00:00.000Z"));
+  try {
+    await engine.cronScheduler.tick(new Date("2026-04-03T10:00:00.000Z"));
 
-  assert.equal(notifications.length, 0);
-  assert.equal(approvals.length, 1);
-  assert.equal(approvals[0].userId, "user-2");
-  assert.equal(approvals[0].sessionId.startsWith("ses_"), true);
-  assert.equal(approvals[0].approval.action.tool_name, "email_send");
-  assert.deepEqual(approvals[0].options, {
-    platform: "web"
-  });
+    assert.equal(notifications.length, 0);
+    assert.equal(approvals.length, 1);
+    assert.equal(approvals[0].userId, "user-2");
+    assert.equal(approvals[0].sessionId.startsWith("ses_"), true);
+    assert.equal(approvals[0].approval.action.tool_name, "email_send");
+    assert.deepEqual(approvals[0].options, {
+      platform: "web"
+    });
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 function createGatewayHarness(state) {
@@ -147,6 +160,9 @@ function createProactiveRespondReasoner() {
           side_effect_level: "none"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   };
 }
@@ -185,6 +201,9 @@ function createProactiveApprovalReasoner() {
           side_effect_level: "high"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   };
 }

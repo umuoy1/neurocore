@@ -55,6 +55,9 @@ test("B1: clarification flow - ask_user transitions to waiting, resume completes
           side_effect_level: "none"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   });
 
@@ -144,6 +147,9 @@ test("B2: multi-tool chaining - tool_a then tool_b then respond", async () => {
             side_effect_level: "none"
           }
         ];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .registerTool({
@@ -240,6 +246,9 @@ test("B3: high-risk approval - escalated then approve then completed", async () 
             side_effect_level: "high"
           }
         ];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     })
     .registerTool({
@@ -318,6 +327,9 @@ test("B4: memory recall - episode from session 1 visible in session 2 plan propo
           side_effect_level: "none"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   });
 

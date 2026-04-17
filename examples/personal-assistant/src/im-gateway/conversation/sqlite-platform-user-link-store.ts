@@ -14,6 +14,7 @@ export class SqlitePlatformUserLinkStore implements PlatformUserLinkStore {
   public constructor(options: SqlitePlatformUserLinkStoreOptions) {
     mkdirSync(dirname(options.filename), { recursive: true });
     this.db = new DatabaseSync(options.filename);
+    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 2000;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS platform_user_links (
         platform TEXT NOT NULL,

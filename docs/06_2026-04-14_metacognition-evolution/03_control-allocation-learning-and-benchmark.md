@@ -17,6 +17,7 @@
 > - benchmark、calibration、control allocation、signal aggregation 都应开始围绕“单真源 + 可持久化 + 可 SPI 化”收口
 > - 2026-04-15 当前代码状态补充：`ControlAllocator` 已成为最终控制动作的唯一真源；`Calibrator` 已具备 `query + calibrate + record` 闭环，`SqliteCalibrationStore`、task bucket、决策前 bucket reliability 查询与执行后写回均已进入主链；`DeepEvaluator` 已切到 `Verifier SPI` 编排层，默认 `logic / evidence / tool / safety / process` verifiers 与可选 `CounterfactualSimulator SPI` 已进入主链；下一步严格转向 `MetaSignalBus provider 化`
 > - 2026-04-16 当前代码状态补充：`MetaSignalBus` 已完成 family-provider 第一版，`task / evidence / reasoning / prediction / action / governance` 六类 `Heuristic*Provider`、provider registry、family merge rules、degraded/fallback provenance 与关键缺失值保守化已进入主链；下一步严格转向真实 benchmark 数据集、CI/online eval 与 `ReflectionLearner`
+> - 2026-04-16 Phase 5 第一批补充：families A~G 的本地 `MetaBenchmarkBundle`、summary/persistence runner、summary diff、`.neurocore/benchmarks/meta/` 输出和独立 `meta-stack` CI lane/benchmark artifact 已进入代码库；当前剩余重点收缩为 online eval 与 `ReflectionLearner`
 
 ---
 
@@ -298,9 +299,10 @@ interface ReflectionRule {
 
 当前边界也要明确：
 
-- 还没有官方 meta benchmark 数据集
+- 已有本地 families A~G case bundle、summary formatter、summary diff 和 benchmark 持久化 runner，但还没有 online meta eval pipeline
 - 还没有 `coverage vs accuracy curve` 和 `risk-conditioned selective curve` 的批量导出
 - `action_regret` 目前仍是基于 `expected/hindsight control behavior` 的离散 regret，不是成本模型
+- 还没有 trend-level 历史报告分析
 - `ReflectionLearner` 还未真正落库，因此学习相关指标目前依赖外部构造 observation
 
 ## 6.7 下一阶段评测与控制收口原则
@@ -368,10 +370,9 @@ interface ReflectionRule {
 
 这一项现在成为严格的下一步，应补：
 
-- 家族 A~G 的真实 case bundle
-- offline historical report
+- offline historical report / diff
 - online eval pipeline
-- benchmark persistence
+- coverage-vs-accuracy / risk-conditioned curve export
 
 ---
 

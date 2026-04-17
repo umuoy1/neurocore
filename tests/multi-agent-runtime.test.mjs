@@ -67,6 +67,9 @@ function makeSupervisorAgent(id, workerTarget, mode = "unicast", capabilities = 
             }
           }
         ];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     });
 }
@@ -111,6 +114,9 @@ function makeWorkerAgent(id, capabilityName, proficiency, summary) {
             side_effect_level: "none"
           }
         ];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
       }
     });
 }

@@ -13,6 +13,7 @@ export class SqliteCheckpointStore implements CheckpointStore {
   public constructor(options: SqliteCheckpointStoreOptions) {
     mkdirSync(dirname(options.filename), { recursive: true });
     this.db = new DatabaseSync(options.filename);
+    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 2000;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS session_checkpoints (
         checkpoint_id TEXT PRIMARY KEY,

@@ -17,12 +17,13 @@ export interface SemanticMemoryRecord {
   source_episode_ids: string[];
   session_ids: string[];
   pattern_key: string;
+  valence: "positive" | "negative";
   last_updated_at: string;
 }
 
 export interface SemanticMemoryPersistenceStore {
-  appendEpisode(sessionId: string, tenantId: string, episode: Episode): void;
-  replaceSession(sessionId: string, tenantId: string, episodes: Episode[]): void;
+  appendEpisode(sessionId: string, tenantId: string, episode: Episode, includeNegative?: boolean): void;
+  replaceSession(sessionId: string, tenantId: string, episodes: Episode[], includeNegative?: boolean): void;
   restoreSnapshot(sessionId: string, tenantId: string, snapshot?: SemanticMemorySnapshot): void;
   buildSnapshot(sessionId: string): SemanticMemorySnapshot;
   deleteSession(sessionId: string): void;
@@ -33,8 +34,8 @@ class SemanticMemoryStore {
   private readonly contributionsBySession = new Map<string, SemanticMemoryContribution[]>();
   private readonly tenantBySession = new Map<string, string>();
 
-  public appendEpisode(sessionId: string, tenantId: string, episode: Episode): void {
-    if (episode.outcome !== "success") {
+  public appendEpisode(sessionId: string, tenantId: string, episode: Episode, includeNegative = false): void {
+    if (!shouldStoreSemanticEpisode(episode, includeNegative)) {
       return;
     }
 
@@ -48,13 +49,13 @@ class SemanticMemoryStore {
     this.tenantBySession.set(sessionId, tenantId);
   }
 
-  public replaceSession(sessionId: string, tenantId: string, episodes: Episode[]): void {
+  public replaceSession(sessionId: string, tenantId: string, episodes: Episode[], includeNegative = false): void {
     this.contributionsBySession.set(
       sessionId,
       buildContributionsFromEpisodes(
         tenantId,
         sessionId,
-        episodes.filter((episode) => episode.outcome === "success")
+        episodes.filter((episode) => shouldStoreSemanticEpisode(episode, includeNegative))
       )
     );
     this.tenantBySession.set(sessionId, tenantId);
@@ -93,7 +94,7 @@ class SemanticMemoryStore {
 
         if (!existing) {
           groups.set(contribution.pattern_key, {
-            memory_id: `sem_${contribution.pattern_key}`,
+            memory_id: semanticMemoryId(contribution.pattern_key),
             tenant_id: tenantId,
             summary: contribution.summary,
             relevance: 0.72,
@@ -101,6 +102,7 @@ class SemanticMemoryStore {
             source_episode_ids: [...contribution.source_episode_ids],
             session_ids: [sessionId],
             pattern_key: contribution.pattern_key,
+            valence: deriveContributionValence(contribution.pattern_key),
             last_updated_at: contribution.last_updated_at
           });
           continue;
@@ -120,6 +122,9 @@ class SemanticMemoryStore {
           existing.last_updated_at = contribution.last_updated_at;
         }
         existing.relevance = Math.min(0.98, 0.68 + existing.occurrence_count * 0.08);
+        if (existing.valence === "negative") {
+          existing.relevance = Math.min(0.9, 0.56 + existing.occurrence_count * 0.06);
+        }
         groups.set(contribution.pattern_key, existing);
       }
     }
@@ -149,7 +154,7 @@ class SemanticMemoryStore {
         tenant_id: tenantId,
         session_id: sessionId,
         pattern_key: patternKey,
-        summary: episode.outcome_summary,
+        summary: deriveSemanticSummary(episode),
         source_episode_ids: [episode.episode_id],
         last_updated_at: episode.created_at
       });
@@ -160,7 +165,7 @@ class SemanticMemoryStore {
       existing.source_episode_ids.push(episode.episode_id);
     }
     if (Date.parse(episode.created_at) > Date.parse(existing.last_updated_at)) {
-      existing.summary = episode.outcome_summary;
+      existing.summary = deriveSemanticSummary(episode);
       existing.last_updated_at = episode.created_at;
     }
     return next;
@@ -175,7 +180,7 @@ export class SemanticMemoryProvider implements MemoryProvider {
   ) {}
 
   public replaceSession(sessionId: string, tenantId: string, episodes: Episode[]): void {
-    this.store.replaceSession(sessionId, tenantId, episodes);
+    this.store.replaceSession(sessionId, tenantId, episodes, true);
   }
 
   public restoreSnapshot(sessionId: string, tenantId: string, snapshot?: SemanticMemorySnapshot): void {
@@ -188,6 +193,12 @@ export class SemanticMemoryProvider implements MemoryProvider {
 
   public deleteSession(sessionId: string): void {
     this.store.deleteSession(sessionId);
+  }
+
+  public evictSession(sessionId: string): void {
+    if (this.store instanceof SemanticMemoryStore) {
+      this.store.deleteSession(sessionId);
+    }
   }
 
   public async getDigest(ctx: ModuleContext): Promise<MemoryDigest[]> {
@@ -238,12 +249,13 @@ export class SemanticMemoryProvider implements MemoryProvider {
           records: records.map((record) => ({
             memory_id: record.memory_id,
             summary: record.summary,
+            valence: record.valence,
             occurrence_count: record.occurrence_count,
             source_episode_ids: record.source_episode_ids,
             session_ids: record.session_ids
           }))
         },
-        explanation: `Recalled ${records.length} consolidated semantic memories from repeated successful episodes.`
+        explanation: `Recalled ${records.length} consolidated semantic memories from repeated episodes.`
       }
     ];
   }
@@ -253,7 +265,12 @@ export class SemanticMemoryProvider implements MemoryProvider {
       return;
     }
 
-    this.store.appendEpisode(episode.session_id, ctx.tenant_id, episode);
+    this.store.appendEpisode(
+      episode.session_id,
+      ctx.tenant_id,
+      episode,
+      ctx.profile.memory_config.semantic_negative_learning_enabled === true
+    );
   }
 }
 
@@ -274,7 +291,7 @@ function buildContributionsFromEpisodes(
         tenant_id: tenantId,
         session_id: sessionId,
         pattern_key: patternKey,
-        summary: episode.outcome_summary,
+        summary: deriveSemanticSummary(episode),
         source_episode_ids: [episode.episode_id],
         last_updated_at: episode.created_at
       });
@@ -285,7 +302,7 @@ function buildContributionsFromEpisodes(
       existing.source_episode_ids.push(episode.episode_id);
     }
     if (Date.parse(episode.created_at) > Date.parse(existing.last_updated_at)) {
-      existing.summary = episode.outcome_summary;
+      existing.summary = deriveSemanticSummary(episode);
       existing.last_updated_at = episode.created_at;
     }
     contributions.set(patternKey, existing);
@@ -295,12 +312,13 @@ function buildContributionsFromEpisodes(
 }
 
 function deriveSemanticPatternKey(episode: Episode): string {
+  const polarity = episode.outcome === "failure" || episode.valence === "negative" ? "negative" : "positive";
   const toolName =
     episode.metadata && typeof episode.metadata.tool_name === "string"
       ? episode.metadata.tool_name
       : "runtime";
   const normalizedStrategy = episode.selected_strategy.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 48);
-  return `${toolName}:${normalizedStrategy}`;
+  return `${polarity}:${toolName}:${normalizedStrategy}`;
 }
 
 function compareEpisodeByCreatedAtDesc(left: Episode, right: Episode): number {
@@ -336,7 +354,7 @@ function scoreSemanticRecord(record: SemanticMemoryRecord, ctx: ModuleContext): 
     `${record.summary} ${record.pattern_key}`.toLowerCase()
   ) * 0.4;
 
-  const [toolName] = record.pattern_key.split(":");
+  const { toolName } = parseSemanticPatternKey(record.pattern_key);
   const inputToolName =
     typeof inputMetadata?.sourceToolName === "string"
       ? inputMetadata.sourceToolName
@@ -347,8 +365,49 @@ function scoreSemanticRecord(record: SemanticMemoryRecord, ctx: ModuleContext): 
   if (toolName && inputToolName && toolName === inputToolName) {
     score += 0.25;
   }
+  if (record.valence === "negative") {
+    score -= 0.05;
+  }
 
   return score;
+}
+
+function shouldStoreSemanticEpisode(episode: Episode, includeNegative: boolean): boolean {
+  if (episode.outcome === "success") {
+    return true;
+  }
+  return includeNegative && (episode.outcome === "failure" || episode.valence === "negative");
+}
+
+function deriveSemanticSummary(episode: Episode): string {
+  if (episode.outcome === "failure" || episode.valence === "negative") {
+    return `Avoid: ${episode.outcome_summary}`;
+  }
+  return episode.outcome_summary;
+}
+
+function deriveContributionValence(patternKey: string): "positive" | "negative" {
+  return patternKey.startsWith("negative:") ? "negative" : "positive";
+}
+
+function parseSemanticPatternKey(patternKey: string): { valence: "positive" | "negative"; toolName?: string } {
+  const parts = patternKey.split(":");
+  if (parts[0] === "positive" || parts[0] === "negative") {
+    return {
+      valence: parts[0],
+      toolName: parts[1]
+    };
+  }
+  return {
+    valence: "positive",
+    toolName: parts[0]
+  };
+}
+
+function semanticMemoryId(patternKey: string): string {
+  return patternKey.startsWith("positive:")
+    ? `sem_${patternKey.slice("positive:".length)}`
+    : `sem_${patternKey}`;
 }
 
 function computeTokenOverlap(query: string, target: string): number {

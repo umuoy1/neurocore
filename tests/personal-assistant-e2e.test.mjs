@@ -1,50 +1,58 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { createPersonalAssistantAgent } from "../examples/personal-assistant/dist/app/create-personal-assistant.js";
 
-test("personal assistant can call web_search and answer with the observation", async () => {
-  const agent = createPersonalAssistantAgent({
-    db_path: ".neurocore/personal-assistant-test.sqlite",
-    tenant_id: "test-tenant",
-    reasoner: createSearchReasoner(),
-    connectors: {
-      search: {
-        baseUrl: "https://example.test/search",
-        fetch: async () =>
-          new Response(
-            JSON.stringify({
-              web: {
-                results: [
-                  {
-                    title: "NeuroCore",
-                    url: "https://example.test/neurocore",
-                    description: "A structured agent runtime."
-                  }
-                ]
+test("personal assistant can call web_search and answer with the observation", { concurrency: false }, async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "neurocore-pa-e2e-"));
+  try {
+    const agent = createPersonalAssistantAgent({
+      db_path: join(tempDir, "personal-assistant-test.sqlite"),
+      tenant_id: "test-tenant",
+      reasoner: createSearchReasoner(),
+      connectors: {
+        search: {
+          baseUrl: "https://example.test/search",
+          fetch: async () =>
+            new Response(
+              JSON.stringify({
+                web: {
+                  results: [
+                    {
+                      title: "NeuroCore",
+                      url: "https://example.test/neurocore",
+                      description: "A structured agent runtime."
+                    }
+                  ]
+                }
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" }
               }
-            }),
-            {
-              status: 200,
-              headers: { "content-type": "application/json" }
-            }
-          )
-      },
-      browser: {}
-    }
-  });
+            )
+        },
+        browser: {}
+      }
+    });
 
-  const session = agent.createSession({
-    agent_id: "personal-assistant",
-    tenant_id: "test-tenant",
-    initial_input: {
-      content: "search for NeuroCore"
-    }
-  });
+    const session = agent.createSession({
+      agent_id: "personal-assistant",
+      tenant_id: "test-tenant",
+      initial_input: {
+        content: "search for NeuroCore"
+      }
+    });
 
-  const result = await session.run();
-  assert.equal(result.finalState, "completed");
-  assert.match(result.outputText ?? "", /NeuroCore/);
-  assert.match(result.outputText ?? "", /structured agent runtime/i);
+    const result = await session.run();
+    assert.equal(result.finalState, "completed");
+    assert.match(result.outputText ?? "", /NeuroCore/);
+    assert.match(result.outputText ?? "", /structured agent runtime/i);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 function createSearchReasoner() {
@@ -96,6 +104,9 @@ function createSearchReasoner() {
           side_effect_level: "none"
         }
       ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   };
 }
