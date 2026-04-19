@@ -14,6 +14,7 @@ import type {
   VerificationTrace,
   Verifier,
   VerifierInput,
+  VerifierMode,
   VerifierResult,
   VerifierRunRecord
 } from "@neurocore/protocol";
@@ -46,6 +47,12 @@ export interface DeepEvaluatorOptions {
   simulator?: CounterfactualSimulator | null;
 }
 
+interface VerifierPlan {
+  verifier: Verifier;
+  budgetMs?: number;
+  isolationPolicy: "fail-open" | "fail-closed";
+}
+
 export class DeepEvaluator {
   private readonly verifiers: Verifier[];
   private readonly simulator: CounterfactualSimulator | null;
@@ -66,10 +73,12 @@ export class DeepEvaluator {
   public async evaluate(input: DeepEvaluationInput): Promise<MetaAssessment> {
     const triggerTags = deriveTriggerTags(input.frame, input.fastAssessment);
     const confidence = buildConfidenceVector(input.frame);
+    const providerReliabilityFloor = deriveProviderReliabilityFloor(input.frame);
+    const predictorCalibrationFloor = derivePredictorCalibrationFloor(input.frame);
     const processReliability = clamp01(
       (input.frame.reasoning_signals.step_consistency +
         (1 - input.frame.reasoning_signals.candidate_reasoning_divergence) +
-        (1 - input.frame.reasoning_signals.contradiction_score)) / 3
+        (1 - input.frame.reasoning_signals.contradiction_score)) / 3 - providerReliabilityFloor.penalty
     );
     const evidencePenalty =
       input.frame.evidence_signals.missing_critical_evidence_flags.length > 0
@@ -78,17 +87,20 @@ export class DeepEvaluator {
     const evidenceSufficiency = clamp01(
       ((input.frame.evidence_signals.retrieval_coverage +
         input.frame.evidence_signals.evidence_agreement_score +
-        input.frame.evidence_signals.source_reliability_prior) / 3) - evidencePenalty
+        input.frame.evidence_signals.source_reliability_prior) / 3) -
+        evidencePenalty -
+        providerReliabilityFloor.penalty
     );
     const simulationReliability = clamp01(
       (input.frame.prediction_signals.predicted_success_probability +
         input.frame.prediction_signals.simulator_confidence +
-        (1 - input.frame.prediction_signals.world_model_mismatch_score)) / 3
+        (1 - input.frame.prediction_signals.world_model_mismatch_score)) / 3 -
+        Math.max(providerReliabilityFloor.penalty, predictorCalibrationFloor.penalty)
     );
     const toolReadiness = clamp01(
       (input.frame.action_signals.tool_precondition_completeness +
         input.frame.action_signals.schema_confidence +
-        input.frame.action_signals.observability_after_action) / 3
+        input.frame.action_signals.observability_after_action) / 3 - providerReliabilityFloor.penalty * 0.6
     );
     const conflictIndex = clamp01(
       (input.frame.reasoning_signals.candidate_reasoning_divergence +
@@ -111,13 +123,21 @@ export class DeepEvaluator {
       triggerTags
     };
 
-    const selectedVerifiers = selectVerifiers(this.verifiers, verifierInput);
+    const verifierPlans = planVerifierRuns(this.verifiers, verifierInput);
     const verifierRuns = await Promise.all(
-      selectedVerifiers.map((verifier) => runVerifierWithGuard(verifier, verifierInput))
+      verifierPlans.map((plan) =>
+        runVerifierWithGuard(plan.verifier, verifierInput, {
+          budgetMs: plan.budgetMs,
+          isolationPolicy: plan.isolationPolicy
+        })
+      )
     );
     const simulatorRun =
       this.simulator && shouldRunSimulator(this.simulator, verifierInput)
-        ? await runSimulatorWithGuard(this.simulator, verifierInput)
+        ? await runSimulatorWithGuard(this.simulator, verifierInput, {
+            budgetMs: resolveSimulatorBudget(verifierInput, this.simulator),
+            isolationPolicy: verifierInput.triggerTags.includes("risk_high") ? "fail-closed" : "fail-open"
+          })
         : null;
     const verificationTrace = buildVerificationTrace(verifierRuns, simulatorRun);
     const rawDeepConfidence = deriveRawDeepConfidence({
@@ -249,7 +269,7 @@ function buildConfidenceVector(frame: MetaSignalFrame) {
   };
 }
 
-function selectVerifiers(verifiers: Verifier[], input: VerifierInput) {
+function planVerifierRuns(verifiers: Verifier[], input: VerifierInput): VerifierPlan[] {
   const budgetPressure = input.frame.governance_signals.budget_pressure;
   const highRisk =
     input.triggerTags.includes("risk_high") ||
@@ -269,7 +289,7 @@ function selectVerifiers(verifiers: Verifier[], input: VerifierInput) {
     mustModes.add("logic");
   }
 
-  return verifiers.filter((verifier) => {
+  const selected = verifiers.filter((verifier) => {
     const wantsRun = verifier.shouldRun?.(input) ?? true;
     if (!wantsRun) {
       return false;
@@ -281,6 +301,26 @@ function selectVerifiers(verifiers: Verifier[], input: VerifierInput) {
       return mustModes.has(verifier.mode);
     }
     return true;
+  });
+  const totalBudgetMs = input.ctx.profile.runtime_config.meta_verifier_total_budget_ms;
+  const remaining = { value: totalBudgetMs };
+
+  return selected.map((verifier) => {
+    const modeBudgetMs = resolveVerifierBudget(input, verifier.mode, verifier.timeoutMs);
+    const effectiveBudgetMs =
+      remaining.value == null
+        ? modeBudgetMs
+        : Math.max(0, Math.min(modeBudgetMs ?? remaining.value, remaining.value));
+
+    if (remaining.value != null) {
+      remaining.value = Math.max(0, remaining.value - (effectiveBudgetMs ?? 0));
+    }
+
+    return {
+      verifier,
+      budgetMs: effectiveBudgetMs,
+      isolationPolicy: resolveIsolationPolicy(input, verifier.mode)
+    };
   });
 }
 
@@ -300,7 +340,7 @@ function buildVerificationTrace(
   const contestedSteps = results.flatMap((result) => result.contested_steps ?? []);
   const evidenceGaps = results.flatMap((result) => result.evidence_gaps ?? []);
   const counterfactualChecks = results.flatMap((result) => result.counterfactual_checks ?? []);
-  const finalVerdict = aggregateVerdict(results);
+  const finalVerdict = aggregateVerdict(results, allRuns.map((entry) => entry.run));
 
   return {
     verifier_runs: allRuns.map((entry) => entry.run),
@@ -311,7 +351,18 @@ function buildVerificationTrace(
   };
 }
 
-function aggregateVerdict(results: VerifierResult[]): VerificationTrace["final_verdict"] {
+function aggregateVerdict(
+  results: VerifierResult[],
+  runs: VerifierRunRecord[]
+): VerificationTrace["final_verdict"] {
+  const failClosedFailure = runs.find(
+    (run) =>
+      run.isolation_policy === "fail-closed" &&
+      (run.status === "failed" || run.status === "timeout" || run.status === "skipped")
+  );
+  if (failClosedFailure) {
+    return failClosedFailure.mode === "safety" ? "fail" : "inconclusive";
+  }
   if (results.some((result) => result.verdict === "fail")) {
     return "fail";
   }
@@ -353,6 +404,60 @@ function deriveRawDeepConfidence(input: {
   }
 
   return clamp01(value);
+}
+
+function resolveVerifierBudget(input: VerifierInput, mode: VerifierMode, defaultTimeoutMs?: number) {
+  const config = input.ctx.profile.runtime_config;
+  const configured =
+    mode === "logic"
+      ? config.meta_verifier_logic_budget_ms
+      : mode === "evidence"
+        ? config.meta_verifier_evidence_budget_ms
+        : mode === "tool"
+          ? config.meta_verifier_tool_budget_ms
+          : mode === "safety"
+            ? config.meta_verifier_safety_budget_ms
+            : config.meta_verifier_process_budget_ms;
+  return configured ?? defaultTimeoutMs;
+}
+
+function resolveSimulatorBudget(input: VerifierInput, simulator: CounterfactualSimulator) {
+  return input.ctx.profile.runtime_config.meta_verifier_process_budget_ms ?? simulator.timeoutMs;
+}
+
+function resolveIsolationPolicy(input: VerifierInput, mode: VerifierMode) {
+  const failClosedModes = new Set(input.ctx.profile.runtime_config.meta_fail_closed_verifier_modes ?? []);
+  if (failClosedModes.has(mode)) {
+    return "fail-closed" as const;
+  }
+  if (mode === "safety" && input.triggerTags.includes("risk_high")) {
+    return "fail-closed" as const;
+  }
+  if (mode === "tool" && input.triggerTags.includes("tool_not_ready")) {
+    return "fail-closed" as const;
+  }
+  return "fail-open" as const;
+}
+
+function derivePredictorCalibrationFloor(frame: MetaSignalFrame) {
+  const reliabilities = (frame.prediction_signals.predictor_profiles ?? []).map((profile) => profile.bucket_reliability);
+  const floor =
+    reliabilities.length > 0
+      ? Math.min(...reliabilities)
+      : frame.prediction_signals.predictor_bucket_reliability;
+  return {
+    floor,
+    penalty: clamp01((1 - floor) * 0.18)
+  };
+}
+
+function deriveProviderReliabilityFloor(frame: MetaSignalFrame) {
+  const reliabilities = (frame.provider_profiles ?? []).map((profile) => profile.reliability_score);
+  const floor = reliabilities.length > 0 ? Math.min(...reliabilities) : 0.5;
+  return {
+    floor,
+    penalty: clamp01((1 - floor) * 0.12)
+  };
 }
 
 function deriveDeepMetaState(

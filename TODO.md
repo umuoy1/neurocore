@@ -120,24 +120,24 @@
 
 ## Milestone 9: Core Feature Gaps
 
-- [pending] Multi-turn conversation
+- [done] Multi-turn conversation
   - [x] Add conversation history buffer with role-annotated messages (user/assistant/system)
   - [x] Add sliding window or token-aware context truncation strategy for conversation history
-  - [ ] Add context summarization for long conversations
+  - [x] Add context summarization for long conversations
   - [x] Add token counting before reasoner invocation for full conversational context
 - [pending] Parallel tool execution
-  - [ ] Allow reasoner to propose multiple concurrent tool calls per cycle
-  - [ ] Implement fork/join execution with barrier for parallel tool results
-  - [ ] Honor `allow_parallel_modules` and `allow_async_tools` config flags
-- [pending] Agent delegation
-  - [ ] Implement delegate action execution path with sub-agent resolution by ID
-  - [ ] Spawn child sessions for delegated work with context/goal forwarding
-  - [ ] Propagate child agent results back to parent session
-  - [ ] Support shared runtime across sessions from the same built agent
-- [pending] Conditional planning
-  - [ ] Support branching/fallback chains in `CandidateAction`
+  - [x] Allow reasoner to propose multiple concurrent tool calls per cycle
+  - [x] Implement fork/join execution with barrier for parallel tool results
+  - [x] Honor `allow_parallel_modules` and `allow_async_tools` config flags
+- [done] Agent delegation
+  - [x] Implement delegate action execution path with sub-agent resolution by ID
+  - [x] Spawn child sessions for delegated work with context/goal forwarding
+  - [x] Propagate child agent results back to parent session
+  - [x] Support shared runtime across sessions from the same built agent
+- [done] Conditional planning
+  - [x] Support branching/fallback chains in `CandidateAction`
   - [x] Evaluate `CandidateAction.preconditions` before execution
-  - [ ] Add DAG-based plan structure beyond flat action lists
+  - [x] Add DAG-based plan structure beyond flat action lists
 - [pending] Tool result caching
   - [x] Implement cache layer in `ToolGateway` keyed by `idempotency_key`
   - [x] Add configurable cache TTL
@@ -145,9 +145,9 @@
 - [pending] Structured user interaction
   - [x] Extend `ask_user` with structured prompt schema (options, forms, date pickers)
   - [x] Add input validation for structured user responses
-- [pending] Multi-modal input
-  - [ ] Extend `UserInput` to typed content parts (text, image, file)
-  - [ ] Add MIME-aware tool result and observation handling
+- [done] Multi-modal input
+  - [x] Extend `UserInput` to typed content parts (text, image, file)
+  - [x] Add MIME-aware tool result and observation handling
 - [pending] Content filtering
   - [x] Add input screening before reasoner invocation
   - [x] Add output screening before response delivery
@@ -168,7 +168,7 @@
   - [x] Thin `DefaultMetaController` into execution/approval adapter only
   - [x] Remove duplicated ranking/confidence/risk/approval logic from legacy control path
   - [x] Ensure all final control decisions flow through one metacognitive decision object
-- [in_progress] Calibration closure
+- [done] Calibration closure
   - [x] Add `Calibrator`
   - [x] Add `InMemoryCalibrationStore`
   - [x] Record `CalibrationRecord` from execution outcome
@@ -176,32 +176,32 @@
   - [x] Add durable calibration store
   - [x] Make calibration queryable before decision time
   - [x] Add task-bucket calibration profiles
-  - [ ] Add provider-level calibration profiles
-- [in_progress] DeepEvaluator SPI
+  - [x] Add provider-level calibration profiles
+- [done] DeepEvaluator SPI
   - [x] Add verification trace and heuristic verifier runs
   - [x] Introduce explicit `Verifier SPI`
   - [x] Split `logic / evidence / tool / safety` verifiers
   - [x] Add optional simulator/world-model verifier integration
   - [x] Support concurrent verifier orchestration with budget-aware fallback
-  - [ ] Add stricter verifier isolation policy and per-verifier budgets
-- [in_progress] MetaSignalBus providerization
+  - [x] Add stricter verifier isolation policy and per-verifier budgets
+- [done] MetaSignalBus providerization
   - [x] Add unified signal frame with provenance
   - [x] Split signal families into provider-based collectors
   - [x] Add family-level degradation and fallback strategy
   - [x] Replace ad hoc `*-heuristic` provenance with provider-specific provenance
-  - [ ] Add confidence/reliability scoring per signal provider
-- [in_progress] Meta benchmark and evaluation
+  - [x] Add confidence/reliability scoring per signal provider
+- [done] Meta benchmark and evaluation
   - [x] Add `meta-benchmark.ts`
   - [x] Add focused tests for calibration / fast-monitor / deep-eval / control-allocator metrics
   - [x] Add real benchmark case bundle for families A-G
-  - [ ] Add online meta eval pipeline
-  - [ ] Add coverage-vs-accuracy and risk-conditioned curve export
+  - [x] Add online meta eval pipeline
+  - [x] Add coverage-vs-accuracy and risk-conditioned curve export
   - [x] Add benchmark persistence and historical comparison
-- [pending] Reflection and policy learning
-  - [ ] Implement `ReflectionLearner`
-  - [ ] Persist reflection memory / rule artifacts
-  - [ ] Convert repeated failures into future control policy updates
-  - [ ] Add recurrence regression suite
+- [done] Reflection and policy learning
+  - [x] Implement `ReflectionLearner`
+  - [x] Persist reflection memory / rule artifacts
+  - [x] Convert repeated failures into future control policy updates
+  - [x] Add recurrence regression suite
 
 ## Milestone 11: Operational Maturity
 

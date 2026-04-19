@@ -214,6 +214,8 @@ export class ToolGateway {
             source_type: "tool",
             status: "success",
             summary: result.summary,
+            mime_type: result.mime_type,
+            content_parts: result.content_parts ? structuredClone(result.content_parts) : undefined,
             structured_payload: {
               ...(result.payload ?? {}),
               tool_name: tool.name,
@@ -645,6 +647,8 @@ export class ToolGateway {
         source_type: "tool",
         status: "success",
         summary: entry.result.summary,
+        mime_type: entry.result.mime_type,
+        content_parts: entry.result.content_parts ? structuredClone(entry.result.content_parts) : undefined,
         structured_payload: {
           ...(entry.result.payload ?? {}),
           tool_name: action.tool_name ?? null,

@@ -74,7 +74,7 @@ function makeSupervisorAgent(id, workerTarget, mode = "unicast", capabilities = 
     });
 }
 
-function makeWorkerAgent(id, capabilityName, proficiency, summary) {
+function makeWorkerAgent(id, capabilityName, proficiency, summary, options = {}) {
   return defineAgent({
     id,
     role: "Worker"
@@ -105,6 +105,9 @@ function makeWorkerAgent(id, capabilityName, proficiency, summary) {
         ];
       },
       async respond(ctx) {
+        if (typeof options.onRespond === "function") {
+          return options.onRespond(ctx);
+        }
         return [
           {
             action_id: ctx.services.generateId("act"),
@@ -181,6 +184,65 @@ test("auction delegation executes selected worker and feeds result back into sup
     assert.equal(delegationStep.observation?.structured_payload?.assigned_agent_id, "worker-best");
     assert.equal(delegationStep.observation?.structured_payload?.selected_bid?.agent_id, "worker-best");
     assert.equal(delegationStep.observation?.structured_payload?.result?.summary, "best worker result");
+  } finally {
+    await mesh.close();
+  }
+});
+
+test("delegated child session forwards context and exposes assigned session id", async () => {
+  const mesh = new InProcessAgentMesh();
+  const supervisor = makeSupervisorAgent("forwarding-supervisor", "forwarding-worker");
+  const worker = makeWorkerAgent(
+    "forwarding-worker",
+    "research",
+    0.95,
+    "unused",
+    {
+      onRespond(ctx) {
+        return [
+          {
+            action_id: ctx.services.generateId("act"),
+            action_type: "respond",
+            title: "Return forwarded metadata",
+            description: JSON.stringify({
+              input: ctx.runtime_state.current_input_content,
+              metadata: ctx.runtime_state.current_input_metadata
+            }),
+            side_effect_level: "none"
+          }
+        ];
+      }
+    }
+  );
+
+  await mesh.registerAgents([supervisor, worker]);
+
+  try {
+    const session = supervisor.createSession({
+      agent_id: "forwarding-supervisor",
+      tenant_id: "team-c",
+      initial_input: {
+        content: "Forward the delegated goal."
+      }
+    });
+
+    const result = await session.run();
+    assert.equal(result.finalState, "completed");
+
+    const delegationStep = result.steps[0];
+    assert.equal(delegationStep.observation?.structured_payload?.delegation_status, "completed");
+    assert.equal(typeof delegationStep.observation?.structured_payload?.assigned_session_id, "string");
+
+    const payload = JSON.parse(result.outputText);
+    assert.match(payload.input, /Produce delegated result/);
+    assert.equal(payload.metadata.delegation_mode, "unicast");
+    assert.equal(payload.metadata.source_agent_id, "forwarding-supervisor");
+    assert.equal(payload.metadata.target_agent_id, "forwarding-worker");
+    assert.equal(payload.metadata.source_goal_id, session.getGoals()[0].goal_id);
+
+    const eventTypes = session.getEvents().map((event) => event.event_type);
+    assert.ok(eventTypes.includes("delegation.requested"));
+    assert.ok(eventTypes.includes("delegation.completed"));
   } finally {
     await mesh.close();
   }

@@ -18,8 +18,11 @@ import type {
   CalibrationBucketStats,
   CalibrationRecord,
   MetaAssessment,
+  MetaSignalProviderProfile,
+  MetaSignalProviderReliabilityRecord,
   MetaDecisionV2,
   MetaDecision,
+  ReflectionRule,
   MetaTriggerTag,
   Observation,
   PolicyDecision,
@@ -100,6 +103,8 @@ export interface ToolContext {
 export interface ToolResult {
   summary: string;
   payload?: Record<string, JsonValue | undefined>;
+  mime_type?: string;
+  content_parts?: import("./types.js").ContentPart[];
 }
 
 export interface Tool {
@@ -145,6 +150,26 @@ export interface CalibrationStore {
     riskLevel?: string;
     predictorId?: string;
   }): CalibrationBucketStats;
+  deleteSession(sessionId: string): void;
+  close?(): void;
+}
+
+export interface MetaSignalProviderReliabilityStore {
+  append(record: MetaSignalProviderReliabilityRecord): void;
+  list(sessionId?: string): MetaSignalProviderReliabilityRecord[];
+  listByProvider(provider: string, family?: string): MetaSignalProviderReliabilityRecord[];
+  getProfile(input: {
+    provider: string;
+    family: string;
+  }): MetaSignalProviderProfile;
+  deleteSession(sessionId: string): void;
+  close?(): void;
+}
+
+export interface ReflectionStore {
+  save(rule: ReflectionRule): void;
+  list(sessionId?: string): ReflectionRule[];
+  findByTaskBucket(taskBucket: string, riskLevel?: string): ReflectionRule[];
   deleteSession(sessionId: string): void;
   close?(): void;
 }

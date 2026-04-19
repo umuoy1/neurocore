@@ -6,6 +6,7 @@ import type {
   CandidateAction,
   MetaAssessment,
   MetaSignalFrame,
+  PredictorCalibrationProfile,
   Prediction,
   UserInput
 } from "@neurocore/protocol";
@@ -76,6 +77,41 @@ export class Calibrator {
       descriptor,
       stats
     };
+  }
+
+  public queryPredictorProfiles(input: QueryCalibrationInput): PredictorCalibrationProfile[] {
+    const predictorIds = new Set<string>();
+    if (input.predictorId) {
+      predictorIds.add(input.predictorId);
+    }
+    for (const prediction of input.predictions ?? []) {
+      if (prediction.predictor_name) {
+        predictorIds.add(prediction.predictor_name);
+      }
+    }
+
+    return Array.from(predictorIds)
+      .map((predictorId) => {
+        const query = this.query({
+          ...input,
+          predictorId
+        });
+        return {
+          predictor_id: predictorId,
+          task_bucket: query.descriptor.taskBucket,
+          risk_level: query.descriptor.riskLevel,
+          sample_count: query.stats.sample_count,
+          success_rate: query.stats.success_rate,
+          average_confidence_gap: query.stats.average_confidence_gap,
+          bucket_reliability: query.stats.bucket_reliability,
+          effective_weight: clamp01(
+            query.stats.bucket_reliability *
+              Math.min(1, query.stats.sample_count / 6)
+          ),
+          last_updated_at: query.stats.last_updated_at
+        };
+      })
+      .sort((left, right) => left.predictor_id.localeCompare(right.predictor_id));
   }
 
   public calibrate(input: CalibrateConfidenceInput) {

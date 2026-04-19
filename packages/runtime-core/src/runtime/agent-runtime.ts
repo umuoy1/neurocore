@@ -18,6 +18,7 @@ import type {
   MetaController,
   NeuroCoreEvent,
   NeuroCoreEventType,
+  MetaSignalProviderReliabilityStore,
   Observation,
   PendingApprovalContextSnapshot,
   PolicyProvider,
@@ -27,6 +28,8 @@ import type {
   PredictionStore,
   Proposal,
   Reasoner,
+  ReflectionRule,
+  ReflectionStore,
   RuntimeOutput,
   RuntimeStatus,
   RuntimeSessionSnapshot,
@@ -68,7 +71,12 @@ import { GoalManager } from "../goal/goal-manager.js";
 import { Calibrator } from "../meta/calibrator.js";
 import { DefaultMetaController } from "../meta/meta-controller.js";
 import { InMemoryCalibrationStore } from "../meta/in-memory-calibration-store.js";
+import { InMemoryReflectionStore } from "../meta/in-memory-reflection-store.js";
+import { InMemoryProviderReliabilityStore } from "../meta/in-memory-provider-reliability-store.js";
+import { ReflectionLearner } from "../meta/reflection-learner.js";
 import { SqliteCalibrationStore } from "../meta/sqlite-calibration-store.js";
+import { SqliteReflectionStore } from "../meta/sqlite-reflection-store.js";
+import { SqliteProviderReliabilityStore } from "../meta/sqlite-provider-reliability-store.js";
 import { InMemoryPredictionStore } from "../prediction/in-memory-prediction-store.js";
 import { computePredictionErrors } from "../prediction/prediction-error-computer.js";
 import { ReplayRunner } from "../replay/replay-runner.js";
@@ -98,6 +106,8 @@ export interface AgentRuntimeOptions {
   stateStore?: RuntimeStateStore;
   memoryPersistence?: AgentMemoryPersistence;
   calibrationStore?: CalibrationStore;
+  providerReliabilityStore?: MetaSignalProviderReliabilityStore;
+  reflectionStore?: ReflectionStore;
   predictionStore?: PredictionStore;
   deviceRegistry?: DeviceRegistry;
   worldStateGraph?: WorldStateGraph;
@@ -125,6 +135,7 @@ export interface AgentRunResult {
   cycle: Awaited<ReturnType<CycleEngine["run"]>>;
   predictionErrors?: PredictionError[];
   calibrationRecord?: CalibrationRecord;
+  createdReflectionRule?: ReflectionRule;
 }
 
 export interface AgentRunLoopResult {
@@ -158,6 +169,16 @@ interface ExecutionCycleState {
   metaAssessment?: import("@neurocore/protocol").MetaAssessment;
   metaDecisionV2?: import("@neurocore/protocol").MetaDecisionV2;
   selfEvaluationReport?: import("@neurocore/protocol").SelfEvaluationReport;
+  appliedReflectionRule?: ReflectionRule;
+}
+
+interface ToolActionExecutionOutcome {
+  action: CandidateAction;
+  execution: ActionExecution;
+  observation: Observation;
+  predictionErrors: PredictionError[];
+  calibrationRecord?: CalibrationRecord;
+  createdReflectionRule?: ReflectionRule;
 }
 
 export class AgentRuntime {
@@ -179,6 +200,8 @@ export class AgentRuntime {
   private readonly metaController: MetaController;
   private readonly traceRecorder: TraceRecorder;
   private readonly replayRunner: ReplayRunner;
+  private readonly providerReliabilityStore: MetaSignalProviderReliabilityStore;
+  private readonly reflectionLearner: ReflectionLearner;
   private readonly checkpointStore: CheckpointStore;
   private readonly stateStore?: RuntimeStateStore;
   private readonly memoryPersistence?: AgentMemoryPersistence;
@@ -198,7 +221,9 @@ export class AgentRuntime {
       options.stateStore,
       options.memoryPersistence,
       options.checkpointStore,
-      options.calibrationStore
+      options.calibrationStore,
+      options.providerReliabilityStore,
+      options.reflectionStore
     );
     const memoryPersistence = options.memoryPersistence ?? derivedPersistence.memoryPersistence;
     const checkpointStore =
@@ -207,6 +232,14 @@ export class AgentRuntime {
       options.calibrationStore ??
       derivedPersistence.calibrationStore ??
       new InMemoryCalibrationStore();
+    const providerReliabilityStore =
+      options.providerReliabilityStore ??
+      derivedPersistence.providerReliabilityStore ??
+      new InMemoryProviderReliabilityStore();
+    const reflectionStore =
+      options.reflectionStore ??
+      derivedPersistence.reflectionStore ??
+      new InMemoryReflectionStore();
     this.reasoner = options.reasoner;
     this.metaController = options.metaController ?? new DefaultMetaController();
     const traceStore = options.traceStore ?? new InMemoryTraceStore();
@@ -215,6 +248,8 @@ export class AgentRuntime {
     this.memoryPersistence = memoryPersistence;
     this.predictionStore = options.predictionStore ?? new InMemoryPredictionStore();
     this.calibrator = new Calibrator(calibrationStore);
+    this.providerReliabilityStore = providerReliabilityStore;
+    this.reflectionLearner = new ReflectionLearner(reflectionStore);
     this.workingMemoryProvider = new WorkingMemoryProvider(
       undefined,
       memoryPersistence?.working as WorkingMemoryPersistenceStore | undefined
@@ -312,6 +347,8 @@ export class AgentRuntime {
       metaController: this.metaController,
       predictionErrorRate,
       calibrator: this.calibrator,
+      providerReliabilityStore: this.providerReliabilityStore,
+      reflectionLearner: this.reflectionLearner,
       statusReporter: (status) => {
         this.emitRuntimeStatus(session, status);
       },
@@ -327,7 +364,10 @@ export class AgentRuntime {
     }
 
     this.sessions.setCurrentCycle(sessionId, result.cycleId);
-    const selectedAction = selectAction(result.actions, result.decision);
+    const selectedAction = resolvePlannedActionSelection(
+      result.actions,
+      selectAction(result.actions, result.decision)
+    );
     this.emitCycleStarted(session, result.cycleId, startedAt);
     for (const proposal of result.proposals) {
       this.emitEvent(session, "proposal.submitted", proposal, result.cycleId);
@@ -603,6 +643,18 @@ export class AgentRuntime {
     return structuredClone(this.calibrator.list(sessionId));
   }
 
+  public listProviderReliabilityRecords(sessionId: string) {
+    this.requireSession(sessionId);
+    return structuredClone(this.providerReliabilityStore.list(sessionId));
+  }
+
+  public listReflectionRules(sessionId?: string) {
+    if (sessionId) {
+      this.requireSession(sessionId);
+    }
+    return structuredClone(this.reflectionLearner.list(sessionId));
+  }
+
   public getEpisodes(sessionId: string): Episode[] {
     this.requireSession(sessionId);
     return structuredClone(this.episodicMemoryProvider.list(sessionId));
@@ -800,6 +852,8 @@ export class AgentRuntime {
     this.checkpointStore.deleteSession?.(sessionId);
     this.predictionStore.deleteSession?.(sessionId);
     this.calibrator.deleteSession(sessionId);
+    this.providerReliabilityStore.deleteSession(sessionId);
+    this.reflectionLearner.deleteSession(sessionId);
     this.eventBus.deleteSession(sessionId);
     this.eventSequences.delete(sessionId);
     this.sessions.deleteSession(sessionId);
@@ -1250,6 +1304,27 @@ export class AgentRuntime {
     const sessionId = session.session_id;
     const preconditionFailures = this.evaluateActionPreconditions(session, input, selectedAction);
     if (preconditionFailures.length > 0) {
+      const fallbackAction = resolveFailureFallbackAction(
+        cycle.actions,
+        selectedAction,
+        getCompletedActionIds(input.metadata)
+      );
+      if (fallbackAction) {
+        this.emitRuntimeStatus(session, {
+          cycle_id: cycle.cycleId,
+          phase: "reasoning",
+          state: "in_progress",
+          summary: "Switching to fallback action",
+          detail: `Fallback after unmet preconditions: ${fallbackAction.title}`,
+          data: {
+            action_id: fallbackAction.action_id,
+            action_type: fallbackAction.action_type,
+            failed_action_id: selectedAction.action_id,
+            precondition_failures: preconditionFailures
+          }
+        });
+        return this.executeSelectedAction(profile, session, input, startedAt, cycle, fallbackAction);
+      }
       return this.handlePreconditionFailure(
         profile,
         session,
@@ -1301,6 +1376,17 @@ export class AgentRuntime {
     }
 
     if (selectedAction.action_type === "call_tool") {
+      const parallelToolActions = this.selectParallelToolActions(profile, cycle, selectedAction);
+      if (parallelToolActions.length > 1) {
+        return this.executeParallelToolActions(
+          profile,
+          session,
+          input,
+          startedAt,
+          cycle,
+          parallelToolActions
+        );
+      }
       this.emitRuntimeStatus(session, {
         cycle_id: cycle.cycleId,
         phase: "tool_execution",
@@ -1365,7 +1451,7 @@ export class AgentRuntime {
         }
       });
       this.sessions.incrementToolCallUsed(sessionId);
-      const { predictionErrors, calibrationRecord } = await this.recordObservation(
+      const { predictionErrors, calibrationRecord, createdReflectionRule } = await this.recordObservation(
         profile,
         session,
         input,
@@ -1375,7 +1461,8 @@ export class AgentRuntime {
         observationWithSkill.status === "failure" ? "failure" : "partial",
         cycle.predictions,
         execution,
-        cycle.metaAssessment
+        cycle.metaAssessment,
+        cycle.metaSignalFrame
       );
 
       const sessionState = this.updateSessionState(sessionId, "waiting").state;
@@ -1394,6 +1481,7 @@ export class AgentRuntime {
         observation: observationWithSkill,
         workspace: cycle.workspace,
         calibrationRecord,
+        createdReflectionRule,
         ...toMetaTraceFields(cycle),
         startedAt
       });
@@ -1455,9 +1543,9 @@ export class AgentRuntime {
         status: execution.status
       }
     });
-    const { predictionErrors, calibrationRecord } = await this.recordObservation(
+    const { predictionErrors, calibrationRecord, createdReflectionRule } = await this.recordObservation(
       profile, session, input, cycle.cycleId, selectedAction, observation, "success",
-      cycle.predictions, execution, cycle.metaAssessment
+      cycle.predictions, execution, cycle.metaAssessment, cycle.metaSignalFrame
     );
     const sessionState = this.updateSessionState(sessionId, targetState).state;
     if (sessionState === "completed") {
@@ -1480,6 +1568,7 @@ export class AgentRuntime {
       observation,
       workspace: cycle.workspace,
       calibrationRecord,
+      createdReflectionRule,
       ...toMetaTraceFields(cycle),
       startedAt
     });
@@ -1617,7 +1706,7 @@ export class AgentRuntime {
       created_at: endedAt
     };
 
-    const { predictionErrors, calibrationRecord } = await this.recordObservation(
+    const { predictionErrors, calibrationRecord, createdReflectionRule } = await this.recordObservation(
       profile,
       session,
       input,
@@ -1627,7 +1716,8 @@ export class AgentRuntime {
       "failure",
       cycle.predictions,
       execution,
-      cycle.metaAssessment
+      cycle.metaAssessment,
+      cycle.metaSignalFrame
     );
     const sessionState = this.updateSessionState(sessionId, "waiting").state;
     const trace = this.recordTrace({
@@ -1645,6 +1735,7 @@ export class AgentRuntime {
       observation,
       workspace: cycle.workspace,
       calibrationRecord,
+      createdReflectionRule,
       ...toMetaTraceFields(cycle),
       startedAt
     });
@@ -1680,6 +1771,7 @@ export class AgentRuntime {
       workspace: cycle.workspace,
       runtime_state: {
         current_input_content: input.content,
+        current_input_parts: input.content_parts ?? [],
         current_input_metadata: input.metadata ?? null,
         current_input_structured_response: input.structured_response ?? null,
         ...buildConversationRuntimeState(this.getTraceRecords(session.session_id), profile, input.content),
@@ -1825,6 +1917,254 @@ export class AgentRuntime {
       .flat();
   }
 
+  private selectParallelToolActions(
+    profile: AgentProfile,
+    cycle: ExecutionCycleState,
+    selectedAction: CandidateAction
+  ): CandidateAction[] {
+    if (selectedAction.action_type !== "call_tool") {
+      return [selectedAction];
+    }
+    if (
+      profile.runtime_config.allow_parallel_modules !== true &&
+      profile.runtime_config.allow_async_tools !== true
+    ) {
+      return [selectedAction];
+    }
+    if (selectedAction.source_proposal_id) {
+      return [selectedAction];
+    }
+
+    const blockedIds = new Set(
+      (cycle.workspace.policy_decisions ?? [])
+        .filter((decision) => decision.level === "block" && typeof decision.target_id === "string")
+        .map((decision) => decision.target_id as string)
+    );
+
+    const candidates = cycle.actions.filter((action) =>
+      action.action_type === "call_tool" &&
+      !action.source_proposal_id &&
+      !blockedIds.has(action.action_id) &&
+      action.side_effect_level !== "high" &&
+      action.side_effect_level !== "medium"
+    );
+    const deduped = new Map<string, CandidateAction>();
+    for (const action of candidates) {
+      deduped.set(action.action_id, action);
+    }
+    deduped.set(selectedAction.action_id, selectedAction);
+
+    const ordered = cycle.actions.filter((action) => deduped.has(action.action_id));
+    const primary = ordered.find((action) => action.action_id === selectedAction.action_id);
+    const rest = ordered.filter((action) => action.action_id !== selectedAction.action_id).slice(0, 3);
+    return primary ? [primary, ...rest] : [selectedAction];
+  }
+
+  private async executeParallelToolActions(
+    profile: AgentProfile,
+    session: AgentSession,
+    input: UserInput,
+    startedAt: string,
+    cycle: ExecutionCycleState,
+    actions: CandidateAction[]
+  ): Promise<AgentRunResult> {
+    const primaryAction = actions[0];
+    const sessionId = session.session_id;
+    this.emitRuntimeStatus(session, {
+      cycle_id: cycle.cycleId,
+      phase: "tool_execution",
+      state: "started",
+      summary: `Calling ${actions.length} tools in parallel`,
+      detail: actions.map((action) => action.tool_name ?? action.title).join(", "),
+      data: {
+        action_ids: actions.map((action) => action.action_id),
+        tool_names: actions.map((action) => action.tool_name)
+      }
+    });
+
+    const outcomes = await Promise.all(
+      actions.map((action) => this.executeToolActionLeaf(profile, session, input, cycle, action, startedAt))
+    );
+
+    const aggregateObservation = buildParallelToolObservation(session, cycle.cycleId, primaryAction, outcomes);
+    const aggregateExecution = buildRuntimeActionExecution(
+      session,
+      cycle.cycleId,
+      primaryAction,
+      outcomes.some((outcome) => outcome.execution.status === "failed") ? "failed" : "succeeded"
+    );
+    aggregateExecution.started_at = startedAt;
+    aggregateExecution.ended_at = nowIso();
+    aggregateExecution.metrics = {
+      latency_ms: Math.max(0, Date.parse(aggregateExecution.ended_at) - Date.parse(startedAt)),
+      attempt_count: outcomes.length,
+      retry_count: 0
+    };
+
+    this.emitRuntimeStatus(session, {
+      cycle_id: cycle.cycleId,
+      phase: "tool_execution",
+      state: outcomes.some((outcome) => outcome.observation.status === "failure") ? "failed" : "completed",
+      summary: `Parallel tool batch finished`,
+      detail: aggregateObservation.summary,
+      data: {
+        action_id: primaryAction.action_id,
+        action_count: actions.length,
+        success_count: outcomes.filter((outcome) => outcome.observation.status !== "failure").length,
+        failure_count: outcomes.filter((outcome) => outcome.observation.status === "failure").length
+      }
+    });
+
+    const sessionState = this.updateSessionState(sessionId, "waiting").state;
+    const trace = this.recordTrace({
+      sessionId,
+      cycleId: cycle.cycleId,
+      input,
+      proposals: cycle.proposals,
+      candidateActions: cycle.actions,
+      predictions: cycle.predictions,
+      policyDecisions: cycle.workspace.policy_decisions ?? [],
+      predictionErrors: outcomes.flatMap((outcome) => outcome.predictionErrors),
+      selectedAction: primaryAction,
+      selectedActionId: primaryAction.action_id,
+      actionExecution: aggregateExecution,
+      observation: aggregateObservation,
+      workspace: cycle.workspace,
+      calibrationRecord: outcomes.map((outcome) => outcome.calibrationRecord).find(Boolean),
+      createdReflectionRule: outcomes.map((outcome) => outcome.createdReflectionRule).find(Boolean),
+      ...toMetaTraceFields(cycle),
+      startedAt
+    });
+    this.maybeCreateCheckpoint(profile, sessionId);
+    this.persistSessionState(sessionId);
+
+    return {
+      sessionId,
+      cycleId: cycle.cycleId,
+      sessionState,
+      selectedAction: primaryAction,
+      actionExecution: aggregateExecution,
+      observation: aggregateObservation,
+      outputText: aggregateObservation.summary,
+      trace,
+      cycle: toAgentCycleState(cycle),
+      predictionErrors: outcomes.flatMap((outcome) => outcome.predictionErrors),
+      calibrationRecord: outcomes.map((outcome) => outcome.calibrationRecord).find(Boolean),
+      createdReflectionRule: outcomes.map((outcome) => outcome.createdReflectionRule).find(Boolean)
+    };
+  }
+
+  private async executeToolActionLeaf(
+    profile: AgentProfile,
+    session: AgentSession,
+    input: UserInput,
+    cycle: ExecutionCycleState,
+    action: CandidateAction,
+    startedAt: string
+  ): Promise<ToolActionExecutionOutcome> {
+    const preconditionFailures = this.evaluateActionPreconditions(session, input, action);
+    if (preconditionFailures.length > 0) {
+      const endedAt = nowIso();
+      const execution = buildRuntimeActionExecution(session, cycle.cycleId, action, "failed");
+      execution.started_at = startedAt;
+      execution.ended_at = endedAt;
+      execution.error_ref = `preconditions:${preconditionFailures.join("|")}`;
+      const observation: Observation = {
+        observation_id: generateId("obs"),
+        session_id: session.session_id,
+        cycle_id: cycle.cycleId,
+        source_action_id: action.action_id,
+        source_type: "runtime",
+        status: "failure",
+        summary: `Preconditions not met: ${preconditionFailures.join(", ")}`,
+        structured_payload: {
+          precondition_failures: preconditionFailures
+        },
+        created_at: endedAt
+      };
+      this.emitEvent(session, "action.executed", execution, cycle.cycleId);
+      const recorded = await this.recordObservation(
+        profile,
+        session,
+        input,
+        cycle.cycleId,
+        action,
+        observation,
+        "failure",
+        cycle.predictions.filter((prediction) => prediction.action_id === action.action_id),
+        execution,
+        cycle.metaAssessment,
+        cycle.metaSignalFrame
+      );
+      return {
+        action,
+        execution,
+        observation,
+        predictionErrors: recorded.predictionErrors,
+        calibrationRecord: recorded.calibrationRecord,
+        createdReflectionRule: recorded.createdReflectionRule
+      };
+    }
+
+    const matchedSkillProposal = findSkillProposal(cycle.proposals, action);
+    const { execution, observation } = await this.tools.execute(
+      action,
+      {
+        tenant_id: session.tenant_id,
+        session_id: session.session_id,
+        cycle_id: cycle.cycleId
+      },
+      {
+        defaultExecution: {
+          timeout_ms: profile.runtime_config.default_sync_timeout_ms,
+          ...(profile.runtime_config.tool_execution ?? {})
+        }
+      }
+    );
+    const observationWithSkill = matchedSkillProposal
+      ? {
+          ...observation,
+          structured_payload: {
+            ...(observation.structured_payload ?? {}),
+            skill_id:
+              typeof matchedSkillProposal.payload.skill_id === "string"
+                ? matchedSkillProposal.payload.skill_id
+                : undefined,
+            skill_name:
+              typeof matchedSkillProposal.payload.skill_name === "string"
+                ? matchedSkillProposal.payload.skill_name
+                : undefined
+          }
+        }
+      : observation;
+    if (matchedSkillProposal) {
+      this.emitEvent(session, "skill.executed", execution, cycle.cycleId);
+    }
+    this.emitEvent(session, "action.executed", execution, cycle.cycleId);
+    this.sessions.incrementToolCallUsed(session.session_id);
+    const recorded = await this.recordObservation(
+      profile,
+      session,
+      input,
+      cycle.cycleId,
+      action,
+      observationWithSkill,
+      observationWithSkill.status === "failure" ? "failure" : "partial",
+      cycle.predictions.filter((prediction) => prediction.action_id === action.action_id),
+      execution,
+      cycle.metaAssessment,
+      cycle.metaSignalFrame
+    );
+    return {
+      action,
+      execution,
+      observation: observationWithSkill,
+      predictionErrors: recorded.predictionErrors,
+      calibrationRecord: recorded.calibrationRecord,
+      createdReflectionRule: recorded.createdReflectionRule
+    };
+  }
+
   private async executeDelegateAction(
     profile: AgentProfile,
     session: AgentSession,
@@ -1872,6 +2212,7 @@ export class AgentRuntime {
       };
 
       try {
+        this.emitEvent(session, "delegation.requested", selectedAction, cycle.cycleId);
         const response = await this.taskDelegator.delegate(request);
         execution.status = response.status === "completed" || response.status === "accepted" ? "succeeded" : "failed";
         execution.ended_at = nowIso();
@@ -1888,12 +2229,16 @@ export class AgentRuntime {
             delegation_id: response.delegation_id,
             delegation_status: response.status,
             assigned_agent_id: response.assigned_agent_id,
+            assigned_session_id: response.assigned_session_id,
             result: response.result,
             bids: response.bids,
-            selected_bid: response.selected_bid
+            selected_bid: response.selected_bid,
+            goal: structuredClone(request.goal),
+            context: request.context ? structuredClone(request.context) : undefined
           },
           created_at: nowIso()
         };
+        this.emitEvent(session, toDelegationEventType(response.status), observation, cycle.cycleId);
       } catch (err) {
         execution.status = "failed";
         execution.ended_at = nowIso();
@@ -1907,6 +2252,7 @@ export class AgentRuntime {
           summary: `Delegation failed: ${err instanceof Error ? err.message : String(err)}`,
           created_at: nowIso()
         };
+        this.emitEvent(session, "delegation.failed", observation, cycle.cycleId);
       }
     } else {
       execution.status = "failed";
@@ -1921,6 +2267,7 @@ export class AgentRuntime {
         summary: "Delegate action unavailable: no TaskDelegator configured in runtime",
         created_at: nowIso()
       };
+      this.emitEvent(session, "delegation.failed", observation, cycle.cycleId);
     }
 
     this.emitEvent(session, "action.executed", execution, cycle.cycleId);
@@ -1937,10 +2284,10 @@ export class AgentRuntime {
         observation_status: observation.status
       }
     });
-    const { predictionErrors, calibrationRecord } = await this.recordObservation(
+    const { predictionErrors, calibrationRecord, createdReflectionRule } = await this.recordObservation(
       profile, session, input, cycle.cycleId, selectedAction, observation,
       observation.status === "failure" ? "failure" : "partial",
-      cycle.predictions, execution, cycle.metaAssessment
+      cycle.predictions, execution, cycle.metaAssessment, cycle.metaSignalFrame
     );
 
     const sessionState = this.updateSessionState(sessionId, "waiting").state;
@@ -1959,6 +2306,7 @@ export class AgentRuntime {
       observation,
       workspace: cycle.workspace,
       calibrationRecord,
+      createdReflectionRule,
       ...toMetaTraceFields(cycle),
       startedAt
     });
@@ -1989,8 +2337,9 @@ export class AgentRuntime {
     outcome: Episode["outcome"],
     predictions?: Prediction[],
     execution?: ActionExecution,
-    metaAssessment?: import("@neurocore/protocol").MetaAssessment
-  ): Promise<{ predictionErrors: PredictionError[]; calibrationRecord?: CalibrationRecord }> {
+    metaAssessment?: import("@neurocore/protocol").MetaAssessment,
+    metaSignalFrame?: import("@neurocore/protocol").MetaSignalFrame
+  ): Promise<{ predictionErrors: PredictionError[]; calibrationRecord?: CalibrationRecord; createdReflectionRule?: ReflectionRule }> {
     if (profile.memory_config.working_memory_enabled !== false) {
       this.workingMemoryProvider.appendObservation(
         session.session_id,
@@ -2038,6 +2387,33 @@ export class AgentRuntime {
       predictions,
       metaAssessment
     });
+    const reflectionQuery =
+      metaAssessment?.task_bucket
+        ? {
+            descriptor: {
+              taskBucket: metaAssessment.task_bucket,
+              riskLevel: inferReflectionRiskLevel(metaAssessment, action)
+            }
+          }
+        : this.calibrator.query({
+            profile,
+            input,
+            action,
+            predictions,
+            metaState: metaAssessment?.meta_state
+          });
+    const createdReflectionRule = this.reflectionLearner.learn({
+      sessionId: session.session_id,
+      cycleId,
+      taskBucket: reflectionQuery?.descriptor.taskBucket,
+      riskLevel: reflectionQuery?.descriptor.riskLevel,
+      action,
+      observation,
+      metaAssessment
+    });
+    if (metaSignalFrame?.provenance && metaSignalFrame.provenance.length > 0) {
+      this.recordProviderReliability(session.session_id, cycleId, metaSignalFrame, observation.status === "success");
+    }
 
     debugLog("runtime", "Recorded observation into session memory", {
       sessionId: session.session_id,
@@ -2046,13 +2422,46 @@ export class AgentRuntime {
       summaryPreview: observation.summary.slice(0, 160),
       episodicCount: this.episodicMemoryProvider.list(session.session_id).length,
       predictionErrorCount: predictionErrors.length,
-      calibrationRecorded: Boolean(calibrationRecord)
+      calibrationRecorded: Boolean(calibrationRecord),
+      reflectionRuleCreated: Boolean(createdReflectionRule)
     });
 
     return {
       predictionErrors,
-      calibrationRecord: calibrationRecord ?? undefined
+      calibrationRecord: calibrationRecord ?? undefined,
+      createdReflectionRule: createdReflectionRule ?? undefined
     };
+  }
+
+  private recordProviderReliability(
+    sessionId: string,
+    cycleId: string,
+    frame: import("@neurocore/protocol").MetaSignalFrame,
+    observedSuccess: boolean
+  ) {
+    const statuses = new Map<string, import("@neurocore/protocol").MetaSignalProvenance["status"]>();
+    for (const row of frame.provenance ?? []) {
+      const key = `${row.family}:${row.provider}`;
+      const current = statuses.get(key);
+      statuses.set(key, worseProviderStatus(current, row.status));
+    }
+
+    for (const [key, status] of statuses) {
+      const [family, provider] = key.split(":", 2);
+      if (!family || !provider) {
+        continue;
+      }
+      this.providerReliabilityStore.append({
+        record_id: generateId("mpr"),
+        provider,
+        family,
+        provider_status: status,
+        observed_success: observedSuccess,
+        session_id: sessionId,
+        cycle_id: cycleId,
+        created_at: nowIso()
+      });
+    }
   }
 
   private deriveValence(
@@ -2174,10 +2583,10 @@ export class AgentRuntime {
       }
     });
 
-    const { predictionErrors, calibrationRecord } = await this.recordObservation(
+    const { predictionErrors, calibrationRecord, createdReflectionRule } = await this.recordObservation(
       profile, session, input, cycle.cycleId, selectedAction, observation,
       observation.status === "failure" ? "failure" : "success",
-      cycle.predictions, execution, cycle.metaAssessment
+      cycle.predictions, execution, cycle.metaAssessment, cycle.metaSignalFrame
     );
 
     const sessionState = this.updateSessionState(session.session_id, "waiting").state;
@@ -2196,6 +2605,7 @@ export class AgentRuntime {
       observation,
       workspace: cycle.workspace,
       calibrationRecord,
+      createdReflectionRule,
       ...toMetaTraceFields(cycle),
       startedAt
     });
@@ -2480,11 +2890,15 @@ function deriveSqlitePersistenceFromStateStore(
   stateStore: RuntimeStateStore | undefined,
   memoryPersistence: AgentMemoryPersistence | undefined,
   checkpointStore: CheckpointStore | undefined,
-  calibrationStore?: CalibrationStore
+  calibrationStore?: CalibrationStore,
+  providerReliabilityStore?: MetaSignalProviderReliabilityStore,
+  reflectionStore?: ReflectionStore
 ): {
   memoryPersistence?: AgentMemoryPersistence;
   checkpointStore?: CheckpointStore;
   calibrationStore?: CalibrationStore;
+  providerReliabilityStore?: MetaSignalProviderReliabilityStore;
+  reflectionStore?: ReflectionStore;
 } {
   if (!(stateStore instanceof SqliteRuntimeStateStore)) {
     return {};
@@ -2494,12 +2908,31 @@ function deriveSqlitePersistenceFromStateStore(
   return {
     memoryPersistence: memoryPersistence ?? createSqliteMemoryPersistence({ filename }),
     checkpointStore: checkpointStore ?? new SqliteCheckpointStore({ filename }),
-    calibrationStore: calibrationStore ?? new SqliteCalibrationStore({ filename })
+    calibrationStore: calibrationStore ?? new SqliteCalibrationStore({ filename }),
+    providerReliabilityStore:
+      providerReliabilityStore ?? new SqliteProviderReliabilityStore({ filename }),
+    reflectionStore: reflectionStore ?? new SqliteReflectionStore({ filename })
   };
 }
 
 function isTerminalState(state: SessionState): boolean {
   return state === "completed" || state === "failed" || state === "aborted";
+}
+
+function worseProviderStatus(
+  left: import("@neurocore/protocol").MetaSignalProvenance["status"] | undefined,
+  right: import("@neurocore/protocol").MetaSignalProvenance["status"]
+) {
+  if (!left) {
+    return right;
+  }
+  const severity = {
+    ok: 0,
+    degraded: 1,
+    fallback: 2,
+    missing: 3
+  } as const;
+  return severity[right] > severity[left] ? right : left;
 }
 
 function selectAction(
@@ -2605,6 +3038,38 @@ function buildRuntimeActionExecution(
   };
 }
 
+function buildParallelToolObservation(
+  session: ReturnType<SessionManager["get"]> extends infer T ? NonNullable<T> : never,
+  cycleId: string,
+  primaryAction: CandidateAction,
+  outcomes: ToolActionExecutionOutcome[]
+): Observation {
+  const failureCount = outcomes.filter((outcome) => outcome.observation.status === "failure").length;
+  return {
+    observation_id: generateId("obs"),
+    session_id: session.session_id,
+    cycle_id: cycleId,
+    source_action_id: primaryAction.action_id,
+    source_type: "tool",
+    status:
+      failureCount === outcomes.length
+        ? "failure"
+        : "partial",
+    summary: `Parallel tool observations: ${outcomes
+      .map((outcome) => `${outcome.action.tool_name ?? outcome.action.title}: ${outcome.observation.summary}`)
+      .join(" | ")}`,
+    structured_payload: {
+      parallel_results: outcomes.map((outcome) => ({
+        action_id: outcome.action.action_id,
+        tool_name: outcome.action.tool_name,
+        status: outcome.observation.status,
+        summary: outcome.observation.summary
+      }))
+    },
+    created_at: nowIso()
+  };
+}
+
 function shouldContinue(step: AgentRunResult): boolean {
   if (step.sessionState !== "waiting" || !step.observation) {
     return false;
@@ -2642,11 +3107,13 @@ function observationToInput(
     input_id: `inp_${observation.observation_id}`,
     content: `${isDelegation ? "Delegation" : "Tool"} observation: ${observation.summary}`,
     created_at: observation.created_at,
+    content_parts: observation.content_parts ? structuredClone(observation.content_parts) : undefined,
     metadata: {
       sourceObservationId: observation.observation_id,
       sourceType: observation.source_type,
       sourceObservationStatus: observation.status,
       sourceActionType: actionType,
+      sourceObservationMimeType: observation.mime_type,
       sourceToolName:
         typeof delegationPayload?.tool_name === "string"
           ? delegationPayload.tool_name
@@ -2665,6 +3132,10 @@ function observationToInput(
       assigned_agent_id:
         typeof delegationPayload?.assigned_agent_id === "string"
           ? delegationPayload.assigned_agent_id
+          : undefined,
+      assigned_session_id:
+        typeof delegationPayload?.assigned_session_id === "string"
+          ? delegationPayload.assigned_session_id
           : undefined
     }
   };
@@ -2688,6 +3159,24 @@ function derivePendingInput(
   }
 
   return observationToInput(lastRecord.observation, lastActionType);
+}
+
+function toDelegationEventType(
+  status: string
+): "delegation.accepted" | "delegation.rejected" | "delegation.completed" | "delegation.failed" | "delegation.timeout" {
+  if (status === "accepted") {
+    return "delegation.accepted";
+  }
+  if (status === "rejected") {
+    return "delegation.rejected";
+  }
+  if (status === "timeout") {
+    return "delegation.timeout";
+  }
+  if (status === "completed") {
+    return "delegation.completed";
+  }
+  return "delegation.failed";
 }
 
 function derivePendingAskUserSchema(
@@ -2724,6 +3213,73 @@ function getMetadataNumber(
   return typeof value === "number" ? value : undefined;
 }
 
+function getCompletedActionIds(metadata: Record<string, unknown> | undefined): string[] {
+  const raw = metadata?.completed_action_ids;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+}
+
+function resolvePlannedActionSelection(
+  actions: CandidateAction[],
+  selectedAction: CandidateAction | undefined
+): CandidateAction | undefined {
+  if (!selectedAction) {
+    return undefined;
+  }
+
+  if (hasSatisfiedActionDependencies(selectedAction, [])) {
+    return selectedAction;
+  }
+
+  const sameGroupReady = actions.find((action) =>
+    action.plan_group_id &&
+    action.plan_group_id === selectedAction.plan_group_id &&
+    hasSatisfiedActionDependencies(action, [])
+  );
+  if (sameGroupReady) {
+    return sameGroupReady;
+  }
+
+  const firstReady = actions.find((action) => hasSatisfiedActionDependencies(action, []));
+  return firstReady ?? selectedAction;
+}
+
+function resolveFailureFallbackAction(
+  actions: CandidateAction[],
+  selectedAction: CandidateAction,
+  completedActionIds: string[]
+): CandidateAction | undefined {
+  const nextActionId =
+    typeof selectedAction.next_action_id_on_failure === "string" &&
+    selectedAction.next_action_id_on_failure.trim().length > 0
+      ? selectedAction.next_action_id_on_failure
+      : undefined;
+  if (!nextActionId) {
+    return undefined;
+  }
+
+  const fallback = actions.find((action) => action.action_id === nextActionId);
+  if (!fallback) {
+    return undefined;
+  }
+
+  return hasSatisfiedActionDependencies(fallback, completedActionIds) ? fallback : undefined;
+}
+
+function hasSatisfiedActionDependencies(
+  action: CandidateAction,
+  completedActionIds: string[]
+): boolean {
+  const dependencies = Array.isArray(action.depends_on_action_ids) ? action.depends_on_action_ids : [];
+  if (dependencies.length === 0) {
+    return true;
+  }
+  const completed = new Set(completedActionIds);
+  return dependencies.every((dependencyId) => completed.has(dependencyId));
+}
+
 function buildMemoryContext(
   profile: AgentProfile,
   session: NonNullable<ReturnType<SessionManager["get"]>>,
@@ -2738,6 +3294,7 @@ function buildMemoryContext(
     goals,
     runtime_state: {
       current_input_content: input.content,
+      current_input_parts: input.content_parts ?? [],
       current_input_metadata: input.metadata ?? null,
       current_input_structured_response: input.structured_response ?? null,
       ...buildConversationRuntimeState(traceRecords, profile, input.content)
@@ -2762,6 +3319,7 @@ function buildConversationRuntimeState(
   const trimmed = trimConversationHistory(history, historyBudgetTokens);
   return {
     conversation_history: trimmed.messages,
+    conversation_summary: trimmed.summary,
     conversation_history_tokens: trimmed.tokens,
     conversation_history_truncated: trimmed.truncated,
     conversation_current_input_tokens: new DefaultTokenEstimator().estimate(currentInputContent)
@@ -2936,7 +3494,7 @@ function flattenConversationHistory(traceRecords: CycleTraceRecord[]): Conversat
 function trimConversationHistory(
   history: ConversationMessage[],
   maxTokens: number
-): { messages: ConversationMessage[]; tokens: number; truncated: boolean } {
+): { messages: ConversationMessage[]; summary?: string; tokens: number; truncated: boolean } {
   const estimator = new DefaultTokenEstimator();
   let totalTokens = 0;
   const selected: ConversationMessage[] = [];
@@ -2961,9 +3519,24 @@ function trimConversationHistory(
 
   return {
     messages: selected,
+    summary: truncated ? summarizeConversationHistory(history.slice(0, Math.max(0, history.length - selected.length))) : undefined,
     tokens: totalTokens,
     truncated
   };
+}
+
+function summarizeConversationHistory(history: ConversationMessage[]): string | undefined {
+  if (history.length === 0) {
+    return undefined;
+  }
+
+  const recent = history.slice(-6).map((message) => {
+    const role = message.role === "assistant" ? "assistant" : message.role === "system" ? "system" : "user";
+    const content = message.content.trim().replace(/\s+/g, " ");
+    return `${role}: ${content.slice(0, 120)}`;
+  });
+
+  return `Earlier conversation summary (${history.length} messages): ${recent.join(" | ")}`;
 }
 
 function deriveWorkingMemoryMaxEntries(profile: AgentProfile): number {
@@ -3105,7 +3678,7 @@ function toMetaTraceFields(
     | ExecutionCycleState
     | Pick<
         Awaited<ReturnType<CycleEngine["run"]>>,
-        "metaSignalFrame" | "fastMetaAssessment" | "metaAssessment" | "selfEvaluationReport" | "metaDecisionV2"
+        "metaSignalFrame" | "fastMetaAssessment" | "metaAssessment" | "selfEvaluationReport" | "metaDecisionV2" | "appliedReflectionRule"
       >
 ): {
   metaSignalFrame?: import("@neurocore/protocol").MetaSignalFrame;
@@ -3113,14 +3686,32 @@ function toMetaTraceFields(
   metaAssessment?: import("@neurocore/protocol").MetaAssessment;
   metaDecisionV2?: import("@neurocore/protocol").MetaDecisionV2;
   selfEvaluationReport?: import("@neurocore/protocol").SelfEvaluationReport;
+  appliedReflectionRule?: ReflectionRule;
 } {
   return {
     metaSignalFrame: structuredClone(cycle.metaSignalFrame),
     fastMetaAssessment: structuredClone(cycle.fastMetaAssessment),
     metaAssessment: structuredClone(cycle.metaAssessment),
     metaDecisionV2: structuredClone(cycle.metaDecisionV2),
-    selfEvaluationReport: structuredClone(cycle.selfEvaluationReport)
+    selfEvaluationReport: structuredClone(cycle.selfEvaluationReport),
+    appliedReflectionRule: structuredClone(cycle.appliedReflectionRule)
   };
+}
+
+function inferReflectionRiskLevel(
+  metaAssessment: import("@neurocore/protocol").MetaAssessment,
+  action: CandidateAction
+): string | undefined {
+  if (metaAssessment.meta_state === "high-risk" || action.side_effect_level === "high") {
+    return "high";
+  }
+  if (metaAssessment.meta_state === "simulation-unreliable" || action.side_effect_level === "medium") {
+    return "medium";
+  }
+  if (metaAssessment.meta_state === "routine-safe" || action.side_effect_level === "low") {
+    return "low";
+  }
+  return undefined;
 }
 
 function toPendingApprovalSnapshot(pending: PendingApprovalContext): PendingApprovalContextSnapshot {

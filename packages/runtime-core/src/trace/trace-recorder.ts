@@ -13,6 +13,7 @@ import type {
   Prediction,
   PredictionError,
   Proposal,
+  ReflectionRule,
   SelfEvaluationReport,
   TraceStore,
   UserInput,
@@ -42,6 +43,8 @@ export interface RecordTraceInput {
   metaDecisionV2?: MetaDecisionV2;
   selfEvaluationReport?: SelfEvaluationReport;
   calibrationRecord?: CalibrationRecord;
+  appliedReflectionRule?: ReflectionRule;
+  createdReflectionRule?: ReflectionRule;
   startedAt: string;
   endedAt?: string;
 }
@@ -89,7 +92,9 @@ export class TraceRecorder {
       meta_assessment: input.metaAssessment,
       meta_decision_v2: input.metaDecisionV2,
       self_evaluation_report: input.selfEvaluationReport,
-      calibration_record: input.calibrationRecord
+      calibration_record: input.calibrationRecord,
+      applied_reflection_rule: input.appliedReflectionRule,
+      created_reflection_rule: input.createdReflectionRule
     };
 
     this.traceStore.append(record);

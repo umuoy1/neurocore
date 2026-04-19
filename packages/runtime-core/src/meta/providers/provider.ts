@@ -5,6 +5,7 @@ import type {
   Goal,
   GovernanceMetaSignals,
   MetaSignalProvenance,
+  MetaSignalProviderReliabilityStore,
   ModuleContext,
   PolicyDecision,
   Prediction,
@@ -30,6 +31,7 @@ export interface MetaSignalInput {
   policies: PolicyDecision[];
   predictionErrorRate?: number;
   goals: Goal[];
+  providerReliabilityStore?: MetaSignalProviderReliabilityStore;
 }
 
 export interface MetaSignalProviderResult<TSignals> {

@@ -35,6 +35,10 @@ interface ActionJson {
   tool_args?: Record<string, unknown>;
   expected_outcome?: string;
   preconditions?: string[];
+  depends_on_action_ids?: string[];
+  next_action_id_on_success?: string;
+  next_action_id_on_failure?: string;
+  plan_group_id?: string;
   side_effect_level?: CandidateAction["side_effect_level"];
 }
 
@@ -218,6 +222,10 @@ export class OpenAICompatibleReasoner implements Reasoner {
           tool_args: action.tool_args,
           expected_outcome: action.expected_outcome,
           preconditions: action.preconditions,
+          depends_on_action_ids: action.depends_on_action_ids,
+          next_action_id_on_success: action.next_action_id_on_success,
+          next_action_id_on_failure: action.next_action_id_on_failure,
+          plan_group_id: action.plan_group_id,
           side_effect_level:
             toolSideEffectLevel ?? action.side_effect_level ?? inferSideEffectLevel(action)
         };
@@ -684,7 +692,22 @@ function normalizeAction(
   return {
     ...action,
     action_type: actionType,
-    tool_name: toolName
+    tool_name: toolName,
+    depends_on_action_ids: Array.isArray(action.depends_on_action_ids)
+      ? action.depends_on_action_ids.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      : undefined,
+    next_action_id_on_success:
+      typeof action.next_action_id_on_success === "string" && action.next_action_id_on_success.trim().length > 0
+        ? action.next_action_id_on_success
+        : undefined,
+    next_action_id_on_failure:
+      typeof action.next_action_id_on_failure === "string" && action.next_action_id_on_failure.trim().length > 0
+        ? action.next_action_id_on_failure
+        : undefined,
+    plan_group_id:
+      typeof action.plan_group_id === "string" && action.plan_group_id.trim().length > 0
+        ? action.plan_group_id
+        : undefined
   };
 }
 
@@ -703,12 +726,13 @@ function buildRespondSystemPrompt(): string {
   return [
     "Structured agent runtime action selector.",
     "Return JSON only.",
-    'Shape: {"actions":[{"action_type":"ask_user|respond|call_tool|complete|abort","title":"...","description":"...","tool_name":"...","tool_args":{},"expected_outcome":"...","preconditions":["..."],"side_effect_level":"none|low|medium|high"}]}',
+    'Shape: {"actions":[{"action_type":"ask_user|respond|call_tool|complete|abort","title":"...","description":"...","tool_name":"...","tool_args":{},"expected_outcome":"...","preconditions":["..."],"depends_on_action_ids":["act-1"],"next_action_id_on_success":"act-2","next_action_id_on_failure":"act-3","plan_group_id":"plan-a","side_effect_level":"none|low|medium|high"}]}',
     "Use at most 2 actions.",
     "Only use tool names provided in the tool catalog.",
     "Use recalled memory and previous tool observations to decide the next step.",
     "If prior evidence is insufficient, call the next necessary tool. If evidence is sufficient, respond or complete.",
     "For destructive or production-impacting tools, preserve a high side_effect_level and include preconditions.",
+    "When a task has a deterministic continuation or fallback, connect actions with depends_on_action_ids and next_action_id_on_success or next_action_id_on_failure.",
     "For respond or complete actions, put the exact user-facing answer in description. Do not write meta-instructions like 'provide diagnosis' or 'summarize result'.",
     "Keep each action compact enough to fit in a single JSON response without truncation.",
     "Prefer concise outputs."
@@ -755,12 +779,19 @@ function buildRespondUserPrompt(ctx: ModuleContext): string {
       tools: getToolCatalog(ctx),
       memoryRecall,
       conversationHistory,
+      conversationSummary:
+        typeof ctx.runtime_state.conversation_summary === "string"
+          ? ctx.runtime_state.conversation_summary
+          : null,
       conversationHistoryTokens: ctx.runtime_state.conversation_history_tokens ?? null,
       conversationHistoryTruncated: ctx.runtime_state.conversation_history_truncated ?? false,
       context: typeof ctx.runtime_state.current_input_content === "string"
         ? ctx.runtime_state.current_input_content
         : ctx.workspace?.context_summary ?? null,
       inputMetadata: ctx.runtime_state.current_input_metadata ?? null,
+      inputContentParts: Array.isArray(ctx.runtime_state.current_input_parts)
+        ? ctx.runtime_state.current_input_parts
+        : [],
       structuredResponse: ctx.runtime_state.current_input_structured_response ?? null,
       workspace: ctx.workspace
         ? {
@@ -794,6 +825,10 @@ function buildTextStreamUserPrompt(ctx: ModuleContext, action: CandidateAction):
       conversationHistory: Array.isArray(ctx.runtime_state.conversation_history)
         ? ctx.runtime_state.conversation_history
         : [],
+      conversationSummary:
+        typeof ctx.runtime_state.conversation_summary === "string"
+          ? ctx.runtime_state.conversation_summary
+          : null,
       conversationHistoryTokens: ctx.runtime_state.conversation_history_tokens ?? null,
       conversationHistoryTruncated: ctx.runtime_state.conversation_history_truncated ?? false,
       context:
@@ -801,6 +836,9 @@ function buildTextStreamUserPrompt(ctx: ModuleContext, action: CandidateAction):
           ? ctx.runtime_state.current_input_content
           : ctx.workspace?.context_summary ?? null,
       inputMetadata: ctx.runtime_state.current_input_metadata ?? null,
+      inputContentParts: Array.isArray(ctx.runtime_state.current_input_parts)
+        ? ctx.runtime_state.current_input_parts
+        : [],
       structuredResponse: ctx.runtime_state.current_input_structured_response ?? null,
       selectedAction: {
         action_type: action.action_type,

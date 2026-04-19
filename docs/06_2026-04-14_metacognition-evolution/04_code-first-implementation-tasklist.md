@@ -25,7 +25,8 @@
 > - 2026-04-15 Phase 3 代码状态：`DeepEvaluator` 已切为 `Verifier SPI` 编排层，默认 `logic / evidence / tool / safety / process` verifiers 与可选 `CounterfactualSimulator SPI` 已进入主链，支持并发执行、部分失败降级与 budget-aware 选择
 > - 2026-04-16 Phase 4 代码状态：`MetaSignalBus` 已完成 family-provider 第一版，`task / evidence / reasoning / prediction / action / governance` 六类 `Heuristic*Provider`、provider registry、family merge rules、degraded/fallback provenance 与关键缺失值保守化已进入主链；provider 失败时总线仍可产出 frame，缺失 prediction family 时下游不会继续判成 `routine-safe`
 > - 2026-04-16 Phase 5 第一批代码状态：本地 `MetaBenchmarkBundle`、summary formatter、summary diff、benchmark artifacts builder、`.neurocore/benchmarks/meta/` 持久化 runner 与独立 `meta-stack` CI lane/benchmark artifact 已进入代码库
-> - 后续批次：online meta eval、trend-level 历史分析、`ReflectionLearner`
+> - 2026-04-19 代码状态补充：provider-level calibration profiles、`MetaSignalProviderReliabilityStore`（内存/SQLite）、`MetaSignalBus.provider_profiles`、provider reliability penalty，以及 `DeepEvaluator` 的 per-verifier budgets / fail-open-fail-closed isolation 已进入代码库
+> - 2026-04-20 代码状态补充：`ReflectionLearner`、`InMemoryReflectionStore / SqliteReflectionStore`、trace 中的 `applied_reflection_rule / created_reflection_rule`、`meta-online-eval.ts`、coverage-vs-accuracy / risk-conditioned curves、`examples/demo-meta-online-eval.mjs` 与 recurrence regression suite 已进入代码库；后续只保留 trend-level 历史分析与长期策略演进
 
 ---
 
@@ -567,7 +568,7 @@ node --test tests/memory-provider-config.test.mjs tests/skill-system.test.mjs
 4. online meta eval pipeline
 5. 最后再进入 `ReflectionLearner`
 
-其中前 1~3 项已完成，当前严格进入第 4 项。
+其中前 1~5 项现已全部完成，当前阶段正式收口。
 
 不要跳回去重做：
 

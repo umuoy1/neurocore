@@ -5,6 +5,8 @@ import type {
   GovernanceMetaSignals,
   MetaSignalFrame,
   MetaSignalProvenance,
+  MetaSignalProviderProfile,
+  MetaSignalProviderReliabilityStore,
   ModuleContext,
   PolicyDecision,
   Prediction,
@@ -17,7 +19,13 @@ import { HeuristicActionSignalProvider } from "./providers/action-provider.js";
 import { HeuristicEvidenceSignalProvider } from "./providers/evidence-provider.js";
 import { HeuristicGovernanceSignalProvider } from "./providers/governance-provider.js";
 import { HeuristicPredictionSignalProvider } from "./providers/prediction-provider.js";
-import { type MetaSignalFamily, type MetaSignalInput, type MetaSignalProvider, provenance } from "./providers/provider.js";
+import {
+  clamp01,
+  type MetaSignalFamily,
+  type MetaSignalInput,
+  type MetaSignalProvider,
+  provenance
+} from "./providers/provider.js";
 import { HeuristicReasoningSignalProvider } from "./providers/reasoning-provider.js";
 import { HeuristicTaskSignalProvider } from "./providers/task-provider.js";
 
@@ -29,6 +37,7 @@ interface CollectInput {
   policies: PolicyDecision[];
   predictionErrorRate?: number;
   goals: Goal[];
+  providerReliabilityStore?: MetaSignalProviderReliabilityStore;
 }
 
 export interface MetaSignalBusOptions {
@@ -71,6 +80,14 @@ export class MetaSignalBus {
     const prediction = this.collectFamily("prediction", metaInput, timestamp, fallbackPredictionSignals(metaInput, timestamp));
     const action = this.collectFamily("action", metaInput, timestamp, fallbackActionSignals(metaInput, timestamp));
     const governance = this.collectFamily("governance", metaInput, timestamp, fallbackGovernanceSignals(metaInput, timestamp));
+    const providerProfiles = [
+      ...task.providerProfiles,
+      ...evidence.providerProfiles,
+      ...reasoning.providerProfiles,
+      ...prediction.providerProfiles,
+      ...action.providerProfiles,
+      ...governance.providerProfiles
+    ];
 
     return {
       frame_id: input.ctx.services.generateId("msf"),
@@ -83,6 +100,7 @@ export class MetaSignalBus {
       prediction_signals: prediction.signals,
       action_signals: action.signals,
       governance_signals: governance.signals,
+      provider_profiles: providerProfiles,
       provenance: [
         ...task.provenance,
         ...evidence.provenance,
@@ -100,15 +118,21 @@ export class MetaSignalBus {
     input: MetaSignalInput,
     timestamp: string,
     fallback: { signals: TSignals; provenance: MetaSignalProvenance[] }
-  ): { signals: TSignals; provenance: MetaSignalProvenance[] } {
+  ): { signals: TSignals; provenance: MetaSignalProvenance[]; providerProfiles: MetaSignalProviderProfile[] } {
     const providers = this.providers[family] as Array<MetaSignalProvider<TSignals>>;
     if (providers.length === 0) {
-      return fallback;
+      return {
+        signals: fallback.signals,
+        provenance: fallback.provenance,
+        providerProfiles: []
+      };
     }
 
     const successful = [];
     const degradedProvenance: MetaSignalProvenance[] = [];
+    const providerProfiles: MetaSignalProviderProfile[] = [];
     for (const provider of providers) {
+      providerProfiles.push(getProviderProfile(input.providerReliabilityStore, provider.name, family));
       try {
         successful.push(provider.collect(input));
       } catch (error) {
@@ -125,7 +149,8 @@ export class MetaSignalBus {
     if (successful.length === 0) {
       return {
         signals: fallback.signals,
-        provenance: [...degradedProvenance, ...fallback.provenance]
+        provenance: [...degradedProvenance, ...fallback.provenance],
+        providerProfiles
       };
     }
 
@@ -133,10 +158,12 @@ export class MetaSignalBus {
       .map((result) => result.signals)
       .reduce((current, next) => mergeFamilySignals(family, current, next) as TSignals);
     const provenanceRows = successful.flatMap((result) => result.provenance ?? []);
+    const penalizedSignals = applyProviderReliabilityPenalty(family, merged, providerProfiles) as TSignals;
 
     return {
-      signals: merged,
-      provenance: [...provenanceRows, ...degradedProvenance]
+      signals: penalizedSignals,
+      provenance: [...provenanceRows, ...degradedProvenance],
+      providerProfiles
     };
   }
 }
@@ -226,6 +253,76 @@ function mergeFamilySignals(family: MetaSignalFamily, left: any, right: any) {
         remaining_recovery_options: Math.min(left.remaining_recovery_options, right.remaining_recovery_options),
         need_for_human_accountability: Math.max(left.need_for_human_accountability, right.need_for_human_accountability)
       };
+  }
+}
+
+function getProviderProfile(
+  store: MetaSignalProviderReliabilityStore | undefined,
+  provider: string,
+  family: MetaSignalFamily
+) {
+  return store?.getProfile({ provider, family }) ?? {
+    provider,
+    family,
+    sample_count: 0,
+    success_rate: 0.5,
+    availability_rate: 0.5,
+    degraded_rate: 0,
+    fallback_rate: 0,
+    reliability_score: 0.5,
+    confidence_score: 0.35
+  };
+}
+
+function applyProviderReliabilityPenalty(family: MetaSignalFamily, signals: any, profiles: MetaSignalProviderProfile[]) {
+  if (profiles.length === 0) {
+    return signals;
+  }
+
+  const reliabilityFloor = Math.min(...profiles.map((profile) => profile.reliability_score));
+  const confidenceFloor = Math.min(...profiles.map((profile) => profile.confidence_score));
+  const penalty = clamp01((1 - reliabilityFloor) * 0.15 + (1 - confidenceFloor) * 0.05);
+  if (penalty <= 0) {
+    return signals;
+  }
+
+  switch (family) {
+    case "evidence":
+      return {
+        ...signals,
+        source_reliability_prior: clamp01(signals.source_reliability_prior - penalty),
+        evidence_agreement_score: clamp01(signals.evidence_agreement_score - penalty * 0.6)
+      };
+    case "reasoning":
+      return {
+        ...signals,
+        step_consistency: clamp01(signals.step_consistency - penalty * 0.8),
+        self_consistency_margin: clamp01(signals.self_consistency_margin - penalty),
+        contradiction_score: clamp01(signals.contradiction_score + penalty * 0.4)
+      };
+    case "prediction":
+      return {
+        ...signals,
+        predictor_bucket_reliability: clamp01(Math.min(signals.predictor_bucket_reliability, reliabilityFloor)),
+        world_model_mismatch_score: clamp01(signals.world_model_mismatch_score + penalty * 0.5),
+        uncertainty_decomposition: {
+          ...signals.uncertainty_decomposition,
+          calibration_gap: clamp01(signals.uncertainty_decomposition.calibration_gap + penalty)
+        }
+      };
+    case "action":
+      return {
+        ...signals,
+        schema_confidence: clamp01(signals.schema_confidence - penalty),
+        tool_precondition_completeness: clamp01(signals.tool_precondition_completeness - penalty * 0.6)
+      };
+    case "governance":
+      return {
+        ...signals,
+        remaining_recovery_options: clamp01(signals.remaining_recovery_options - penalty * 0.5)
+      };
+    default:
+      return signals;
   }
 }
 

@@ -102,6 +102,13 @@ export interface RuntimeConfig {
   default_sync_timeout_ms?: number;
   reasoner_timeout_ms?: number;
   module_provider_timeout_ms?: number;
+  meta_verifier_total_budget_ms?: number;
+  meta_verifier_logic_budget_ms?: number;
+  meta_verifier_evidence_budget_ms?: number;
+  meta_verifier_tool_budget_ms?: number;
+  meta_verifier_safety_budget_ms?: number;
+  meta_verifier_process_budget_ms?: number;
+  meta_fail_closed_verifier_modes?: VerifierMode[];
   session_ttl_ms?: number;
   session_idle_ttl_ms?: number;
   max_in_memory_sessions?: number;
@@ -411,6 +418,7 @@ export interface PredictionMetaSignals {
   predictor_error_rate: number;
   predictor_bucket_reliability: number;
   predictor_calibration_bucket: string;
+  predictor_profiles?: PredictorCalibrationProfile[];
   world_model_mismatch_score: number;
 }
 
@@ -439,6 +447,31 @@ export interface MetaSignalProvenance {
   note?: string;
 }
 
+export interface MetaSignalProviderProfile {
+  provider: string;
+  family: string;
+  sample_count: number;
+  success_rate: number;
+  availability_rate: number;
+  degraded_rate: number;
+  fallback_rate: number;
+  reliability_score: number;
+  confidence_score: number;
+  last_updated_at?: Timestamp;
+}
+
+export interface PredictorCalibrationProfile {
+  predictor_id: string;
+  task_bucket: string;
+  risk_level?: string;
+  sample_count: number;
+  success_rate: number;
+  average_confidence_gap: number;
+  bucket_reliability: number;
+  effective_weight: number;
+  last_updated_at?: Timestamp;
+}
+
 export interface MetaSignalFrame {
   frame_id: string;
   session_id: string;
@@ -450,6 +483,7 @@ export interface MetaSignalFrame {
   prediction_signals: PredictionMetaSignals;
   action_signals: ActionMetaSignals;
   governance_signals: GovernanceMetaSignals;
+  provider_profiles?: MetaSignalProviderProfile[];
   provenance?: MetaSignalProvenance[];
   created_at: Timestamp;
 }
@@ -528,6 +562,8 @@ export interface VerifierRunRecord {
   verdict?: VerificationVerdict;
   summary?: string;
   elapsed_ms?: number;
+  budget_ms?: number;
+  isolation_policy?: "fail-open" | "fail-closed";
   error?: string;
   metadata?: Record<string, unknown>;
   issues?: VerificationIssue[];
@@ -574,6 +610,8 @@ export interface MetaAssessment {
   recommended_candidate_action_id?: string;
   verification_trace?: VerificationTrace;
   deep_evaluation_used?: boolean;
+  reflection_rule?: ReflectionRule;
+  reflection_applied?: boolean;
   rationale: string;
   created_at: Timestamp;
 }
@@ -628,6 +666,17 @@ export interface CalibrationRecord {
   created_at: Timestamp;
 }
 
+export interface MetaSignalProviderReliabilityRecord {
+  record_id: string;
+  provider: string;
+  family: string;
+  provider_status: MetaSignalProvenance["status"];
+  observed_success: boolean;
+  session_id?: string;
+  cycle_id?: string;
+  created_at: Timestamp;
+}
+
 export interface MetaDecisionV2 {
   decision_id: string;
   session_id: string;
@@ -648,10 +697,17 @@ export interface MetaDecisionV2 {
 export interface ReflectionRule {
   rule_id: string;
   pattern: string;
+  task_bucket?: string;
+  risk_level?: string;
   trigger_conditions: string[];
+  failure_modes?: FailureMode[];
   recommended_control_action: MetaControlAction;
   strength: number;
   evidence_count: number;
+  session_id?: string;
+  cycle_id?: string;
+  created_at?: Timestamp;
+  updated_at?: Timestamp;
 }
 
 export interface BudgetAssessment {
@@ -703,6 +759,30 @@ export interface AskUserPromptSchema {
   fields?: AskUserField[];
 }
 
+export interface TextContentPart {
+  type: "text";
+  text: string;
+  mime_type?: "text/plain";
+}
+
+export interface ImageContentPart {
+  type: "image";
+  mime_type: string;
+  url?: string;
+  file_name?: string;
+  alt_text?: string;
+}
+
+export interface FileContentPart {
+  type: "file";
+  mime_type: string;
+  file_name?: string;
+  url?: string;
+  text_excerpt?: string;
+}
+
+export type ContentPart = TextContentPart | ImageContentPart | FileContentPart;
+
 export interface CandidateAction {
   action_id: string;
   action_type: ActionType;
@@ -713,10 +793,32 @@ export interface CandidateAction {
   tool_args?: Record<string, unknown>;
   expected_outcome?: string;
   preconditions?: string[];
+  depends_on_action_ids?: string[];
+  next_action_id_on_success?: string;
+  next_action_id_on_failure?: string;
+  plan_group_id?: string;
   side_effect_level?: SideEffectLevel;
   idempotency_key?: string;
   rollback_hint?: string;
   source_proposal_id?: string;
+}
+
+export interface PlanNode {
+  action_id: string;
+  action_type: ActionType;
+  title: string;
+  depends_on_action_ids?: string[];
+  next_action_id_on_success?: string;
+  next_action_id_on_failure?: string;
+  plan_group_id?: string;
+}
+
+export interface PlanGraph {
+  groups: Array<{
+    plan_group_id: string;
+    node_ids: string[];
+  }>;
+  nodes: PlanNode[];
 }
 
 export type ProposalSource = "reasoner" | "memory" | "skill";
@@ -757,6 +859,7 @@ export interface WorkspaceSnapshot {
   skill_digest: SkillDigest[];
   world_state_digest?: WorldStateDigest;
   candidate_actions: CandidateAction[];
+  plan_graph?: PlanGraph;
   selected_proposal_id?: string;
   risk_assessment?: RiskAssessment;
   confidence_assessment?: ConfidenceAssessment;
@@ -853,6 +956,8 @@ export interface Observation {
   summary: string;
   raw_ref?: string;
   structured_payload?: Record<string, unknown>;
+  mime_type?: string;
+  content_parts?: ContentPart[];
   side_effects?: string[];
   confidence?: number;
   created_at: Timestamp;
@@ -965,6 +1070,7 @@ export interface UserInput {
   input_id: string;
   content: string;
   created_at: Timestamp;
+  content_parts?: ContentPart[];
   structured_response?: JsonValue;
   metadata?: Record<string, unknown>;
 }
@@ -973,6 +1079,7 @@ export interface SystemInput {
   input_id: string;
   content: string;
   created_at: Timestamp;
+  content_parts?: ContentPart[];
   structured_response?: JsonValue;
   metadata?: Record<string, unknown>;
 }
@@ -1047,6 +1154,8 @@ export interface CycleTraceRecord {
   meta_decision_v2?: MetaDecisionV2;
   self_evaluation_report?: SelfEvaluationReport;
   calibration_record?: CalibrationRecord;
+  applied_reflection_rule?: ReflectionRule;
+  created_reflection_rule?: ReflectionRule;
 }
 
 export interface SessionReplay {

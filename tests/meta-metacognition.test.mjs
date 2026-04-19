@@ -12,7 +12,10 @@ import {
   DefaultMetaController,
   FastMonitor,
   InMemoryCalibrationStore,
+  InMemoryReflectionStore,
+  InMemoryProviderReliabilityStore,
   MetaSignalBus,
+  ReflectionLearner,
   SqliteRuntimeStateStore
 } from "@neurocore/runtime-core";
 
@@ -347,6 +350,39 @@ test("MetaSignalBus missing prediction family forces conservative downstream sta
 
   assert.ok(frame.provenance.some((row) => row.family === "prediction" && row.status === "missing"));
   assert.notEqual(assessment.meta_state, "routine-safe");
+});
+
+test("MetaSignalBus surfaces provider reliability profiles and penalizes weak providers", () => {
+  const reliabilityStore = new InMemoryProviderReliabilityStore();
+  for (let index = 0; index < 6; index += 1) {
+    reliabilityStore.append({
+      record_id: gid("mpr"),
+      provider: "heuristic-evidence-provider",
+      family: "evidence",
+      provider_status: index < 4 ? "fallback" : "degraded",
+      observed_success: false,
+      session_id: "ses_meta",
+      cycle_id: `cyc_${index}`,
+      created_at: ts()
+    });
+  }
+
+  const frame = new MetaSignalBus().collect({
+    ctx: makeCtx(),
+    workspace: makeWorkspace(),
+    actions: [],
+    predictions: [],
+    policies: [],
+    goals: makeCtx().goals,
+    providerReliabilityStore: reliabilityStore
+  });
+
+  const evidenceProfile = frame.provider_profiles?.find(
+    (profile) => profile.provider === "heuristic-evidence-provider"
+  );
+  assert.ok(evidenceProfile);
+  assert.ok(evidenceProfile.reliability_score < 0.45);
+  assert.ok(frame.evidence_signals.source_reliability_prior < 0.35);
 });
 
 test("FastMonitor emits evidence-insufficient for low evidence coverage", () => {
@@ -822,6 +858,124 @@ test("DeepEvaluator survives verifier failure and returns partial verification t
   assert.ok(assessment.verification_trace?.evidence_gaps?.some((row) => row.key === "missing_web"));
 });
 
+test("DeepEvaluator enforces per-verifier budgets and fail-closed isolation on high-risk safety checks", async () => {
+  const ctx = makeCtx();
+  ctx.profile.runtime_config.meta_verifier_total_budget_ms = 4;
+  ctx.profile.runtime_config.meta_verifier_safety_budget_ms = 1;
+  ctx.profile.runtime_config.meta_fail_closed_verifier_modes = ["safety"];
+  const evaluator = new DeepEvaluator({
+    verifiers: [
+      {
+        name: "slow-safety",
+        mode: "safety",
+        timeoutMs: 50,
+        async verify() {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return {
+            verifier: "slow-safety",
+            mode: "safety",
+            verdict: "pass",
+            summary: "safe"
+          };
+        }
+      },
+      {
+        name: "logic-budget",
+        mode: "logic",
+        timeoutMs: 50,
+        async verify() {
+          return {
+            verifier: "logic-budget",
+            mode: "logic",
+            verdict: "pass",
+            summary: "logic ok"
+          };
+        }
+      },
+      {
+        name: "tool-budget",
+        mode: "tool",
+        timeoutMs: 50,
+        async verify() {
+          return {
+            verifier: "tool-budget",
+            mode: "tool",
+            verdict: "pass",
+            summary: "tool ok"
+          };
+        }
+      }
+    ],
+    simulator: null
+  });
+
+  const assessment = await evaluator.evaluate({
+    ctx,
+    workspace: makeWorkspace(),
+    frame: {
+      ...new MetaSignalBus().collect({
+        ctx,
+        workspace: makeWorkspace(),
+        actions: [{
+          action_id: "act_tool",
+          action_type: "call_tool",
+          title: "Delete resource",
+          tool_name: "dangerous_tool",
+          side_effect_level: "high"
+        }],
+        predictions: [],
+        policies: [],
+        goals: ctx.goals
+      }),
+      action_signals: {
+        tool_precondition_completeness: 0.8,
+        schema_confidence: 0.8,
+        side_effect_severity: 0.9,
+        reversibility_score: 0.2,
+        observability_after_action: 0.8,
+        fallback_availability: 0.3
+      },
+      governance_signals: {
+        policy_warning_density: 0,
+        budget_pressure: 0.1,
+        remaining_recovery_options: 0.3,
+        need_for_human_accountability: 0.9
+      }
+    },
+    fastAssessment: {
+      assessment_id: "fast_budgeted",
+      session_id: "ses_meta",
+      cycle_id: "cyc_1",
+      meta_state: "high-risk",
+      provisional_confidence: 0.5,
+      trigger_tags: ["risk_high"],
+      trigger_deep_eval: true,
+      recommended_control_actions: ["execute-with-approval"],
+      rationale: "high risk",
+      created_at: ts()
+    },
+    actions: [{
+      action_id: "act_tool",
+      action_type: "call_tool",
+      title: "Delete resource",
+      tool_name: "dangerous_tool",
+      side_effect_level: "high"
+    }],
+    predictions: [],
+    policies: []
+  });
+
+  const safetyRun = assessment.verification_trace?.verifier_runs.find((row) => row.verifier === "slow-safety");
+  const toolRun = assessment.verification_trace?.verifier_runs.find((row) => row.verifier === "tool-budget");
+  assert.ok(safetyRun);
+  assert.equal(safetyRun.status, "timeout");
+  assert.equal(safetyRun.isolation_policy, "fail-closed");
+  assert.equal(safetyRun.budget_ms, 1);
+  assert.ok(toolRun);
+  assert.equal(toolRun.status, "skipped");
+  assert.equal(assessment.verification_trace?.final_verdict, "fail");
+});
+
 test("ControlAllocator is the single control source for evidence-insufficient path", async () => {
   const allocator = new DefaultControlAllocator();
   const fastAssessment = {
@@ -1115,6 +1269,99 @@ test("Calibrator makes repeated failed buckets more conservative", () => {
   assert.ok(calibrated < 0.5);
 });
 
+test("Calibrator exposes predictor-level calibration profiles", () => {
+  const store = new InMemoryCalibrationStore();
+  const calibrator = new Calibrator(store);
+  const action = {
+    action_id: "act_tool",
+    action_type: "call_tool",
+    title: "Mutate external system",
+    tool_name: "dangerous_tool",
+    side_effect_level: "high"
+  };
+  const predictions = [
+    {
+      prediction_id: gid("prd"),
+      session_id: "ses_meta",
+      cycle_id: "cyc_1",
+      action_id: action.action_id,
+      predictor_name: "rule-a",
+      expected_outcome: "success",
+      success_probability: 0.9,
+      uncertainty: 0.2,
+      created_at: ts()
+    },
+    {
+      prediction_id: gid("prd"),
+      session_id: "ses_meta",
+      cycle_id: "cyc_1",
+      action_id: action.action_id,
+      predictor_name: "rule-b",
+      expected_outcome: "success",
+      success_probability: 0.6,
+      uncertainty: 0.45,
+      created_at: ts()
+    }
+  ];
+
+  const ruleA = calibrator.query({
+    profile: makeProfile(),
+    input: makeInput(),
+    action,
+    predictions,
+    metaState: "high-risk",
+    predictorId: "rule-a"
+  });
+  const ruleB = calibrator.query({
+    profile: makeProfile(),
+    input: makeInput(),
+    action,
+    predictions,
+    metaState: "high-risk",
+    predictorId: "rule-b"
+  });
+
+  for (let index = 0; index < 4; index += 1) {
+    store.append({
+      record_id: gid("cal"),
+      task_bucket: ruleA.descriptor.taskBucket,
+      predicted_confidence: 0.85,
+      calibrated_confidence: 0.78,
+      observed_success: true,
+      risk_level: "high",
+      predictor_id: "rule-a",
+      deep_eval_used: true,
+      created_at: ts()
+    });
+    store.append({
+      record_id: gid("cal"),
+      task_bucket: ruleB.descriptor.taskBucket,
+      predicted_confidence: 0.82,
+      calibrated_confidence: 0.28,
+      observed_success: false,
+      risk_level: "high",
+      predictor_id: "rule-b",
+      deep_eval_used: true,
+      created_at: ts()
+    });
+  }
+
+  const profiles = calibrator.queryPredictorProfiles({
+    profile: makeProfile(),
+    input: makeInput(),
+    action,
+    predictions,
+    metaState: "high-risk"
+  });
+  assert.equal(profiles.length, 2);
+  const stable = profiles.find((profile) => profile.predictor_id === "rule-a");
+  const weak = profiles.find((profile) => profile.predictor_id === "rule-b");
+  assert.ok(stable);
+  assert.ok(weak);
+  assert.ok(stable.bucket_reliability > weak.bucket_reliability);
+  assert.ok(stable.effective_weight > weak.effective_weight);
+});
+
 test("ControlAllocator uses low calibrated confidence as a conservative control signal", async () => {
   const allocator = new DefaultControlAllocator();
   const ctx = {
@@ -1322,7 +1569,8 @@ test("CycleEngine run attaches metacognitive artifacts to workspace and decision
         }
       }
     ],
-    policies: []
+    policies: [],
+    calibrator: new Calibrator(new InMemoryCalibrationStore())
   });
 
   assert.ok(result.metaSignalFrame);
@@ -1333,6 +1581,8 @@ test("CycleEngine run attaches metacognitive artifacts to workspace and decision
   assert.equal(result.metaAssessment.deep_evaluation_used, true);
   assert.ok(result.metaAssessment.verification_trace);
   assert.ok(result.selfEvaluationReport.verification_trace);
+  assert.ok(Array.isArray(result.metaSignalFrame.prediction_signals.predictor_profiles));
+  assert.equal(result.metaSignalFrame.prediction_signals.predictor_profiles?.[0]?.predictor_id, "rule");
   assert.ok(result.workspace.metacognitive_state);
   assert.equal(result.workspace.meta_signal_frame_ref, result.metaSignalFrame.frame_id);
   assert.equal(result.workspace.meta_assessment_ref, result.metaAssessment.assessment_id);
@@ -1428,6 +1678,231 @@ test("Calibration records persist across runtime restart with sqlite state store
 
     const records = runtime2.listCalibrationRecords(session.session_id);
     assert.ok(records.length >= 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Provider reliability records persist across runtime restart with sqlite state store", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "neurocore-meta-provider-reliability-"));
+  const filename = join(dir, "runtime.sqlite");
+  const stateStore = new SqliteRuntimeStateStore({ filename });
+  const reasoner = {
+    name: "runtime-meta-reasoner",
+    async plan() {
+      return [];
+    },
+    async respond(ctx) {
+      return [
+        {
+          action_id: ctx.services.generateId("act"),
+          action_type: "respond",
+          title: "Respond to user",
+          description: "Runtime response"
+        }
+      ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
+    }
+  };
+
+  try {
+    const runtime1 = new AgentRuntime({ reasoner, stateStore });
+    const profile = makeProfile();
+    const session = runtime1.createSession(profile, {
+      agent_id: profile.agent_id,
+      tenant_id: "tenant_meta",
+      initial_input: makeInput()
+    });
+    await runtime1.runOnce(profile, session.session_id, makeInput());
+
+    const runtime2 = new AgentRuntime({
+      reasoner,
+      stateStore: new SqliteRuntimeStateStore({ filename })
+    });
+
+    const records = runtime2.listProviderReliabilityRecords(session.session_id);
+    assert.ok(records.length >= 1);
+    assert.ok(records.some((record) => record.provider === "heuristic-evidence-provider"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ReflectionLearner creates rules from repeated failed observations and persists them in traces", async () => {
+  const reasoner = {
+    name: "runtime-reflection-reasoner",
+    async plan() {
+      return [];
+    },
+    async respond(ctx) {
+      return [
+        {
+          action_id: ctx.services.generateId("act"),
+          action_type: "call_tool",
+          title: "Call missing tool",
+          tool_name: "missing_tool",
+          description: "Trigger a controlled tool failure",
+          side_effect_level: "low"
+        }
+      ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
+    }
+  };
+
+  const runtime = new AgentRuntime({ reasoner });
+  const profile = makeProfile();
+  const session = runtime.createSession(profile, {
+    agent_id: profile.agent_id,
+    tenant_id: "tenant_meta",
+    initial_input: makeInput()
+  });
+
+  await runtime.runOnce(profile, session.session_id, makeInput());
+
+  const rules = runtime.listReflectionRules(session.session_id);
+  const records = runtime.getTraceRecords(session.session_id);
+
+  assert.equal(rules.length, 1);
+  assert.equal(rules[0].recommended_control_action, "request-more-evidence");
+  assert.ok(rules[0].task_bucket);
+  assert.ok(records[0].created_reflection_rule);
+  assert.equal(records[0].created_reflection_rule?.rule_id, rules[0].rule_id);
+});
+
+test("CycleEngine applies matching reflection rules to make control more conservative", async () => {
+  const engine = new CycleEngine();
+  const calibrator = new Calibrator(new InMemoryCalibrationStore());
+  const reflectionStore = new InMemoryReflectionStore();
+  const reflectionLearner = new ReflectionLearner(reflectionStore);
+  const session = makeSession();
+  const profile = makeProfile();
+  const input = makeInput();
+  const reasoner = {
+    name: "reflection-application-reasoner",
+    async plan() {
+      return [];
+    },
+    async respond(ctx) {
+      return [
+        {
+          action_id: ctx.services.generateId("act"),
+          action_type: "ask_user",
+          title: "Ask for evidence",
+          description: "Need more evidence before proceeding"
+        },
+        {
+          action_id: ctx.services.generateId("act"),
+          action_type: "respond",
+          title: "Respond directly",
+          description: "Direct answer"
+        }
+      ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
+    }
+  };
+
+  const warmup = await engine.run({
+    tenantId: "tenant_meta",
+    session,
+    profile,
+    input,
+    goals: makeCtx().goals,
+    reasoner,
+    metaController: new DefaultMetaController(),
+    memoryProviders: [],
+    predictors: [],
+    policies: [],
+    calibrator
+  });
+
+  reflectionStore.save({
+    rule_id: "rfr_1",
+    pattern: `task_bucket:${warmup.metaAssessment.task_bucket}`,
+    task_bucket: warmup.metaAssessment.task_bucket,
+    risk_level: "medium",
+    trigger_conditions: [`task_bucket=${warmup.metaAssessment.task_bucket}`],
+    recommended_control_action: "request-more-evidence",
+    strength: 0.9,
+    evidence_count: 3,
+    created_at: ts(),
+    updated_at: ts()
+  });
+
+  const result = await engine.run({
+    tenantId: "tenant_meta",
+    session,
+    profile,
+    input,
+    goals: makeCtx().goals,
+    reasoner,
+    metaController: new DefaultMetaController(),
+    memoryProviders: [],
+    predictors: [],
+    policies: [],
+    calibrator,
+    reflectionLearner
+  });
+
+  assert.ok(result.appliedReflectionRule);
+  assert.equal(result.metaAssessment.reflection_applied, true);
+  assert.equal(result.metaAssessment.reflection_rule?.rule_id, "rfr_1");
+  assert.equal(result.metaDecisionV2.control_action, "request-more-evidence");
+  assert.equal(
+    result.actions.find((action) => action.action_id === result.metaDecisionV2.selected_action_id)?.action_type,
+    "ask_user"
+  );
+});
+
+test("Reflection rules persist across runtime restart with sqlite state store", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "neurocore-meta-reflection-"));
+  const filename = join(dir, "runtime.sqlite");
+  const stateStore = new SqliteRuntimeStateStore({ filename });
+  const reasoner = {
+    name: "runtime-reflection-reasoner",
+    async plan() {
+      return [];
+    },
+    async respond(ctx) {
+      return [
+        {
+          action_id: ctx.services.generateId("act"),
+          action_type: "call_tool",
+          title: "Call missing tool",
+          tool_name: "missing_tool",
+          description: "Trigger a controlled tool failure",
+          side_effect_level: "low"
+        }
+      ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
+    }
+  };
+
+  try {
+    const runtime1 = new AgentRuntime({ reasoner, stateStore });
+    const profile = makeProfile();
+    const session = runtime1.createSession(profile, {
+      agent_id: profile.agent_id,
+      tenant_id: "tenant_meta",
+      initial_input: makeInput()
+    });
+    await runtime1.runOnce(profile, session.session_id, makeInput());
+
+    const runtime2 = new AgentRuntime({
+      reasoner,
+      stateStore: new SqliteRuntimeStateStore({ filename })
+    });
+
+    const rules = runtime2.listReflectionRules(session.session_id);
+    assert.ok(rules.length >= 1);
+    assert.ok(rules[0].task_bucket);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

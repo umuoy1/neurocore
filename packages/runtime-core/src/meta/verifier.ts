@@ -8,14 +8,33 @@ import type {
 
 export async function runVerifierWithGuard(
   verifier: Verifier,
-  input: VerifierInput
+  input: VerifierInput,
+  options: {
+    budgetMs?: number;
+    isolationPolicy?: "fail-open" | "fail-closed";
+  } = {}
 ): Promise<{ result?: VerifierResult; run: VerifierRunRecord }> {
   const startedAt = Date.now();
+  const budgetMs = options.budgetMs ?? verifier.timeoutMs;
+
+  if (budgetMs !== undefined && budgetMs <= 0) {
+    return {
+      run: {
+        verifier: verifier.name,
+        mode: verifier.mode,
+        status: "skipped",
+        summary: `${verifier.name} skipped because verifier budget is exhausted`,
+        budget_ms: budgetMs,
+        isolation_policy: options.isolationPolicy ?? "fail-open",
+        elapsed_ms: 0
+      }
+    };
+  }
 
   try {
     const result = await withTimeout(
       verifier.verify(input),
-      verifier.timeoutMs,
+      budgetMs,
       `${verifier.name} timed out`
     );
     return {
@@ -26,6 +45,8 @@ export async function runVerifierWithGuard(
         status: "ok",
         verdict: result.verdict,
         summary: result.summary,
+        budget_ms: budgetMs,
+        isolation_policy: options.isolationPolicy ?? "fail-open",
         elapsed_ms: Date.now() - startedAt,
         metadata: result.metadata,
         issues: result.issues
@@ -38,6 +59,8 @@ export async function runVerifierWithGuard(
         mode: verifier.mode,
         status: isTimeoutError(error) ? "timeout" : "failed",
         summary: isTimeoutError(error) ? `${verifier.name} timed out` : `${verifier.name} failed`,
+        budget_ms: budgetMs,
+        isolation_policy: options.isolationPolicy ?? "fail-open",
         elapsed_ms: Date.now() - startedAt,
         error: error instanceof Error ? error.message : String(error)
       }
@@ -47,14 +70,33 @@ export async function runVerifierWithGuard(
 
 export async function runSimulatorWithGuard(
   simulator: CounterfactualSimulator,
-  input: VerifierInput
+  input: VerifierInput,
+  options: {
+    budgetMs?: number;
+    isolationPolicy?: "fail-open" | "fail-closed";
+  } = {}
 ): Promise<{ result?: VerifierResult; run: VerifierRunRecord } | null> {
   const startedAt = Date.now();
+  const budgetMs = options.budgetMs ?? simulator.timeoutMs;
+
+  if (budgetMs !== undefined && budgetMs <= 0) {
+    return {
+      run: {
+        verifier: simulator.name,
+        mode: "process",
+        status: "skipped",
+        summary: `${simulator.name} skipped because simulator budget is exhausted`,
+        budget_ms: budgetMs,
+        isolation_policy: options.isolationPolicy ?? "fail-open",
+        elapsed_ms: 0
+      }
+    };
+  }
 
   try {
     const result = await withTimeout(
       simulator.simulate(input),
-      simulator.timeoutMs,
+      budgetMs,
       `${simulator.name} timed out`
     );
     if (!result) {
@@ -68,6 +110,8 @@ export async function runSimulatorWithGuard(
         status: "ok",
         verdict: result.verdict,
         summary: result.summary,
+        budget_ms: budgetMs,
+        isolation_policy: options.isolationPolicy ?? "fail-open",
         elapsed_ms: Date.now() - startedAt,
         metadata: result.metadata,
         issues: result.issues
@@ -80,6 +124,8 @@ export async function runSimulatorWithGuard(
         mode: "process",
         status: isTimeoutError(error) ? "timeout" : "failed",
         summary: isTimeoutError(error) ? `${simulator.name} timed out` : `${simulator.name} failed`,
+        budget_ms: budgetMs,
+        isolation_policy: options.isolationPolicy ?? "fail-open",
         elapsed_ms: Date.now() - startedAt,
         error: error instanceof Error ? error.message : String(error)
       }

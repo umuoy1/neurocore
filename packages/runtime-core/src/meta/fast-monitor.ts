@@ -128,20 +128,31 @@ export class FastMonitor {
   }
 
   private buildConfidenceVector(frame: MetaSignalFrame): ConfidenceVector {
+    const predictorReliabilityFloor =
+      frame.prediction_signals.predictor_profiles && frame.prediction_signals.predictor_profiles.length > 0
+        ? Math.min(...frame.prediction_signals.predictor_profiles.map((profile) => profile.bucket_reliability))
+        : frame.prediction_signals.predictor_bucket_reliability;
+    const providerReliabilityFloor =
+      frame.provider_profiles && frame.provider_profiles.length > 0
+        ? Math.min(...frame.provider_profiles.map((profile) => profile.reliability_score))
+        : 0.5;
     const evidenceConfidence = mean([
       frame.evidence_signals.retrieval_coverage,
       frame.evidence_signals.evidence_agreement_score,
-      frame.evidence_signals.source_reliability_prior
+      frame.evidence_signals.source_reliability_prior,
+      providerReliabilityFloor
     ]);
     const processConfidence = mean([
       frame.reasoning_signals.step_consistency,
       1 - frame.reasoning_signals.candidate_reasoning_divergence,
-      1 - frame.reasoning_signals.contradiction_score
+      1 - frame.reasoning_signals.contradiction_score,
+      providerReliabilityFloor
     ]);
     const simulationConfidence = mean([
       frame.prediction_signals.predicted_success_probability,
       frame.prediction_signals.simulator_confidence,
-      1 - frame.prediction_signals.world_model_mismatch_score
+      1 - frame.prediction_signals.world_model_mismatch_score,
+      predictorReliabilityFloor
     ]);
     const actionSafetyConfidence = mean([
       1 - frame.action_signals.side_effect_severity,
@@ -151,7 +162,10 @@ export class FastMonitor {
       frame.action_signals.tool_precondition_completeness,
       frame.action_signals.schema_confidence
     ]);
-    const calibrationConfidence = 1 - frame.prediction_signals.uncertainty_decomposition.calibration_gap;
+    const calibrationConfidence = mean([
+      1 - frame.prediction_signals.uncertainty_decomposition.calibration_gap,
+      predictorReliabilityFloor
+    ]);
     const answerConfidence = mean([
       processConfidence,
       evidenceConfidence,
@@ -218,7 +232,11 @@ export class FastMonitor {
       tags.add("ood_detected");
     }
 
-    if (confidence.calibration_confidence < 0.45) {
+    if (
+      confidence.calibration_confidence < 0.45 ||
+      frame.prediction_signals.predictor_bucket_reliability < 0.45 ||
+      (frame.prediction_signals.predictor_profiles ?? []).some((profile) => profile.bucket_reliability < 0.45)
+    ) {
       tags.add("calibration_weak");
     }
 

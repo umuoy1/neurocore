@@ -89,6 +89,7 @@ export class WorkspaceCoordinator {
       skill_digest: input.skillDigest ?? [],
       world_state_digest: input.worldStateDigest,
       candidate_actions: input.candidateActions,
+      plan_graph: buildPlanGraph(input.candidateActions),
       selected_proposal_id: selectedProposalId,
       risk_assessment: risk,
       confidence_assessment: {
@@ -331,4 +332,44 @@ export class WorkspaceCoordinator {
     }
     return { within_budget: true, summary: "Within budget." };
   }
+}
+
+function buildPlanGraph(actions: CandidateAction[]) {
+  if (actions.length === 0) {
+    return undefined;
+  }
+
+  const nodes = actions.map((action) => ({
+    action_id: action.action_id,
+    action_type: action.action_type,
+    title: action.title,
+    depends_on_action_ids:
+      Array.isArray(action.depends_on_action_ids) && action.depends_on_action_ids.length > 0
+        ? [...action.depends_on_action_ids]
+        : undefined,
+    next_action_id_on_success: action.next_action_id_on_success,
+    next_action_id_on_failure: action.next_action_id_on_failure,
+    plan_group_id: action.plan_group_id
+  }));
+
+  const grouped = new Map<string, string[]>();
+  for (const action of actions) {
+    const groupId = typeof action.plan_group_id === "string" && action.plan_group_id.trim().length > 0
+      ? action.plan_group_id
+      : undefined;
+    if (!groupId) {
+      continue;
+    }
+    const entry = grouped.get(groupId) ?? [];
+    entry.push(action.action_id);
+    grouped.set(groupId, entry);
+  }
+
+  return {
+    groups: [...grouped.entries()].map(([plan_group_id, node_ids]) => ({
+      plan_group_id,
+      node_ids
+    })),
+    nodes
+  };
 }

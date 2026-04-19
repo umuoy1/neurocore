@@ -5,3 +5,4 @@ export * from "./types.js";
 export * from "./eval-comparator.js";
 export * from "./longmemeval.js";
 export * from "./meta-benchmark.js";
+export * from "./meta-online-eval.js";

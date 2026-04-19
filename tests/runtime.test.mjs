@@ -186,6 +186,98 @@ test("local session emits suspend/resume events and checkpoint schema version", 
   assert.ok(eventTypes.includes("checkpoint.created"));
 });
 
+test("runtime forwards content parts into reasoner context", async () => {
+  const agent = defineAgent({
+    id: "test-multimodal-runtime-agent",
+    role: "Deterministic multimodal runtime test agent."
+  })
+    .useReasoner({
+      name: "test-multimodal-runtime-reasoner",
+      async plan(ctx) {
+        return [
+          {
+            proposal_id: ctx.services.generateId("prp"),
+            schema_version: ctx.profile.schema_version,
+            session_id: ctx.session.session_id,
+            cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+            module_name: this.name,
+            proposal_type: "plan",
+            salience_score: 0.8,
+            confidence: 0.9,
+            risk: 0,
+            payload: {
+              summary: "Drive a short multimodal exchange."
+            }
+          }
+        ];
+      },
+      async respond(ctx) {
+        const input = typeof ctx.runtime_state.current_input_content === "string"
+          ? ctx.runtime_state.current_input_content
+          : "";
+        if (input.includes("second turn")) {
+          const contentParts = Array.isArray(ctx.runtime_state.current_input_parts)
+            ? ctx.runtime_state.current_input_parts
+            : [];
+          return [
+            {
+              action_id: ctx.services.generateId("act"),
+              action_type: "respond",
+              title: "Return multimodal state",
+              description: JSON.stringify({
+                contentPartCount: contentParts.length
+              }),
+              side_effect_level: "none"
+            }
+          ];
+        }
+
+        return [
+          {
+            action_id: ctx.services.generateId("act"),
+            action_type: "ask_user",
+            title: "Need another turn",
+            description: "continue",
+            side_effect_level: "none"
+          }
+        ];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
+      }
+    });
+
+  const session = agent.createSession({
+    agent_id: "test-multimodal-runtime-agent",
+    tenant_id: "local",
+    initial_input: {
+      input_id: "inp-mm-1",
+      content: "first turn with a long description that should contribute to truncation",
+      content_parts: [
+        { type: "text", text: "first turn with a long description that should contribute to truncation" },
+        { type: "image", mime_type: "image/png", file_name: "diagram.png" }
+      ],
+      created_at: new Date().toISOString()
+    }
+  });
+
+  const first = await session.run();
+  assert.equal(first.finalState, "waiting");
+  const second = await session.resume({
+    input_id: "inp-mm-3",
+    content: "second turn with attached file",
+    content_parts: [
+      { type: "text", text: "second turn with attached file" },
+      { type: "file", mime_type: "text/plain", file_name: "note.txt", text_excerpt: "hello" }
+    ],
+    created_at: new Date().toISOString()
+  });
+  assert.equal(second.finalState, "completed");
+
+  const payload = JSON.parse(second.outputText);
+  assert.equal(payload.contentPartCount, 2);
+});
+
 test("hosted runtime supports async and stream flows through remote client", async () => {
   const agent = defineAgent({
     id: "test-hosted-runtime-agent",
@@ -459,6 +551,99 @@ test("hosted cleanup removes persisted terminal sessions across restart", async 
     await server.close().catch(() => undefined);
     rmSync(stateDir, { recursive: true, force: true });
   }
+});
+
+test("tool observations preserve MIME-aware content parts", async () => {
+  const agent = defineAgent({
+    id: "test-tool-content-parts-agent",
+    role: "Deterministic MIME-aware tool test agent."
+  })
+    .useReasoner({
+      name: "test-tool-content-parts-reasoner",
+      async plan(ctx) {
+        return [
+          {
+            proposal_id: ctx.services.generateId("prp"),
+            schema_version: ctx.profile.schema_version,
+            session_id: ctx.session.session_id,
+            cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+            module_name: this.name,
+            proposal_type: "plan",
+            salience_score: 0.8,
+            confidence: 0.9,
+            risk: 0,
+            payload: {
+              summary: "Call a file-producing tool, then respond."
+            }
+          }
+        ];
+      },
+      async respond(ctx) {
+        const input = typeof ctx.runtime_state.current_input_content === "string"
+          ? ctx.runtime_state.current_input_content
+          : "";
+        if (input.startsWith("Tool observation:")) {
+          return [
+            {
+              action_id: ctx.services.generateId("act"),
+              action_type: "respond",
+              title: "Return content part state",
+              description: input.replace(/^Tool observation:\s*/, "").trim(),
+              side_effect_level: "none"
+            }
+          ];
+        }
+        return [
+          {
+            action_id: ctx.services.generateId("act"),
+            action_type: "call_tool",
+            title: "Build file payload",
+            tool_name: "build_file_payload",
+            side_effect_level: "none"
+          }
+        ];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
+      }
+    })
+    .registerTool({
+      name: "build_file_payload",
+      description: "Returns a MIME-aware file payload.",
+      sideEffectLevel: "none",
+      inputSchema: {
+        type: "object",
+        additionalProperties: true
+      },
+      async invoke() {
+        return {
+          summary: "file payload ready",
+          mime_type: "text/plain",
+          content_parts: [
+            { type: "file", mime_type: "text/plain", file_name: "report.txt", text_excerpt: "payload" }
+          ],
+          payload: {
+            kind: "file"
+          }
+        };
+      }
+    });
+
+  const session = agent.createSession({
+    agent_id: "test-tool-content-parts-agent",
+    tenant_id: "local",
+    initial_input: {
+      input_id: "inp-file-1",
+      content: "build the file payload",
+      created_at: new Date().toISOString()
+    }
+  });
+
+  const result = await session.run();
+  assert.equal(result.finalState, "completed");
+  const firstStep = result.steps[0];
+  assert.equal(firstStep.observation?.mime_type, "text/plain");
+  assert.equal(firstStep.observation?.content_parts?.[0]?.type, "file");
 });
 
 test("resume with explicit input rebases the active root goal", async () => {
@@ -847,6 +1032,229 @@ test("action preconditions are enforced before execution", async () => {
   const second = await session.resumeText("try again");
   assert.equal(second.finalState, "completed");
   assert.equal(second.outputText, "cup picked");
+});
+
+test("conditional planning falls back when preconditions fail", async () => {
+  const agent = defineAgent({
+    id: "conditional-fallback-agent",
+    role: "Conditional planning fallback test agent."
+  }).useReasoner({
+    name: "conditional-fallback-reasoner",
+    async plan(ctx) {
+      return [{
+        proposal_id: ctx.services.generateId("prp"),
+        schema_version: ctx.profile.schema_version,
+        session_id: ctx.session.session_id,
+        cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+        module_name: this.name,
+        proposal_type: "plan",
+        salience_score: 0.8,
+        payload: { summary: "Use fallback when the primary action is not executable." }
+      }];
+    },
+    async respond(ctx) {
+      return [
+        {
+          action_id: "primary-action",
+          action_type: "call_tool",
+          title: "Primary action",
+          tool_name: "missing-tool",
+          preconditions: ["tool:missing-tool:registered=true"],
+          next_action_id_on_failure: "fallback-action",
+          plan_group_id: "plan-1",
+          side_effect_level: "none"
+        },
+        {
+          action_id: "fallback-action",
+          action_type: "respond",
+          title: "Fallback action",
+          description: "fallback path used",
+          plan_group_id: "plan-1",
+          side_effect_level: "none"
+        }
+      ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
+    }
+  });
+
+  const session = agent.createSession({
+    tenant_id: "tenant-conditional-fallback",
+    initial_input: {
+      content: "use the fallback plan",
+      created_at: new Date().toISOString()
+    }
+  });
+
+  const result = await session.run();
+  assert.equal(result.finalState, "completed");
+  assert.equal(result.outputText, "fallback path used");
+  assert.equal(result.steps[0]?.selectedAction?.action_id, "fallback-action");
+});
+
+test("conditional planning chooses a ready root action from the plan graph", async () => {
+  const agent = defineAgent({
+    id: "conditional-dag-agent",
+    role: "Conditional planning DAG test agent."
+  }).useReasoner({
+    name: "conditional-dag-reasoner",
+    async plan(ctx) {
+      return [{
+        proposal_id: ctx.services.generateId("prp"),
+        schema_version: ctx.profile.schema_version,
+        session_id: ctx.session.session_id,
+        cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+        module_name: this.name,
+        proposal_type: "plan",
+        salience_score: 0.8,
+        payload: { summary: "Choose the executable root node first." }
+      }];
+    },
+    async respond(ctx) {
+      return [
+        {
+          action_id: "dependent-action",
+          action_type: "respond",
+          title: "Dependent action",
+          description: "dependent branch should not run first",
+          depends_on_action_ids: ["root-action"],
+          plan_group_id: "plan-2",
+          side_effect_level: "none"
+        },
+        {
+          action_id: "root-action",
+          action_type: "respond",
+          title: "Root action",
+          description: "root branch selected",
+          plan_group_id: "plan-2",
+          side_effect_level: "none"
+        }
+      ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
+    }
+  });
+
+  const session = agent.createSession({
+    tenant_id: "tenant-conditional-dag",
+    initial_input: {
+      content: "run the DAG plan",
+      created_at: new Date().toISOString()
+    }
+  });
+
+  const result = await session.run();
+  assert.equal(result.finalState, "completed");
+  assert.equal(result.outputText, "root branch selected");
+  assert.equal(result.steps[0]?.selectedAction?.action_id, "root-action");
+  assert.equal(result.steps[0]?.cycle.workspace?.plan_graph?.groups?.[0]?.plan_group_id, "plan-2");
+});
+
+test("parallel tool actions execute in one cycle when runtime allows parallel tools", async () => {
+  const callOrder = [];
+
+  const agent = defineAgent({
+    id: "parallel-tools-agent",
+    role: "Parallel tools test agent."
+  })
+    .configureRuntime({
+      allow_parallel_modules: true,
+      allow_async_tools: true
+    })
+    .useReasoner({
+      name: "parallel-tools-reasoner",
+      async plan(ctx) {
+        return [{
+          proposal_id: ctx.services.generateId("prp"),
+          schema_version: ctx.profile.schema_version,
+          session_id: ctx.session.session_id,
+          cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+          module_name: this.name,
+          proposal_type: "plan",
+          salience_score: 0.8,
+          payload: { summary: "Run two reads in parallel, then answer." }
+        }];
+      },
+      async respond(ctx) {
+        const currentInput =
+          typeof ctx.runtime_state.current_input_content === "string"
+            ? ctx.runtime_state.current_input_content
+            : "";
+        if (currentInput.startsWith("Tool observation: Parallel tool observations:")) {
+          return [{
+            action_id: ctx.services.generateId("act"),
+            action_type: "respond",
+            title: "Done",
+            description: currentInput.replace(/^Tool observation:\s*/, "").trim(),
+            side_effect_level: "none"
+          }];
+        }
+        return [
+          {
+            action_id: ctx.services.generateId("act"),
+            action_type: "call_tool",
+            title: "Read A",
+            tool_name: "read-a",
+            tool_args: {},
+            side_effect_level: "none"
+          },
+          {
+            action_id: ctx.services.generateId("act"),
+            action_type: "call_tool",
+            title: "Read B",
+            tool_name: "read-b",
+            tool_args: {},
+            side_effect_level: "none"
+          }
+        ];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
+      }
+    })
+    .registerTool({
+      name: "read-a",
+      description: "Read A",
+      sideEffectLevel: "none",
+      inputSchema: {},
+      async invoke() {
+        callOrder.push("read-a");
+        await delay(10);
+        return { summary: "A=1" };
+      }
+    })
+    .registerTool({
+      name: "read-b",
+      description: "Read B",
+      sideEffectLevel: "none",
+      inputSchema: {},
+      async invoke() {
+        callOrder.push("read-b");
+        await delay(10);
+        return { summary: "B=2" };
+      }
+    });
+
+  const session = agent.createSession({
+    tenant_id: "tenant-parallel",
+    initial_input: {
+      content: "run both reads",
+      created_at: new Date().toISOString()
+    }
+  });
+
+  const result = await session.run();
+  assert.equal(result.finalState, "completed");
+  assert.equal(callOrder.length, 2);
+  const batchStep = result.steps.find((step) =>
+    Array.isArray(step.observation?.structured_payload?.parallel_results)
+  );
+  assert.ok(batchStep);
+  assert.equal(batchStep?.observation?.structured_payload?.parallel_results.length, 2);
+  assert.match(result.outputText ?? "", /read-a: A=1/);
+  assert.match(result.outputText ?? "", /read-b: B=2/);
 });
 
 function delay(ms) {

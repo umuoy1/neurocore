@@ -27,7 +27,9 @@ import type {
   RuntimeStatus,
   UserInput,
   WorldStateDigest,
-  WorkspaceSnapshot
+  WorkspaceSnapshot,
+  MetaSignalProviderReliabilityStore,
+  ReflectionRule
 } from "@neurocore/protocol";
 import type { DeviceRegistry, PerceptionPipeline } from "@neurocore/device-core";
 import type { WorldStateGraph } from "@neurocore/world-model";
@@ -38,6 +40,7 @@ import { DefaultControlAllocator } from "../meta/control-allocator.js";
 import { DeepEvaluator } from "../meta/deep-evaluator.js";
 import { FastMonitor } from "../meta/fast-monitor.js";
 import { toControlModeFromDecisionV2 } from "../meta/meta-decision.js";
+import type { ReflectionLearner } from "../meta/reflection-learner.js";
 import { MetaSignalBus } from "../meta/signal-bus.js";
 import type { Calibrator } from "../meta/calibrator.js";
 import { debugLog } from "../utils/debug.js";
@@ -60,6 +63,8 @@ export interface CycleExecutionInput {
   tokenEstimator?: TokenEstimator;
   predictionErrorRate?: number;
   calibrator?: Calibrator;
+  providerReliabilityStore?: MetaSignalProviderReliabilityStore;
+  reflectionLearner?: ReflectionLearner;
   deviceRegistry?: DeviceRegistry;
   perceptionPipeline?: PerceptionPipeline;
   worldStateGraph?: WorldStateGraph;
@@ -79,6 +84,7 @@ export interface CycleExecutionResult {
   metaAssessment?: MetaAssessment;
   metaDecisionV2?: MetaDecisionV2;
   selfEvaluationReport?: SelfEvaluationReport;
+  appliedReflectionRule?: ReflectionRule;
   decision: MetaDecision;
   observation?: Observation;
 }
@@ -117,6 +123,7 @@ export class CycleEngine {
       goals: input.goals,
       runtime_state: {
         current_input_content: input.input.content,
+        current_input_parts: input.input.content_parts ?? [],
         current_input_metadata: input.input.metadata ?? null,
         current_input_structured_response: input.input.structured_response ?? null,
         ...buildConversationRuntimeState(input.traceRecords ?? [], input.profile, input.input.content),
@@ -359,7 +366,8 @@ export class CycleEngine {
       predictions,
       policies: allPolicies,
       predictionErrorRate: input.predictionErrorRate,
-      goals: input.goals
+      goals: input.goals,
+      providerReliabilityStore: input.providerReliabilityStore
     });
     const baseFastMetaAssessment = this.fastMonitor.assess(metaSignalFrame);
     const calibrationQuery = input.calibrator?.query({
@@ -370,6 +378,24 @@ export class CycleEngine {
       predictions,
       metaState: baseFastMetaAssessment.meta_state
     });
+    const predictorProfiles = input.calibrator?.queryPredictorProfiles({
+      profile: input.profile,
+      frame: metaSignalFrame,
+      input: input.input,
+      actions,
+      predictions,
+      metaState: baseFastMetaAssessment.meta_state
+    }) ?? [];
+    if (predictorProfiles.length > 0) {
+      metaSignalFrame.prediction_signals.predictor_profiles = predictorProfiles;
+      metaSignalFrame.prediction_signals.predictor_bucket_reliability = Math.min(
+        metaSignalFrame.prediction_signals.predictor_bucket_reliability,
+        ...predictorProfiles.map((profile) => profile.bucket_reliability)
+      );
+      metaSignalFrame.prediction_signals.predictor_calibration_bucket = worstPredictorCalibrationBucket(
+        predictorProfiles.map((profile) => profile.bucket_reliability)
+      );
+    }
     const fastMetaAssessment = calibrationQuery
       ? {
           ...baseFastMetaAssessment,
@@ -395,6 +421,21 @@ export class CycleEngine {
           calibrator: input.calibrator,
           calibrationQuery
         });
+    const appliedReflectionRule = calibrationQuery
+      ? input.reflectionLearner?.findApplicableRule(
+          calibrationQuery.descriptor.taskBucket,
+          calibrationQuery.descriptor.riskLevel
+        )
+      : undefined;
+    if (appliedReflectionRule && appliedReflectionRule.strength >= 0.5) {
+      metaAssessment.recommended_control_action = mergeConservativeControlAction(
+        metaAssessment.recommended_control_action,
+        appliedReflectionRule.recommended_control_action
+      );
+      metaAssessment.reflection_rule = appliedReflectionRule;
+      metaAssessment.reflection_applied = true;
+      metaAssessment.rationale = `${metaAssessment.rationale} Reflection rule applied: ${appliedReflectionRule.pattern}.`;
+    }
     const annotatedWorkspace: WorkspaceSnapshot = {
       ...workspace,
       metacognitive_state: fastMetaAssessment,
@@ -463,6 +504,7 @@ export class CycleEngine {
       metaAssessment,
       metaDecisionV2,
       selfEvaluationReport,
+      appliedReflectionRule,
       decision
     };
     } catch (error) {
@@ -695,6 +737,36 @@ async function withTimeout<T>(
   ]);
 }
 
+function worstPredictorCalibrationBucket(reliabilities: number[]) {
+  const floor = reliabilities.length > 0 ? Math.min(...reliabilities) : 0.5;
+  if (floor < 0.35) {
+    return "poor";
+  }
+  if (floor < 0.6) {
+    return "mixed";
+  }
+  return "stable";
+}
+
+function mergeConservativeControlAction(
+  current: import("@neurocore/protocol").MetaControlAction,
+  reflected: import("@neurocore/protocol").MetaControlAction
+) {
+  const order: Record<import("@neurocore/protocol").MetaControlAction, number> = {
+    "execute-now": 0,
+    "run-more-samples": 1,
+    "invoke-verifier": 2,
+    "replan": 3,
+    "decompose-goal": 3,
+    "request-more-evidence": 4,
+    "switch-to-safe-response": 5,
+    "execute-with-approval": 6,
+    "ask-human": 7,
+    "abort": 8
+  };
+  return order[reflected] > order[current] ? reflected : current;
+}
+
 function hasBlockingPolicyDecision(
   decisions: import("@neurocore/protocol").PolicyDecision[]
 ): boolean {
@@ -714,6 +786,7 @@ function buildConversationRuntimeState(
   const trimmed = trimConversationHistory(history, historyBudgetTokens);
   return {
     conversation_history: trimmed.messages,
+    conversation_summary: trimmed.summary,
     conversation_history_tokens: trimmed.tokens,
     conversation_history_truncated: trimmed.truncated,
     conversation_current_input_tokens: new DefaultTokenEstimator().estimate(currentInputContent)
@@ -754,7 +827,7 @@ function flattenConversationHistory(traceRecords: CycleTraceRecord[]): Conversat
 function trimConversationHistory(
   history: ConversationMessage[],
   maxTokens: number
-): { messages: ConversationMessage[]; tokens: number; truncated: boolean } {
+): { messages: ConversationMessage[]; summary?: string; tokens: number; truncated: boolean } {
   const estimator = new DefaultTokenEstimator();
   let totalTokens = 0;
   const selected: ConversationMessage[] = [];
@@ -779,9 +852,24 @@ function trimConversationHistory(
 
   return {
     messages: selected,
+    summary: truncated ? summarizeConversationHistory(history.slice(0, Math.max(0, history.length - selected.length))) : undefined,
     tokens: totalTokens,
     truncated
   };
+}
+
+function summarizeConversationHistory(history: ConversationMessage[]): string | undefined {
+  if (history.length === 0) {
+    return undefined;
+  }
+
+  const recent = history.slice(-6).map((message) => {
+    const role = message.role === "assistant" ? "assistant" : message.role === "system" ? "system" : "user";
+    const content = message.content.trim().replace(/\s+/g, " ");
+    return `${role}: ${content.slice(0, 120)}`;
+  });
+
+  return `Earlier conversation summary (${history.length} messages): ${recent.join(" | ")}`;
 }
 
 function toSkillDigest(providerName: string, proposal: Proposal): SkillDigest {
