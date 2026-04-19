@@ -12,11 +12,13 @@ import type {
   SessionReplay,
   UserInput
 } from "@neurocore/protocol";
-import type { AgentRuntime } from "@neurocore/runtime-core";
+import type { AgentRuntime, AgentRunLoopResult } from "@neurocore/runtime-core";
 import { randomUUID } from "node:crypto";
 import type {
+  PaginatedResult,
   SessionApprovalDecisionInput,
   SessionApprovalDecisionResult,
+  SessionHandleLike,
   SessionEventFilter
 } from "./types.js";
 
@@ -24,7 +26,7 @@ export interface LocalSessionCreateInput extends Omit<CreateSessionCommand, "com
   agent_id?: string;
 }
 
-export class AgentSessionHandle {
+export class AgentSessionHandle implements SessionHandleLike<AgentSession, SessionReplay, AgentRunLoopResult | AgentSession> {
   public constructor(
     private readonly runtime: AgentRuntime,
     private readonly profile: AgentProfile,
@@ -83,12 +85,27 @@ export class AgentSessionHandle {
     return this.runtime.getTraceRecords(this.sessionId);
   }
 
+  public getTraceRecordsPage(pagination?: { offset?: number; limit?: number }): PaginatedResult<CycleTraceRecord> {
+    return paginate(this.getTraceRecords(), pagination);
+  }
+
   public getEpisodes(): Episode[] {
     return this.runtime.getEpisodes(this.sessionId);
   }
 
+  public getEpisodesPage(pagination?: { offset?: number; limit?: number }): PaginatedResult<Episode> {
+    return paginate(this.getEpisodes(), pagination);
+  }
+
   public getEvents(filter?: SessionEventFilter): NeuroCoreEvent[] {
     return filterEvents(this.runtime.listEvents(this.sessionId), filter);
+  }
+
+  public getEventsPage(
+    pagination?: { offset?: number; limit?: number },
+    filter?: SessionEventFilter
+  ): PaginatedResult<NeuroCoreEvent> {
+    return paginate(this.getEvents(filter), pagination);
   }
 
   public subscribeToEvents(
@@ -120,6 +137,25 @@ export class AgentSessionHandle {
 
   public replay(): SessionReplay {
     return this.runtime.replaySession(this.sessionId);
+  }
+
+  public async waitForSettled(options?: { pollIntervalMs?: number; timeoutMs?: number }): Promise<AgentRunLoopResult | AgentSession> {
+    const pollIntervalMs = Math.max(25, options?.pollIntervalMs ?? 100);
+    const timeoutAt = Date.now() + (options?.timeoutMs ?? 30_000);
+
+    while (true) {
+      const session = this.getSession();
+      if (!session) {
+        throw new Error(`Unknown session: ${this.sessionId}`);
+      }
+      if (session.state !== "running") {
+        return session;
+      }
+      if (Date.now() >= timeoutAt) {
+        throw new Error(`Timed out waiting for session ${this.sessionId} to settle.`);
+      }
+      await sleep(pollIntervalMs);
+    }
   }
 
   public checkpoint(): SessionCheckpoint {
@@ -189,6 +225,25 @@ export class AgentSessionHandle {
     }
     return this.initialInput;
   }
+}
+
+function paginate<T>(items: T[], pagination?: { offset?: number; limit?: number }): PaginatedResult<T> {
+  const offset = Math.max(0, pagination?.offset ?? 0);
+  const limit = Math.max(0, pagination?.limit ?? items.length);
+  const paged = limit === 0 ? [] : items.slice(offset, offset + limit);
+  return {
+    items: paged,
+    total: items.length,
+    offset,
+    limit,
+    has_more: offset + paged.length < items.length
+  };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function filterEvents(events: NeuroCoreEvent[], filter?: SessionEventFilter): NeuroCoreEvent[] {

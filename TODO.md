@@ -228,23 +228,24 @@
 
 ## Milestone 12: SDK Robustness
 
-- [pending] Agent builder validation
-  - [ ] Validate agent ID format (reject empty, whitespace, special characters)
-  - [ ] Detect and reject duplicate tool/provider/predictor registration
-  - [ ] Sync `configurePolicy()` with `profile.policies.policy_ids`
-  - [ ] Add `build()` method returning a reusable Agent instance with shared runtime
-  - [ ] Add `validate()` method for pre-flight configuration checks
-- [pending] Session handle improvements
+- [done] Agent builder validation
+  - [x] Validate agent ID format (reject empty, whitespace, special characters)
+  - [x] Detect and reject duplicate tool/provider/predictor registration
+  - [x] Sync `configurePolicy()` with `profile.policies.policy_ids`
+  - [x] Add `configureApprovalPolicy()` for explicit approval-policy configuration
+  - [x] Add `build()` method returning a reusable Agent instance with shared runtime
+  - [x] Add `validate()` method for pre-flight configuration checks
+- [done] Session handle improvements
   - [x] Use high-resolution IDs for `runText` / `resumeText`
   - [x] Add `getState()`, `isTerminal()`, `isRunning()` convenience methods
   - [x] Add remote checkpoint/suspend parity and local event filtering helpers
-  - [ ] Align local and remote session handle APIs (checkpoint, replay, waitForSettled)
-  - [ ] Add shared session-handle interface for local/remote polymorphism
-- [pending] Remote client hardening
+  - [x] Align local and remote session handle APIs (checkpoint, replay, waitForSettled)
+  - [x] Add shared session-handle interface for local/remote polymorphism
+- [done] Remote client hardening
   - [x] Add request timeout with `AbortSignal`
   - [x] Add retry logic for transient HTTP errors (429, 503)
   - [x] Add SSE reconnection with `Last-Event-ID`
-  - [ ] Add pagination for trace/episode/event list endpoints
+  - [x] Add pagination for trace/episode/event list endpoints
 
 ## Milestone 13: Protocol Tightening
 

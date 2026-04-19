@@ -319,6 +319,9 @@ adapters/*
 
 - 构建 Agent Profile
 - 挂载工具、技能、策略和记忆适配器
+- 提供 `validate()` 做预检，拒绝重复注册和配置漂移
+- 提供 `build()` 产出可复用的 built agent，与共享 runtime 对齐
+- 显式暴露 `configurePolicy()` 与 `configureApprovalPolicy()` 两类配置入口
 
 示意：
 
@@ -334,7 +337,8 @@ const agent = defineAgent({
 职责：
 
 - 持有单次运行上下文
-- 暴露 `run`, `resume`, `stream`, `cancel` 能力
+- 暴露 `run`, `resume`, `cancel`, `checkpoint`, `replay`, `waitForSettled` 能力
+- 本地 handle 与 remote handle 共享同一组 `SessionHandleLike` 语义
 
 ### 7.3 `RuntimeClient`
 
@@ -342,6 +346,8 @@ const agent = defineAgent({
 
 - 面向托管 Runtime 的客户端
 - 本地 API 与远程 API 尽量语义一致
+- 远程列表接口支持 trace / episode / event pagination
+- 请求层具备 `AbortSignal` 超时、429/503 重试，以及 SSE `Last-Event-ID` 重连
 
 ### 7.4 `ReplayRunner`
 

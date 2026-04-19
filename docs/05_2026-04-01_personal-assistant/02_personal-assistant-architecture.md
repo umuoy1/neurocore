@@ -552,8 +552,10 @@ const assistant = defineAgent({
     retrieval_top_k: 10,
   })
   .configurePolicy({
-    default_policy: "warn",
-    approval_policy: { allowed_approvers: [process.env.USER_ID!] },
+    requiredApprovalTools: ["email_send", "calendar_write"],
+  })
+  .configureApprovalPolicy({
+    allowed_approvers: [process.env.USER_ID!],
   })
   .registerTool(createWebSearchTool({ api_key: process.env.SEARCH_API_KEY! }))
   .registerTool(createWebBrowserTool())

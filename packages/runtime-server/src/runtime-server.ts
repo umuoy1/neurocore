@@ -613,9 +613,18 @@ export class NeuroRuntimeServer {
       }
 
       if (method === "GET" && path.length === 4 && path[3] === "traces") {
+        const traces = record.handle.getTraceRecords();
+        const page = paginateItems(
+          traces,
+          parsePaginationParams(url)
+        );
         writeJson(response, 200, {
           session_id: sessionId,
-          traces: record.handle.getTraceRecords()
+          traces: page.items,
+          total: page.total,
+          offset: page.offset,
+          limit: page.limit,
+          has_more: page.has_more
         });
         return;
       }
@@ -664,17 +673,35 @@ export class NeuroRuntimeServer {
       }
 
       if (method === "GET" && path.length === 4 && path[3] === "episodes") {
+        const episodes = record.handle.getEpisodes();
+        const page = paginateItems(
+          episodes,
+          parsePaginationParams(url)
+        );
         writeJson(response, 200, {
           session_id: sessionId,
-          episodes: record.handle.getEpisodes()
+          episodes: page.items,
+          total: page.total,
+          offset: page.offset,
+          limit: page.limit,
+          has_more: page.has_more
         });
         return;
       }
 
       if (method === "GET" && path.length === 4 && path[3] === "events") {
+        const events = record.handle.getEvents();
+        const page = paginateItems(
+          events,
+          parsePaginationParams(url)
+        );
         writeJson(response, 200, {
           session_id: sessionId,
-          events: record.handle.getEvents()
+          events: page.items,
+          total: page.total,
+          offset: page.offset,
+          limit: page.limit,
+          has_more: page.has_more
         });
         return;
       }
@@ -1452,6 +1479,29 @@ function getRequiredString(value: unknown, field: string): string {
 
 function getOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function parsePaginationParams(url: URL): { offset: number; limit?: number } {
+  const offsetRaw = Number.parseInt(url.searchParams.get("offset") ?? "0", 10);
+  const limitParam = url.searchParams.get("limit");
+  const limitRaw = limitParam === null ? undefined : Number.parseInt(limitParam, 10);
+  return {
+    offset: Number.isFinite(offsetRaw) ? Math.max(0, offsetRaw) : 0,
+    limit: typeof limitRaw === "number" && Number.isFinite(limitRaw) ? Math.max(0, limitRaw) : undefined
+  };
+}
+
+function paginateItems<T>(items: T[], pagination: { offset: number; limit?: number }) {
+  const offset = pagination.offset;
+  const limit = pagination.limit ?? items.length;
+  const sliced = limit === 0 ? [] : items.slice(offset, offset + limit);
+  return {
+    items: sliced,
+    total: items.length,
+    offset,
+    limit,
+    has_more: offset + sliced.length < items.length
+  };
 }
 
 function writeJson(response: ServerResponse, statusCode: number, body: Record<string, unknown>): void {

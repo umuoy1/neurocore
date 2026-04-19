@@ -611,13 +611,29 @@ type PolicyState = {
 ### 7.1 CreateSessionCommand
 
 ```ts
+type MutableAgentProfileOverrides = Omit<
+  Partial<AgentProfile>,
+  | "agent_id"
+  | "schema_version"
+  | "name"
+  | "version"
+  | "description"
+  | "role"
+  | "domain"
+  | "mode"
+  | "tool_refs"
+  | "skill_refs"
+  | "policies"
+>;
+
 type CreateSessionCommand = {
+  command_type: "create_session";
   agent_id: string;
   tenant_id: string;
   user_id?: string;
   session_mode?: "sync" | "async" | "stream";
   initial_input: UserInput;
-  overrides?: Partial<AgentProfile>;
+  overrides?: MutableAgentProfileOverrides;
 };
 ```
 
@@ -625,6 +641,7 @@ type CreateSessionCommand = {
 
 ```ts
 type SubmitInputCommand = {
+  command_type: "submit_input";
   session_id: string;
   input: UserInput | SystemInput;
   expect_response?: boolean;
@@ -635,6 +652,7 @@ type SubmitInputCommand = {
 
 ```ts
 type StartCycleCommand = {
+  command_type: "start_cycle";
   session_id: string;
   trigger: "new_input" | "resume" | "tool_result" | "timer" | "internal";
   preferred_mode?: "fast" | "standard" | "deep";
@@ -645,6 +663,7 @@ type StartCycleCommand = {
 
 ```ts
 type ExecuteActionCommand = {
+  command_type: "execute_action";
   session_id: string;
   cycle_id: string;
   action_id: string;
@@ -656,12 +675,43 @@ type ExecuteActionCommand = {
 
 ```ts
 type ApproveActionCommand = {
+  command_type: "approve_action";
   session_id: string;
   action_id: string;
   approver_id: string;
   decision: "approved" | "rejected";
   comment?: string;
 };
+```
+
+### 7.6 Suspend / Resume / Checkpoint Commands
+
+```ts
+type SuspendSessionCommand = {
+  command_type: "suspend_session";
+  session_id: string;
+};
+
+type ResumeSessionCommand = {
+  command_type: "resume_session";
+  session_id: string;
+  input?: UserInput | SystemInput;
+};
+
+type CheckpointCommand = {
+  command_type: "create_checkpoint";
+  session_id: string;
+};
+
+type RuntimeCommand =
+  | CreateSessionCommand
+  | SubmitInputCommand
+  | StartCycleCommand
+  | ExecuteActionCommand
+  | ApproveActionCommand
+  | SuspendSessionCommand
+  | ResumeSessionCommand
+  | CheckpointCommand;
 ```
 
 ## 8. 事件协议
@@ -671,15 +721,16 @@ type ApproveActionCommand = {
 ### 8.1 通用事件头
 
 ```ts
-type EventEnvelope<T> = {
+type EventEnvelope<T extends NeuroCoreEventType> = {
   event_id: string;
-  event_type: string;
+  event_type: T;
   schema_version: string;
   tenant_id: string;
   session_id?: string;
   cycle_id?: string;
   timestamp: string;
-  payload: T;
+  sequence_no: number;
+  payload: NeuroCoreEventPayloadMap[T];
 };
 ```
 
@@ -687,22 +738,35 @@ type EventEnvelope<T> = {
 
 - `session.created`
 - `session.state_changed`
+- `session.suspended`
+- `session.resumed`
+- `runtime.status`
+- `runtime.output`
 - `goal.created`
 - `goal.updated`
+- `goal.completed`
 - `cycle.started`
 - `proposal.submitted`
 - `workspace.committed`
 - `action.selected`
-- `action.approval_requested`
 - `action.executed`
 - `observation.recorded`
 - `prediction.recorded`
 - `prediction_error.recorded`
 - `memory.written`
 - `skill.matched`
+- `skill.executed`
 - `skill.promoted`
+- `approval.requested`
+- `checkpoint.created`
 - `session.completed`
 - `session.failed`
+
+说明：
+
+- `event_type` 必须作为判别字段决定 `payload` 的静态类型。
+- `sequence_no` 必须在单个 session 内单调递增，用于 SSE 重连、增量拉取和因果排序。
+- 完整事件枚举与 payload 映射由 `packages/protocol/src/events.ts` 维护，SDK / Runtime / Console 共享同一份定义。
 
 ### 8.3 关键事件载荷要求
 
@@ -812,10 +876,22 @@ interface SkillProvider {
 
 ```ts
 interface PolicyProvider {
+  evaluateInput?(
+    ctx: ModuleContext,
+    input: UserInput | SystemInput
+  ): Promise<PolicyDecision[]>;
   name: string;
   evaluateAction(
     ctx: ModuleContext,
     action: CandidateAction
+  ): Promise<PolicyDecision[]>;
+  evaluateOutput?(
+    ctx: ModuleContext,
+    output: {
+      action: CandidateAction;
+      text: string;
+      ask_user_schema?: AskUserPromptSchema;
+    }
   ): Promise<PolicyDecision[]>;
 }
 ```
@@ -863,12 +939,19 @@ type PolicyDecision = {
   decision_id: string;
   policy_name: string;
   level: "info" | "warn" | "block";
+  severity: 10 | 20 | 30;
   target_type: "input" | "proposal" | "action" | "output";
   target_id?: string;
   reason: string;
   recommendation?: string;
 };
 ```
+
+其中：
+
+- `info -> 10`
+- `warn -> 20`
+- `block -> 30`
 
 ### 10.2 MetaDecision
 

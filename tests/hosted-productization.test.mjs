@@ -919,7 +919,7 @@ function makeApprovalAgent(approvalPolicy) {
   });
 
   if (approvalPolicy) {
-    agent.getProfile().approval_policy = approvalPolicy;
+    agent.configureApprovalPolicy(approvalPolicy);
   }
 
   return agent;

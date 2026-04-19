@@ -42,7 +42,7 @@ PA-M1 对话入口 MVP
 | `AgentBuilder.connectSession()` | 会通过 `runtime.getSession(sessionId)` 尝试重连 | 只有在共享 `RuntimeStateStore` 存在时，这个重连才可靠 |
 | `CreateSessionCommand.overrides` | 类型里有，但当前 runtime 未消费 | **不能依赖 per-session profile override** |
 | `configurePolicy()` | 当前只支持 `blockedTools` / `requiredApprovalTools` | 不能把它当成通用 policy/approval 配置入口 |
-| `approval_policy.allowed_approvers` | runtime 支持读取，但 `AgentBuilder` 没有公开配置方法 | 如需要限制 approver，先在产品层做一个薄封装或直接改 `profile` |
+| `approval_policy.allowed_approvers` | runtime 支持读取，`AgentBuilder` 已提供 `configureApprovalPolicy()` | 如需要限制 approver，直接走 builder 正式配置入口 |
 | 高副作用审批 | `CycleEngine` 默认会注入 `DefaultPolicyProvider`，高副作用动作会触发 `warn` | `sideEffectLevel: "high"` 的工具天然可进审批链 |
 | 输入归一化 | `runtime-server` 会自动补 `input_id / created_at`；embedded 模式不会 | IM Gateway 走 embedded 路径时必须自带 `UserInput` 工厂 |
 | 持久化恢复 | SQL-first 路径下，runtime snapshot 只持久化 goals / trace / approvals；memory 与 checkpoints 走独立 SQLite stores | 若要跨 runtime 保留记忆与 checkpoint，必须使用默认 SQL-first 路径或显式配置 SQLite memory/checkpoint persistence |
@@ -324,24 +324,17 @@ export class AssistantRuntimeFactory {
 - `RuntimeStateStore` 必须是**共享持久化存储**
 - 不要每次消息来都 new 一个不同配置的 builder
 
-### 5.3 `ApprovalPolicyPatch`
+### 5.3 `configureApprovalPolicy()`
 
-当前 SDK 没有公开的 `configureApprovalPolicy()`，但 runtime 会读取 `profile.approval_policy`。
-
-当前阶段允许用一个薄 helper：
+当前 SDK 已有正式 builder 配置入口：
 
 ```ts
-export function applyAllowedApprovers(
-  builder: AgentBuilder,
-  approverIds: string[]
-): void {
-  builder.getProfile().approval_policy = {
-    allowed_approvers: approverIds
-  };
-}
+builder.configureApprovalPolicy({
+  allowed_approvers: approverIds
+});
 ```
 
-这是一个明确的临时实现，不是理想 API。后续如改 core，应优先补正式 builder 方法。
+更细粒度的 tenant/risk allow-list 也直接在这里配置，不再直改 `profile`。
 
 ---
 
@@ -617,7 +610,7 @@ tests/
 直接做法：
 
 - 当前需要不同 profile 时，创建不同 builder
-- 或者在组装期直接 patch `builder.getProfile()`
+- 或者在组装期显式调用 builder 配置方法，例如 `configureRuntime()`、`configureMemory()`、`configureApprovalPolicy()`
 
 ### 9.2 不要把 `configurePolicy()` 当成通用审批配置
 
@@ -627,7 +620,7 @@ tests/
 
 - 需要某个工具强制审批：`requiredApprovalTools`
 - 需要高副作用动作默认审批：靠 `DefaultPolicyProvider` + `sideEffectLevel: "high"`
-- 需要 approver allow-list：patch `profile.approval_policy`
+- 需要 approver allow-list：`configureApprovalPolicy()`
 
 ### 9.3 不要把历史 events 当恢复源
 
@@ -657,11 +650,10 @@ tests/
 
 这些不是当前 personal assistant 开工的阻塞项，但如果要让产品层代码更干净，值得后续补回核心仓库：
 
-1. `sdk-core` 增加 `configureApprovalPolicy()`
-2. `CreateSessionCommand.overrides` 真正接入 runtime
-3. `sdk-core` 提供 `createUserInput()` 官方 helper
-4. `runtime-core` 支持事件历史持久化
-5. `sdk-core` 提供 `connectOrCreateSession()` 高层 helper
+1. `CreateSessionCommand.overrides` 真正接入 runtime
+2. `sdk-core` 提供 `createUserInput()` 官方 helper
+3. `runtime-core` 支持事件历史持久化
+4. `sdk-core` 提供 `connectOrCreateSession()` 高层 helper
 
 这些增强都不应成为当前实现前置条件，但应作为“减少产品层补丁代码”的明确 backlog。
 

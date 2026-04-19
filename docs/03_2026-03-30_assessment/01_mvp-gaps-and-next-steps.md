@@ -6,6 +6,7 @@
 > - 本文只保留对 MVP 阶段的历史验收记录，不再作为当前项目状态判断依据。
 > - “测试全部通过”与“全部 post-MVP 目标已交付”等表述已失效。
 > - 当前真实代码状态请参见 [`docs/README.md`](../README.md) 与 [`03_code-audit-checklist.md`](./03_code-audit-checklist.md)。
+> - 2026-04-20 补充：`SDK / Protocol Tightening` 已收口完成；本轮额外验证了 `tests/sdk-protocol-tightening.test.mjs`、`tests/remote-client-hardening.test.mjs`、`tests/policy-governance.test.mjs`、`tests/hosted-productization.test.mjs` 与 `tests/eval-api.test.mjs`。
 
 ## 交付总结
 

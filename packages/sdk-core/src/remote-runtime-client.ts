@@ -6,12 +6,15 @@ import type {
   NeuroCoreEvent,
   NeuroCoreEventType,
   SessionCheckpoint,
+  SessionReplay,
   UserInput,
   WorkspaceSnapshot
 } from "@neurocore/protocol";
 import { randomUUID } from "node:crypto";
 import type {
   SessionEventFilter,
+  PaginatedResult,
+  SessionHandleLike,
   SessionApprovalDecisionInput,
   SessionApprovalDecisionResult
 } from "./types.js";
@@ -150,27 +153,87 @@ export class RemoteAgentClient {
   }
 
   public async fetchTraces(sessionId: string): Promise<CycleTraceRecord[]> {
-    const response = await this.request<{ traces: CycleTraceRecord[] }>(
+    const response = await this.fetchTracesPage(sessionId);
+    return response.items;
+  }
+
+  public async fetchTracesPage(
+    sessionId: string,
+    pagination?: { offset?: number; limit?: number }
+  ): Promise<PaginatedResult<CycleTraceRecord>> {
+    const response = await this.request<{
+      traces: CycleTraceRecord[];
+      total: number;
+      offset: number;
+      limit: number;
+      has_more: boolean;
+    }>(
       "GET",
-      `/v1/sessions/${encodeURIComponent(sessionId)}/traces`
+      `/v1/sessions/${encodeURIComponent(sessionId)}/traces${toPaginationQuery(pagination)}`
     );
-    return response.traces;
+    return {
+      items: response.traces,
+      total: response.total,
+      offset: response.offset,
+      limit: response.limit,
+      has_more: response.has_more
+    };
   }
 
   public async fetchEpisodes(sessionId: string): Promise<Episode[]> {
-    const response = await this.request<{ episodes: Episode[] }>(
+    const response = await this.fetchEpisodesPage(sessionId);
+    return response.items;
+  }
+
+  public async fetchEpisodesPage(
+    sessionId: string,
+    pagination?: { offset?: number; limit?: number }
+  ): Promise<PaginatedResult<Episode>> {
+    const response = await this.request<{
+      episodes: Episode[];
+      total: number;
+      offset: number;
+      limit: number;
+      has_more: boolean;
+    }>(
       "GET",
-      `/v1/sessions/${encodeURIComponent(sessionId)}/episodes`
+      `/v1/sessions/${encodeURIComponent(sessionId)}/episodes${toPaginationQuery(pagination)}`
     );
-    return response.episodes;
+    return {
+      items: response.episodes,
+      total: response.total,
+      offset: response.offset,
+      limit: response.limit,
+      has_more: response.has_more
+    };
   }
 
   public async fetchEvents(sessionId: string): Promise<NeuroCoreEvent[]> {
-    const response = await this.request<{ events: NeuroCoreEvent[] }>(
+    const response = await this.fetchEventsPage(sessionId);
+    return response.items;
+  }
+
+  public async fetchEventsPage(
+    sessionId: string,
+    pagination?: { offset?: number; limit?: number }
+  ): Promise<PaginatedResult<NeuroCoreEvent>> {
+    const response = await this.request<{
+      events: NeuroCoreEvent[];
+      total: number;
+      offset: number;
+      limit: number;
+      has_more: boolean;
+    }>(
       "GET",
-      `/v1/sessions/${encodeURIComponent(sessionId)}/events`
+      `/v1/sessions/${encodeURIComponent(sessionId)}/events${toPaginationQuery(pagination)}`
     );
-    return response.events;
+    return {
+      items: response.events,
+      total: response.total,
+      offset: response.offset,
+      limit: response.limit,
+      has_more: response.has_more
+    };
   }
 
   public async fetchWorkspace(sessionId: string, cycleId: string): Promise<WorkspaceSnapshot> {
@@ -179,6 +242,18 @@ export class RemoteAgentClient {
       `/v1/sessions/${encodeURIComponent(sessionId)}/workspace/${encodeURIComponent(cycleId)}`
     );
     return response.workspace;
+  }
+
+  public async fetchReplay(sessionId: string) {
+    return this.request(
+      "GET",
+      `/v1/sessions/${encodeURIComponent(sessionId)}/replay`
+    ) as Promise<{
+      session_id: string;
+      cycle_count: number;
+      traces: CycleTraceRecord[];
+      final_output?: string | null;
+    }>;
   }
 
   public async fetchApproval(approvalId: string): Promise<ApprovalRequest> {
@@ -408,7 +483,7 @@ export class RemoteAgentClient {
   }
 }
 
-export class RemoteSessionHandle {
+export class RemoteSessionHandle implements SessionHandleLike<AgentSession, SessionReplay, RemoteSessionRecord> {
   private record: RemoteSessionRecord;
 
   public constructor(
@@ -527,12 +602,30 @@ export class RemoteSessionHandle {
     return this.client.fetchTraces(this.id);
   }
 
+  public async getTraceRecordsPage(
+    pagination?: { offset?: number; limit?: number }
+  ): Promise<PaginatedResult<CycleTraceRecord>> {
+    return this.client.fetchTracesPage(this.id, pagination);
+  }
+
   public async getEpisodes(): Promise<Episode[]> {
     return this.client.fetchEpisodes(this.id);
   }
 
+  public async getEpisodesPage(
+    pagination?: { offset?: number; limit?: number }
+  ): Promise<PaginatedResult<Episode>> {
+    return this.client.fetchEpisodesPage(this.id, pagination);
+  }
+
   public async getEvents(): Promise<NeuroCoreEvent[]> {
     return this.client.fetchEvents(this.id);
+  }
+
+  public async getEventsPage(
+    pagination?: { offset?: number; limit?: number }
+  ): Promise<PaginatedResult<NeuroCoreEvent>> {
+    return this.client.fetchEventsPage(this.id, pagination);
   }
 
   public async getFilteredEvents(filter: SessionEventFilter): Promise<NeuroCoreEvent[]> {
@@ -541,6 +634,14 @@ export class RemoteSessionHandle {
 
   public async getWorkspace(cycleId: string): Promise<WorkspaceSnapshot> {
     return this.client.fetchWorkspace(this.id, cycleId);
+  }
+
+  public async replay(): Promise<SessionReplay> {
+    const replay = await this.client.fetchReplay(this.id);
+    return {
+      ...replay,
+      final_output: replay.final_output ?? undefined
+    };
   }
 
   public async getApproval(approvalId?: string): Promise<ApprovalRequest> {
@@ -716,4 +817,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function toPaginationQuery(pagination?: { offset?: number; limit?: number }) {
+  const search = new URLSearchParams();
+  if (typeof pagination?.offset === "number") {
+    search.set("offset", String(pagination.offset));
+  }
+  if (typeof pagination?.limit === "number") {
+    search.set("limit", String(pagination.limit));
+  }
+  const encoded = search.toString();
+  return encoded ? `?${encoded}` : "";
 }

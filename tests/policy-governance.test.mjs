@@ -52,7 +52,7 @@ test("approval policy resolves allowed approvers by tenant and risk precedence",
       }
     });
 
-  agent.getProfile().approval_policy = {
+  agent.configureApprovalPolicy({
     allowed_approvers: ["global-approver"],
     allowed_approvers_by_tenant: {
       "tenant-a": ["tenant-approver"]
@@ -65,7 +65,7 @@ test("approval policy resolves allowed approvers by tenant and risk precedence",
         high: ["tenant-risk-approver"]
       }
     }
-  };
+  });
 
   const session = agent.createSession({
     tenant_id: "tenant-a",

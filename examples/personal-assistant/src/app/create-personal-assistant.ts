@@ -77,9 +77,9 @@ export function createPersonalAssistantAgent(config: PersonalAssistantAppConfig)
   }
 
   if (config.agent?.approvers && config.agent.approvers.length > 0) {
-    agent.getProfile().approval_policy = {
+    agent.configureApprovalPolicy({
       allowed_approvers: config.agent.approvers
-    };
+    });
   }
 
   return agent;
