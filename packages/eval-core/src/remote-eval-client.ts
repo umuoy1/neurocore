@@ -17,8 +17,17 @@ export class RemoteEvalClient {
     this.defaultHeaders = options.headers ?? {};
   }
 
-  public async runEval(agentId: string, cases: EvalCase[]): Promise<EvalRunReport> {
-    return this.request<EvalRunReport>("POST", "/v1/evals/runs", { agent_id: agentId, cases });
+  public async runEval(
+    agentId: string,
+    cases: EvalCase[],
+    options?: { parallelism?: number; agentVersion?: string }
+  ): Promise<EvalRunReport> {
+    return this.request<EvalRunReport>("POST", "/v1/evals/runs", {
+      agent_id: agentId,
+      cases,
+      ...(typeof options?.parallelism === "number" ? { parallelism: options.parallelism } : {}),
+      ...(typeof options?.agentVersion === "string" ? { agent_version: options.agentVersion } : {})
+    });
   }
 
   public async getEvalReport(runId: string): Promise<EvalRunReport> {

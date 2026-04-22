@@ -57,6 +57,7 @@ export class SessionManager {
       schema_version: profile.schema_version,
       tenant_id: command.tenant_id,
       agent_id: profile.agent_id,
+      agent_version: command.agent_version ?? profile.version,
       user_id: command.user_id,
       state: "created",
       session_mode: command.session_mode ?? "sync",
@@ -69,6 +70,11 @@ export class SessionManager {
         token_budget_used: 0
       },
       policy_state: {},
+      metadata: profile.observability_config
+        ? {
+            observability_config: structuredClone(profile.observability_config)
+          }
+        : undefined,
       started_at: nowIso()
     };
 

@@ -174,4 +174,33 @@ test("InMemoryDistributedGoalManager", async (t) => {
     assert.equal(progress.total, 0);
     assert.equal(progress.completed, 0);
   });
+
+  await t.test("conflicting status update is rejected and recorded", async () => {
+    const mgr = new InMemoryDistributedGoalManager();
+    const strategy = new HierarchicalStrategy({ worker_selection: "round_robin" });
+    const agents = [makeAgent({ instance_id: "w1", agent_id: "a1" })];
+    await mgr.decompose("parent-1", [{ title: "Task", priority: 1 }], strategy, agents);
+    await mgr.updateStatus("parent-1-sub-0", "completed", 1, {
+      agent_id: "other-agent",
+      instance_id: "other-instance"
+    });
+    const assignment = await mgr.getAssignment("parent-1-sub-0");
+    assert.equal(assignment?.status, "pending");
+    const conflicts = await mgr.getConflicts("parent-1-sub-0");
+    assert.equal(conflicts.length, 1);
+    assert.equal(conflicts[0].action, "status_update");
+  });
+
+  await t.test("matching owner may update assignment", async () => {
+    const mgr = new InMemoryDistributedGoalManager();
+    const strategy = new HierarchicalStrategy({ worker_selection: "round_robin" });
+    const agents = [makeAgent({ instance_id: "w1", agent_id: "a1" })];
+    await mgr.decompose("parent-1", [{ title: "Task", priority: 1 }], strategy, agents);
+    await mgr.updateStatus("parent-1-sub-0", "completed", 1, {
+      agent_id: "a1",
+      instance_id: "w1"
+    });
+    const assignment = await mgr.getAssignment("parent-1-sub-0");
+    assert.equal(assignment?.status, "completed");
+  });
 });

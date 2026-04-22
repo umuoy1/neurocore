@@ -9,6 +9,7 @@ export * from "./delegation/task-delegator.js";
 export * from "./delegation/delegation-strategies.js";
 export * from "./delegation/auction-manager.js";
 export * from "./coordination/coordination-strategy.js";
+export * from "./coordination/coordination-strategy-registry.js";
 export * from "./coordination/hierarchical-strategy.js";
 export * from "./coordination/peer-to-peer-strategy.js";
 export * from "./coordination/market-based-strategy.js";

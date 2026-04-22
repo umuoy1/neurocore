@@ -247,3 +247,28 @@ test("delegated child session forwards context and exposes assigned session id",
     await mesh.close();
   }
 });
+
+test("mesh exposes configured coordination strategy and publishes agent lifecycle events", async () => {
+  const mesh = new InProcessAgentMesh();
+  const lifecycleEvents = [];
+  mesh.bus.subscribe("agent.lifecycle", async (message) => {
+    lifecycleEvents.push(message.payload.type);
+  });
+
+  const agent = defineAgent({
+    id: "market-agent",
+    role: "Coordinator"
+  }).configureMultiAgent({
+    enabled: true,
+    coordination_strategy: "market_based"
+  });
+
+  await mesh.registerAgent(agent);
+
+  try {
+    assert.equal(mesh.getCoordinationStrategy("market-agent").name, "market_based");
+    assert.ok(lifecycleEvents.includes("agent.registered"));
+  } finally {
+    await mesh.close();
+  }
+});

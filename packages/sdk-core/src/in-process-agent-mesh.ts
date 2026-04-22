@@ -1,5 +1,6 @@
 import type { AgentProfile, CreateSessionCommand } from "@neurocore/protocol";
 import {
+  CoordinationStrategyRegistry,
   DefaultAgentLifecycleManager,
   DefaultTaskDelegator,
   InMemoryAgentRegistry,
@@ -26,6 +27,7 @@ export class InProcessAgentMesh {
   public readonly bus = new LocalInterAgentBus();
   public readonly distributedGoalManager = new InMemoryDistributedGoalManager(this.bus);
   public readonly sharedStateStore = new InMemorySharedStateStore(this.bus);
+  public readonly coordinationStrategies = new CoordinationStrategyRegistry();
   public readonly agentLifecycleManager = new DefaultAgentLifecycleManager(
     this.registry,
     this.bus,
@@ -34,6 +36,71 @@ export class InProcessAgentMesh {
   public readonly taskDelegator = new DefaultTaskDelegator(this.registry, this.bus);
 
   private readonly registrations = new Map<string, RegisteredAgentEntry>();
+
+  public constructor() {
+    this.registry.onRegistered((descriptor) => {
+      void this.bus.publish("agent.lifecycle", {
+        message_id: `agent-registered-${descriptor.instance_id}-${Date.now()}`,
+        correlation_id: descriptor.instance_id,
+        trace_id: descriptor.instance_id,
+        pattern: "event",
+        source_agent_id: descriptor.agent_id,
+        source_instance_id: descriptor.instance_id,
+        payload: {
+          type: "agent.registered",
+          descriptor
+        },
+        created_at: new Date().toISOString()
+      });
+    });
+    this.registry.onDeregistered((descriptor) => {
+      void this.bus.publish("agent.lifecycle", {
+        message_id: `agent-deregistered-${descriptor.instance_id}-${Date.now()}`,
+        correlation_id: descriptor.instance_id,
+        trace_id: descriptor.instance_id,
+        pattern: "event",
+        source_agent_id: descriptor.agent_id,
+        source_instance_id: descriptor.instance_id,
+        payload: {
+          type: "agent.deregistered",
+          descriptor
+        },
+        created_at: new Date().toISOString()
+      });
+    });
+    this.registry.onHeartbeatLost((descriptor, previous) => {
+      void this.bus.publish("agent.lifecycle", {
+        message_id: `agent-heartbeat-lost-${descriptor.instance_id}-${Date.now()}`,
+        correlation_id: descriptor.instance_id,
+        trace_id: descriptor.instance_id,
+        pattern: "event",
+        source_agent_id: descriptor.agent_id,
+        source_instance_id: descriptor.instance_id,
+        payload: {
+          type: "agent.heartbeat_lost",
+          descriptor,
+          previous_status: previous
+        },
+        created_at: new Date().toISOString()
+      });
+    });
+    this.registry.onStatusChange((descriptor, previous) => {
+      void this.bus.publish("agent.lifecycle", {
+        message_id: `agent-status-${descriptor.instance_id}-${Date.now()}`,
+        correlation_id: descriptor.instance_id,
+        trace_id: descriptor.instance_id,
+        pattern: "event",
+        source_agent_id: descriptor.agent_id,
+        source_instance_id: descriptor.instance_id,
+        payload: {
+          type: "agent.status_changed",
+          descriptor,
+          previous_status: previous
+        },
+        created_at: new Date().toISOString()
+      });
+    });
+  }
 
   public async registerAgents(agents: Iterable<AgentBuilder>): Promise<AgentDescriptor[]> {
     const descriptors: AgentDescriptor[] = [];
@@ -75,6 +142,11 @@ export class InProcessAgentMesh {
 
   public getDescriptor(agentId: string): AgentDescriptor | undefined {
     return this.registrations.get(agentId)?.descriptor;
+  }
+
+  public getCoordinationStrategy(agentId: string) {
+    const profile = this.registrations.get(agentId)?.builder.getProfile();
+    return this.coordinationStrategies.resolve(profile?.multi_agent_config);
   }
 
   public async close(): Promise<void> {

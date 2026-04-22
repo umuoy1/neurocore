@@ -93,6 +93,26 @@ export class AgentSessionHandle implements SessionHandleLike<AgentSession, Sessi
     return this.runtime.getEpisodes(this.sessionId);
   }
 
+  public getWorkingMemory() {
+    return this.runtime.getWorkingMemory(this.sessionId);
+  }
+
+  public getSemanticMemory() {
+    return this.runtime.listSemanticMemory(this.sessionId);
+  }
+
+  public getSkills() {
+    return this.runtime.listSkills(this.sessionId);
+  }
+
+  public getWorldState() {
+    return this.runtime.getWorldState();
+  }
+
+  public async getDelegations() {
+    return this.runtime.listDelegations(this.sessionId);
+  }
+
   public getEpisodesPage(pagination?: { offset?: number; limit?: number }): PaginatedResult<Episode> {
     return paginate(this.getEpisodes(), pagination);
   }

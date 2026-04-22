@@ -26,7 +26,10 @@ import type {
   Prediction,
   PredictionError,
   PredictionStore,
+  PolicyUpdateEvent,
   Proposal,
+  RewardComputer,
+  RewardStore,
   Reasoner,
   ReflectionRule,
   ReflectionStore,
@@ -37,16 +40,35 @@ import type {
   SessionCheckpoint,
   SessionReplay,
   SessionState,
+  SkillEvaluator,
+  SkillSelection,
+  SkillPolicy,
   SkillProvider,
+  SkillPruneEvent,
   SkillStore,
+  SkillTransferEvent,
+  SkillTransferEngine,
   TraceStore,
+  ExplorationEvent,
   Goal,
   JsonValue,
+  OnlineLearner,
   UserInput,
   WorkspaceSnapshot
 } from "@neurocore/protocol";
-import type { DeviceRegistry, PerceptionPipeline } from "@neurocore/device-core";
-import { type ForwardSimulator, type WorldStateGraph, SimulationBasedPredictor } from "@neurocore/world-model";
+import type {
+  ActuatorCommand,
+  ActuatorOrchestrator,
+  DeviceRegistry,
+  PerceptionPipeline,
+  SensorFusionStrategy
+} from "@neurocore/device-core";
+import {
+  type ActiveInferenceEvaluator,
+  type ForwardSimulator,
+  type WorldStateGraph,
+  SimulationBasedPredictor
+} from "@neurocore/world-model";
 import type {
   TaskDelegator,
   AgentRegistry as MultiAgentRegistry,
@@ -81,8 +103,17 @@ import { InMemoryPredictionStore } from "../prediction/in-memory-prediction-stor
 import { computePredictionErrors } from "../prediction/prediction-error-computer.js";
 import { ReplayRunner } from "../replay/replay-runner.js";
 import { SessionManager, SessionStateConflictError } from "../session/session-manager.js";
+import { BanditSkillPolicy } from "../skill/bandit-skill-policy.js";
+import { InMemoryRewardStore } from "../skill/in-memory-reward-store.js";
+import { InMemorySkillPolicyStateStore } from "../skill/in-memory-skill-policy-store.js";
+import { SkillOnlineLearner } from "../skill/online-learner.js";
 import { ProceduralMemoryProvider } from "../skill/procedural-memory-provider.js";
+import { DefaultRewardComputer } from "../skill/reward-computer.js";
 import { executeSkill } from "../skill/skill-executor.js";
+import { DefaultSkillEvaluator } from "../skill/skill-evaluator.js";
+import { DefaultSkillTransferEngine } from "../skill/skill-transfer-engine.js";
+import { SqliteRewardStore } from "../skill/sqlite-reward-store.js";
+import { SqliteSkillPolicyStateStore } from "../skill/sqlite-skill-policy-store.js";
 import { InMemoryTraceStore } from "../trace/in-memory-trace-store.js";
 import { TraceRecorder } from "../trace/trace-recorder.js";
 import { debugLog } from "../utils/debug.js";
@@ -108,11 +139,20 @@ export interface AgentRuntimeOptions {
   calibrationStore?: CalibrationStore;
   providerReliabilityStore?: MetaSignalProviderReliabilityStore;
   reflectionStore?: ReflectionStore;
+  rewardStore?: RewardStore;
+  rewardComputer?: RewardComputer;
+  skillPolicy?: SkillPolicy;
+  skillEvaluator?: SkillEvaluator;
+  skillTransferEngine?: SkillTransferEngine;
+  onlineLearner?: OnlineLearner;
   predictionStore?: PredictionStore;
   deviceRegistry?: DeviceRegistry;
   worldStateGraph?: WorldStateGraph;
   perceptionPipeline?: PerceptionPipeline;
+  sensorFusionStrategy?: SensorFusionStrategy;
   forwardSimulator?: ForwardSimulator;
+  activeInferenceEvaluator?: ActiveInferenceEvaluator;
+  actuatorOrchestrator?: ActuatorOrchestrator;
   agentRegistry?: MultiAgentRegistry;
   interAgentBus?: InterAgentBus;
   taskDelegator?: TaskDelegator;
@@ -207,12 +247,19 @@ export class AgentRuntime {
   private readonly memoryPersistence?: AgentMemoryPersistence;
   private readonly predictionStore: PredictionStore;
   private readonly calibrator: Calibrator;
+  private readonly rewardStore: RewardStore;
+  private readonly rewardComputer: RewardComputer;
+  private readonly skillPolicy: SkillPolicy;
+  private readonly skillEvaluator: SkillEvaluator;
+  private readonly onlineLearner: OnlineLearner;
   private readonly approvals = new Map<string, ApprovalRequest>();
   private readonly pendingApprovals = new Map<string, PendingApprovalContext>();
   private readonly eventSequences = new Map<string, number>();
   private readonly deviceRegistry?: DeviceRegistry;
   private readonly worldStateGraph?: WorldStateGraph;
   private readonly perceptionPipeline?: PerceptionPipeline;
+  private readonly sensorFusionStrategy?: SensorFusionStrategy;
+  private readonly actuatorOrchestrator?: ActuatorOrchestrator;
   private readonly taskDelegator?: TaskDelegator;
   private readonly agentRegistry?: MultiAgentRegistry;
 
@@ -223,7 +270,8 @@ export class AgentRuntime {
       options.checkpointStore,
       options.calibrationStore,
       options.providerReliabilityStore,
-      options.reflectionStore
+      options.reflectionStore,
+      options.rewardStore
     );
     const memoryPersistence = options.memoryPersistence ?? derivedPersistence.memoryPersistence;
     const checkpointStore =
@@ -240,6 +288,10 @@ export class AgentRuntime {
       options.reflectionStore ??
       derivedPersistence.reflectionStore ??
       new InMemoryReflectionStore();
+    const rewardStore =
+      options.rewardStore ??
+      derivedPersistence.rewardStore ??
+      new InMemoryRewardStore();
     this.reasoner = options.reasoner;
     this.metaController = options.metaController ?? new DefaultMetaController();
     const traceStore = options.traceStore ?? new InMemoryTraceStore();
@@ -250,6 +302,19 @@ export class AgentRuntime {
     this.calibrator = new Calibrator(calibrationStore);
     this.providerReliabilityStore = providerReliabilityStore;
     this.reflectionLearner = new ReflectionLearner(reflectionStore);
+    this.rewardStore = rewardStore;
+    this.rewardComputer = options.rewardComputer ?? new DefaultRewardComputer();
+    this.skillPolicy =
+      options.skillPolicy ??
+      new BanditSkillPolicy(
+        derivedPersistence.skillPolicyStateStore ?? new InMemorySkillPolicyStateStore()
+      );
+    this.skillEvaluator = options.skillEvaluator ?? new DefaultSkillEvaluator();
+    this.onlineLearner =
+      options.onlineLearner ??
+      new SkillOnlineLearner({
+        policy: this.skillPolicy
+      });
     this.workingMemoryProvider = new WorkingMemoryProvider(
       undefined,
       memoryPersistence?.working as WorkingMemoryPersistenceStore | undefined
@@ -264,7 +329,11 @@ export class AgentRuntime {
     this.traceRecorder = new TraceRecorder(traceStore);
     this.replayRunner = new ReplayRunner(traceStore);
     this.proceduralMemoryProvider = new ProceduralMemoryProvider(
-      options.skillStore ?? memoryPersistence?.skillStore
+      options.skillStore ?? memoryPersistence?.skillStore,
+      3,
+      this.skillPolicy,
+      this.skillEvaluator,
+      options.skillTransferEngine ?? new DefaultSkillTransferEngine()
     );
     this.memoryProviders = [
       this.workingMemoryProvider,
@@ -279,12 +348,18 @@ export class AgentRuntime {
     this.deviceRegistry = options.deviceRegistry;
     this.worldStateGraph = options.worldStateGraph;
     this.perceptionPipeline = options.perceptionPipeline;
+    this.sensorFusionStrategy = options.sensorFusionStrategy;
+    this.actuatorOrchestrator = options.actuatorOrchestrator;
     this.taskDelegator = options.taskDelegator;
     this.agentRegistry = options.agentRegistry;
     if (options.forwardSimulator && options.worldStateGraph) {
       this.predictors = [
         ...this.predictors,
-        new SimulationBasedPredictor(options.forwardSimulator, options.worldStateGraph)
+        new SimulationBasedPredictor(
+          options.forwardSimulator,
+          options.worldStateGraph,
+          options.activeInferenceEvaluator
+        )
       ];
     }
   }
@@ -354,6 +429,7 @@ export class AgentRuntime {
       },
       deviceRegistry: this.deviceRegistry,
       perceptionPipeline: this.perceptionPipeline,
+      sensorFusionStrategy: this.sensorFusionStrategy,
       worldStateGraph: this.worldStateGraph,
       taskDelegator: this.taskDelegator,
       agentRegistry: this.agentRegistry
@@ -371,9 +447,21 @@ export class AgentRuntime {
     this.emitCycleStarted(session, result.cycleId, startedAt);
     for (const proposal of result.proposals) {
       this.emitEvent(session, "proposal.submitted", proposal, result.cycleId);
+      if (proposal.proposal_type === "skill_match" && typeof proposal.payload.skill_id === "string") {
+        const skill = this.proceduralMemoryProvider.getStore().get(proposal.payload.skill_id);
+        if (skill) {
+          this.emitEvent(session, "skill.matched", skill, result.cycleId);
+        }
+      }
     }
     for (const prediction of result.predictions) {
       this.emitEvent(session, "prediction.recorded", prediction, result.cycleId);
+    }
+    const transferredSkill = this.proceduralMemoryProvider.getLastTransferResult();
+    if (transferredSkill) {
+      this.emitEvent(session, "skill.transferred", this.toSkillTransferEvent(session, transferredSkill), result.cycleId);
+      this.proceduralMemoryProvider.clearLastTransferResult();
+      this.proceduralMemoryProvider.clearLastTransferredSkill();
     }
     this.emitEvent(session, "workspace.committed", result.workspace, result.cycleId);
     if (selectedAction) {
@@ -615,6 +703,19 @@ export class AgentRuntime {
     return session ? structuredClone(session) : undefined;
   }
 
+  public listKnownSessions(): AgentSession[] {
+    const sessions = new Map<string, AgentSession>();
+    for (const session of this.sessions.list()) {
+      sessions.set(session.session_id, structuredClone(session));
+    }
+    for (const snapshot of this.stateStore?.listSessions() ?? []) {
+      if (!sessions.has(snapshot.session.session_id)) {
+        sessions.set(snapshot.session.session_id, structuredClone(snapshot.session));
+      }
+    }
+    return [...sessions.values()];
+  }
+
   public getSkillProvider(): ProceduralMemoryProvider {
     return this.proceduralMemoryProvider;
   }
@@ -626,6 +727,42 @@ export class AgentRuntime {
   public getWorkingMemory(sessionId: string) {
     this.requireSession(sessionId);
     return structuredClone(this.workingMemoryProvider.list(sessionId));
+  }
+
+  public listSemanticMemory(sessionId: string) {
+    this.requireSession(sessionId);
+    const session = this.sessions.get(sessionId);
+    return session
+      ? this.semanticMemoryProvider.list(session.tenant_id, sessionId)
+      : [];
+  }
+
+  public listSkills(sessionId: string) {
+    this.requireSession(sessionId);
+    const session = this.sessions.get(sessionId);
+    return session
+      ? structuredClone(this.proceduralMemoryProvider.listSkills(session.tenant_id))
+      : [];
+  }
+
+  public getWorldState() {
+    return this.worldStateGraph?.snapshot();
+  }
+
+  public listDevices() {
+    return this.deviceRegistry?.listAll().map((device) => structuredClone(device)) ?? [];
+  }
+
+  public async listDelegations(sessionId?: string) {
+    const records = await this.taskDelegator?.listStatuses?.();
+    if (!records) {
+      return [];
+    }
+    return structuredClone(
+      sessionId
+        ? records.filter((record) => record.source_session_id === sessionId)
+        : records
+    );
   }
 
   public listGoals(sessionId: string): Goal[] {
@@ -653,6 +790,22 @@ export class AgentRuntime {
       this.requireSession(sessionId);
     }
     return structuredClone(this.reflectionLearner.list(sessionId));
+  }
+
+  public listRewardSignals(sessionId: string) {
+    this.requireSession(sessionId);
+    const session = this.sessions.get(sessionId);
+    return session ? structuredClone(
+      this.rewardStore
+        .listByTenantId(session.tenant_id)
+        .filter((signal) => signal.session_id === sessionId)
+    ) : [];
+  }
+
+  public listSkillPolicyStates(sessionId: string) {
+    this.requireSession(sessionId);
+    const session = this.sessions.get(sessionId);
+    return session ? structuredClone(this.skillPolicy.listStates(session.tenant_id)) : [];
   }
 
   public getEpisodes(sessionId: string): Episode[] {
@@ -1176,6 +1329,30 @@ export class AgentRuntime {
   }
 
   private recordTrace(input: Parameters<TraceRecorder["record"]>[0]): CycleTrace {
+    const session = this.sessions.get(input.sessionId);
+    if (session) {
+      const observabilityConfig =
+        session.metadata &&
+        typeof session.metadata === "object" &&
+        "observability_config" in session.metadata
+          ? (session.metadata.observability_config as { trace_enabled?: boolean })
+          : undefined;
+      if (observabilityConfig?.trace_enabled === false) {
+        return {
+          trace_id: generateId("trc"),
+          session_id: input.sessionId,
+          cycle_id: input.cycleId,
+          started_at: input.startedAt,
+          ended_at: input.endedAt ?? nowIso(),
+          input_refs: [],
+          proposal_refs: [],
+          prediction_refs: [],
+          policy_decision_refs: [],
+          prediction_error_refs: [],
+          observation_refs: []
+        };
+      }
+    }
     return this.traceRecorder.record(input);
   }
 
@@ -1401,6 +1578,8 @@ export class AgentRuntime {
       });
       const skillResult = await this.trySkillExecution(profile, session, input, startedAt, cycle, selectedAction);
       if (skillResult) return skillResult;
+      const actuatorResult = await this.tryActuatorOrchestration(profile, session, input, startedAt, cycle, selectedAction);
+      if (actuatorResult) return actuatorResult;
 
       const matchedSkillProposal = findSkillProposal(cycle.proposals, selectedAction);
       const { execution, observation } = await this.tools.execute(
@@ -1462,7 +1641,8 @@ export class AgentRuntime {
         cycle.predictions,
         execution,
         cycle.metaAssessment,
-        cycle.metaSignalFrame
+        cycle.metaSignalFrame,
+        deriveSkillLearningContext(this.proceduralMemoryProvider, cycle.proposals, selectedAction)
       );
 
       const sessionState = this.updateSessionState(sessionId, "waiting").state;
@@ -1545,7 +1725,8 @@ export class AgentRuntime {
     });
     const { predictionErrors, calibrationRecord, createdReflectionRule } = await this.recordObservation(
       profile, session, input, cycle.cycleId, selectedAction, observation, "success",
-      cycle.predictions, execution, cycle.metaAssessment, cycle.metaSignalFrame
+      cycle.predictions, execution, cycle.metaAssessment, cycle.metaSignalFrame,
+      deriveSkillLearningContext(this.proceduralMemoryProvider, cycle.proposals, selectedAction)
     );
     const sessionState = this.updateSessionState(sessionId, targetState).state;
     if (sessionState === "completed") {
@@ -1717,7 +1898,8 @@ export class AgentRuntime {
       cycle.predictions,
       execution,
       cycle.metaAssessment,
-      cycle.metaSignalFrame
+      cycle.metaSignalFrame,
+      deriveSkillLearningContext(this.proceduralMemoryProvider, cycle.proposals, selectedAction)
     );
     const sessionState = this.updateSessionState(sessionId, "waiting").state;
     const trace = this.recordTrace({
@@ -2094,7 +2276,8 @@ export class AgentRuntime {
         cycle.predictions.filter((prediction) => prediction.action_id === action.action_id),
         execution,
         cycle.metaAssessment,
-        cycle.metaSignalFrame
+        cycle.metaSignalFrame,
+        deriveSkillLearningContext(this.proceduralMemoryProvider, cycle.proposals, action)
       );
       return {
         action,
@@ -2153,7 +2336,8 @@ export class AgentRuntime {
       cycle.predictions.filter((prediction) => prediction.action_id === action.action_id),
       execution,
       cycle.metaAssessment,
-      cycle.metaSignalFrame
+      cycle.metaSignalFrame,
+      deriveSkillLearningContext(this.proceduralMemoryProvider, cycle.proposals, action)
     );
     return {
       action,
@@ -2287,7 +2471,8 @@ export class AgentRuntime {
     const { predictionErrors, calibrationRecord, createdReflectionRule } = await this.recordObservation(
       profile, session, input, cycle.cycleId, selectedAction, observation,
       observation.status === "failure" ? "failure" : "partial",
-      cycle.predictions, execution, cycle.metaAssessment, cycle.metaSignalFrame
+      cycle.predictions, execution, cycle.metaAssessment, cycle.metaSignalFrame,
+      deriveSkillLearningContext(this.proceduralMemoryProvider, cycle.proposals, selectedAction)
     );
 
     const sessionState = this.updateSessionState(sessionId, "waiting").state;
@@ -2338,7 +2523,11 @@ export class AgentRuntime {
     predictions?: Prediction[],
     execution?: ActionExecution,
     metaAssessment?: import("@neurocore/protocol").MetaAssessment,
-    metaSignalFrame?: import("@neurocore/protocol").MetaSignalFrame
+    metaSignalFrame?: import("@neurocore/protocol").MetaSignalFrame,
+    skillLearning?: {
+      skill_id?: string;
+      selection?: SkillSelection | null;
+    }
   ): Promise<{ predictionErrors: PredictionError[]; calibrationRecord?: CalibrationRecord; createdReflectionRule?: ReflectionRule }> {
     if (profile.memory_config.working_memory_enabled !== false) {
       this.workingMemoryProvider.appendObservation(
@@ -2376,7 +2565,27 @@ export class AgentRuntime {
 
     const valence = this.deriveValence(outcome, predictionErrors);
     const lessons = this.deriveLessons(predictionErrors);
-    await this.persistEpisode(profile, session, input, cycleId, action, observation, outcome, valence, lessons);
+    const episode = await this.persistEpisode(
+      profile,
+      session,
+      input,
+      cycleId,
+      action,
+      observation,
+      outcome,
+      valence,
+      lessons
+    );
+    await this.learnFromEpisode({
+      profile,
+      session,
+      cycleId,
+      episode,
+      predictionErrors,
+      skillId: skillLearning?.skill_id,
+      skillSelection: skillLearning?.selection,
+      cycleMetrics: this.buildRewardCycleMetrics(session.session_id, input, observation, execution)
+    });
     const calibrationRecord = this.calibrator.record({
       sessionId: session.session_id,
       cycleId,
@@ -2491,7 +2700,7 @@ export class AgentRuntime {
     outcome: Episode["outcome"],
     valence?: Episode["valence"],
     lessons?: string[]
-  ): Promise<void> {
+  ): Promise<Episode> {
     const episode: Episode = {
       episode_id: `epi_${observation.observation_id}`,
       schema_version: profile.schema_version,
@@ -2532,6 +2741,271 @@ export class AgentRuntime {
       this.emitEvent(session, "skill.promoted", promoted, cycleId);
       this.proceduralMemoryProvider.clearLastPromotedSkill();
     }
+    return episode;
+  }
+
+  private async learnFromEpisode(input: {
+    profile: AgentProfile;
+    session: AgentSession;
+    cycleId: string;
+    episode: Episode;
+    predictionErrors: PredictionError[];
+    skillId?: string;
+    skillSelection?: SkillSelection | null;
+    cycleMetrics?: {
+      cycle_index?: number;
+      total_latency_ms?: number;
+      total_tokens?: number;
+      input_tokens?: number;
+      output_tokens?: number;
+    };
+  }): Promise<void> {
+    if (input.profile.rl_config?.enabled === false) {
+      return;
+    }
+
+    const rewardSignal = await this.rewardComputer.compute(input.episode, {
+      tenant_id: input.session.tenant_id,
+      session_id: input.session.session_id,
+      skill_id: input.skillId,
+      reward_config: input.profile.rl_config?.reward,
+      prediction_errors: input.predictionErrors,
+      cycle_metrics: input.cycleMetrics,
+      baseline_metrics: this.buildRewardBaselineMetrics(input.session.tenant_id, input.skillId)
+    });
+    this.rewardStore.save(rewardSignal);
+    this.emitEvent(input.session, "reward.computed", rewardSignal, input.cycleId);
+
+    if (!input.skillId) {
+      return;
+    }
+
+    if (input.skillSelection?.selection_reason === "explore") {
+      this.emitEvent(
+        input.session,
+        "exploration.triggered",
+        this.toExplorationEvent(input.session, input.cycleId, input.skillSelection),
+        input.cycleId
+      );
+    }
+
+    if (this.skillPolicy instanceof BanditSkillPolicy) {
+      this.skillPolicy.configure({
+        alpha: input.profile.rl_config?.policy?.alpha
+      });
+    }
+
+    const policyUpdate = await this.skillPolicy.update({
+      feedback_id: generateId("plf"),
+      tenant_id: input.session.tenant_id,
+      session_id: input.session.session_id,
+      cycle_id: input.cycleId,
+      skill_id: input.skillId,
+      context_key: input.skillSelection?.context_key,
+      goal_type: input.skillSelection?.goal_type,
+      domain: input.skillSelection?.domain,
+      action_type: input.skillSelection?.action_type,
+      tool_name: input.skillSelection?.tool_name,
+      risk_level: input.skillSelection?.risk_level,
+      reward_signal_id: rewardSignal.signal_id,
+      composite_reward: rewardSignal.composite_reward,
+      success: input.episode.outcome === "success",
+      source: "episode",
+      updated_at: nowIso()
+    });
+    this.emitEvent(
+      input.session,
+      "policy.updated",
+      this.toPolicyUpdateEvent(input.session, policyUpdate),
+      input.cycleId
+    );
+
+    if (input.profile.rl_config?.online_learning?.enabled !== false) {
+      if (this.onlineLearner instanceof SkillOnlineLearner) {
+        this.onlineLearner.configure({
+          replayBufferSize: input.profile.rl_config?.online_learning?.replay_buffer_size,
+          batchSize: input.profile.rl_config?.online_learning?.batch_size,
+          updateIntervalEpisodes: input.profile.rl_config?.online_learning?.update_interval_episodes
+        });
+      }
+
+      this.onlineLearner.observe({
+        experience_id: generateId("exp"),
+        tenant_id: input.session.tenant_id,
+        session_id: input.session.session_id,
+        cycle_id: input.cycleId,
+        skill_id: input.skillId,
+        reward_signal_id: rewardSignal.signal_id,
+        reward: rewardSignal.composite_reward,
+        td_error: policyUpdate.td_error,
+        created_at: nowIso()
+      });
+    }
+
+    const transferredSkillOutcome = this.proceduralMemoryProvider.reconcileTransferredSkillOutcome(
+      input.session.tenant_id,
+      input.skillId,
+      input.episode.outcome
+    );
+    if (transferredSkillOutcome?.status === "pruned") {
+      this.emitEvent(
+        input.session,
+        "skill.pruned",
+        this.toSkillPruneEvent(input.session.tenant_id, transferredSkillOutcome, "validation_failed"),
+        input.cycleId
+      );
+    }
+
+    this.proceduralMemoryProvider.evaluateSkills(
+      input.session.tenant_id,
+      (skillId) => this.rewardStore.listBySkillId(input.session.tenant_id, skillId),
+      input.profile,
+      nowIso()
+    );
+    for (const evaluation of this.proceduralMemoryProvider.drainLastEvaluations()) {
+      this.emitEvent(input.session, "skill.evaluated", evaluation, input.cycleId);
+    }
+    for (const skill of this.proceduralMemoryProvider.drainLastPrunedSkills()) {
+      this.emitEvent(
+        input.session,
+        "skill.pruned",
+        this.toSkillPruneEvent(input.session.tenant_id, skill, "evaluation_prune"),
+        input.cycleId
+      );
+    }
+  }
+
+  private buildRewardCycleMetrics(
+    sessionId: string,
+    input: UserInput,
+    observation: Observation,
+    execution?: ActionExecution
+  ): {
+    cycle_index: number;
+    total_latency_ms?: number;
+    total_tokens?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+  } {
+    const estimator = new DefaultTokenEstimator();
+    const inputTokens =
+      execution?.metrics?.input_tokens ??
+      estimator.estimate(input.content ?? collectContentPartText(input.content_parts));
+    const outputTokens =
+      execution?.metrics?.output_tokens ??
+      estimator.estimate([
+        observation.summary,
+        collectContentPartText(observation.content_parts)
+      ].filter(Boolean).join("\n"));
+    return {
+      cycle_index: this.getTraceRecords(sessionId).length + 1,
+      total_latency_ms: execution?.metrics?.latency_ms,
+      total_tokens: inputTokens + outputTokens,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens
+    };
+  }
+
+  private buildRewardBaselineMetrics(
+    tenantId: string,
+    skillId?: string
+  ): {
+    avg_cycles?: number;
+    avg_latency_ms?: number;
+    avg_tokens?: number;
+  } | undefined {
+    const baseline =
+      this.rewardStore.getAverageMetrics?.({
+        tenant_id: tenantId,
+        skill_id: skillId,
+        window_size: 20
+      }) ??
+      {};
+    if (
+      baseline.avg_cycles === undefined &&
+      baseline.avg_latency_ms === undefined &&
+      baseline.avg_tokens === undefined
+    ) {
+      return undefined;
+    }
+    return baseline;
+  }
+
+  private toPolicyUpdateEvent(
+    session: AgentSession,
+    update: import("@neurocore/protocol").PolicyUpdateResult
+  ): PolicyUpdateEvent {
+    const states = this.skillPolicy.listStates(session.tenant_id).filter((state) => state.skill_id === update.state.skill_id);
+    const totalSelections = states.reduce((sum, state) => sum + state.selection_count, 0);
+    const totalExplores = states.reduce((sum, state) => sum + state.explore_count, 0);
+    return {
+      tenant_id: session.tenant_id,
+      updated_skills: 1,
+      avg_td_error: update.td_error,
+      exploration_rate: totalSelections > 0 ? totalExplores / totalSelections : 0,
+      states,
+      updated_at: nowIso()
+    };
+  }
+
+  private toExplorationEvent(
+    session: AgentSession,
+    cycleId: string,
+    selection: SkillSelection
+  ): ExplorationEvent {
+    const states = this.skillPolicy.listStates(session.tenant_id).filter((state) => state.skill_id === selection.skill_id);
+    const totalSelections = states.reduce((sum, state) => sum + state.selection_count, 0);
+    const totalExplores = states.reduce((sum, state) => sum + state.explore_count, 0);
+    return {
+      tenant_id: session.tenant_id,
+      session_id: session.session_id,
+      cycle_id: cycleId,
+      strategy: selection.strategy ?? "epsilon_greedy",
+      explored_skill_id: selection.skill_id,
+      selection_reason: selection.selection_reason,
+      exploration_rate: totalSelections > 0 ? totalExplores / totalSelections : 0,
+      context_key: selection.context_key,
+      context_resolution_level: selection.context_resolution_level,
+      emitted_at: nowIso()
+    };
+  }
+
+  private toSkillTransferEvent(
+    session: AgentSession,
+    result: import("@neurocore/protocol").SkillTransferResult
+  ): SkillTransferEvent {
+    const transferredSkill = this.proceduralMemoryProvider.getStore().get(result.target_skill_id);
+    const metadata =
+      transferredSkill?.metadata && typeof transferredSkill.metadata === "object"
+        ? (transferredSkill.metadata as Record<string, unknown>)
+        : undefined;
+    return {
+      source_skill_id: result.source_skill_id,
+      transferred_skill_id: result.target_skill_id,
+      tenant_id: session.tenant_id,
+      source_domain: result.source_domain,
+      target_domain: result.target_domain,
+      similarity_score: result.similarity_score,
+      confidence_penalty: typeof metadata?.confidence_penalty === "number" ? metadata.confidence_penalty : undefined,
+      validation_remaining_uses:
+        typeof metadata?.validation_remaining_uses === "number" ? metadata.validation_remaining_uses : undefined,
+      emitted_at: nowIso()
+    };
+  }
+
+  private toSkillPruneEvent(
+    tenantId: string,
+    skill: import("@neurocore/protocol").SkillDefinition,
+    reason: string
+  ): SkillPruneEvent {
+    return {
+      skill_id: skill.skill_id,
+      tenant_id: tenantId,
+      prune_mode: skill.status === "pruned" ? "soft" : "hard",
+      final_status: skill.status ?? "pruned",
+      reason,
+      emitted_at: nowIso()
+    };
   }
 
   private async trySkillExecution(
@@ -2586,7 +3060,11 @@ export class AgentRuntime {
     const { predictionErrors, calibrationRecord, createdReflectionRule } = await this.recordObservation(
       profile, session, input, cycle.cycleId, selectedAction, observation,
       observation.status === "failure" ? "failure" : "success",
-      cycle.predictions, execution, cycle.metaAssessment, cycle.metaSignalFrame
+      cycle.predictions, execution, cycle.metaAssessment, cycle.metaSignalFrame,
+      {
+        skill_id: skillId,
+        selection: this.proceduralMemoryProvider.getLastSelection()
+      }
     );
 
     const sessionState = this.updateSessionState(session.session_id, "waiting").state;
@@ -2617,6 +3095,127 @@ export class AgentRuntime {
       providerName: provider.name
     });
 
+    this.maybeCreateCheckpoint(profile, session.session_id);
+    this.persistSessionState(session.session_id);
+
+    return {
+      sessionId: session.session_id,
+      cycleId: cycle.cycleId,
+      sessionState,
+      selectedAction,
+      actionExecution: execution,
+      observation,
+      outputText: observation.summary,
+      trace,
+      cycle: toAgentCycleState(cycle),
+      predictionErrors,
+      calibrationRecord
+    };
+  }
+
+  private async tryActuatorOrchestration(
+    profile: AgentProfile,
+    session: AgentSession,
+    input: UserInput,
+    startedAt: string,
+    cycle: ExecutionCycleState,
+    selectedAction: CandidateAction
+  ): Promise<AgentRunResult | null> {
+    if (
+      !this.actuatorOrchestrator ||
+      !this.deviceRegistry ||
+      selectedAction.tool_name !== "device.orchestrate"
+    ) {
+      return null;
+    }
+
+    const commands = normalizeActuatorCommands(selectedAction.tool_args?.commands);
+    if (commands.length === 0) {
+      return null;
+    }
+
+    const strategy = selectedAction.tool_args?.execution_strategy === "parallel" ? "parallel" : "serial";
+    this.emitEvent(session, "actuator.command", selectedAction, cycle.cycleId);
+    const results = await this.actuatorOrchestrator.execute(commands, this.deviceRegistry, strategy);
+    const failureCount = results.filter((result) => result.status !== "completed").length;
+    const observation: Observation = {
+      observation_id: generateId("obs"),
+      session_id: session.session_id,
+      cycle_id: cycle.cycleId,
+      source_action_id: selectedAction.action_id,
+      source_type: "tool",
+      status: failureCount > 0 ? "failure" : "success",
+      summary:
+        failureCount > 0
+          ? `Device orchestration finished with ${failureCount} failed command(s).`
+          : `Device orchestration completed ${results.length} command(s).`,
+      structured_payload: {
+        tool_name: selectedAction.tool_name,
+        execution_strategy: strategy,
+        results
+      },
+      created_at: nowIso()
+    };
+    const execution = buildRuntimeActionExecution(
+      session,
+      cycle.cycleId,
+      selectedAction,
+      failureCount > 0 ? "failed" : "succeeded"
+    );
+    this.emitEvent(session, "action.executed", execution, cycle.cycleId);
+    this.emitEvent(session, "actuator.result", observation, cycle.cycleId);
+    if (failureCount > 0) {
+      this.emitEvent(session, "device.error", observation, cycle.cycleId);
+    }
+    this.emitRuntimeStatus(session, {
+      cycle_id: cycle.cycleId,
+      phase: "tool_execution",
+      state: failureCount > 0 ? "failed" : "completed",
+      summary: "Device orchestration finished",
+      detail: observation.summary,
+      data: {
+        action_id: selectedAction.action_id,
+        tool_name: selectedAction.tool_name,
+        command_count: results.length,
+        failed_count: failureCount
+      }
+    });
+
+    const { predictionErrors, calibrationRecord, createdReflectionRule } = await this.recordObservation(
+      profile,
+      session,
+      input,
+      cycle.cycleId,
+      selectedAction,
+      observation,
+      failureCount > 0 ? "failure" : "partial",
+      cycle.predictions,
+      execution,
+      cycle.metaAssessment,
+      cycle.metaSignalFrame,
+      deriveSkillLearningContext(this.proceduralMemoryProvider, cycle.proposals, selectedAction)
+    );
+
+    const sessionState = this.updateSessionState(session.session_id, "waiting").state;
+    const trace = this.recordTrace({
+      sessionId: session.session_id,
+      cycleId: cycle.cycleId,
+      input,
+      proposals: cycle.proposals,
+      candidateActions: cycle.actions,
+      predictions: cycle.predictions,
+      policyDecisions: cycle.workspace.policy_decisions ?? [],
+      predictionErrors,
+      selectedAction,
+      selectedActionId: selectedAction.action_id,
+      actionExecution: execution,
+      observation,
+      workspace: cycle.workspace,
+      calibrationRecord,
+      createdReflectionRule,
+      ...toMetaTraceFields(cycle),
+      startedAt
+    });
     this.maybeCreateCheckpoint(profile, session.session_id);
     this.persistSessionState(session.session_id);
 
@@ -2892,13 +3491,16 @@ function deriveSqlitePersistenceFromStateStore(
   checkpointStore: CheckpointStore | undefined,
   calibrationStore?: CalibrationStore,
   providerReliabilityStore?: MetaSignalProviderReliabilityStore,
-  reflectionStore?: ReflectionStore
+  reflectionStore?: ReflectionStore,
+  rewardStore?: RewardStore
 ): {
   memoryPersistence?: AgentMemoryPersistence;
   checkpointStore?: CheckpointStore;
   calibrationStore?: CalibrationStore;
   providerReliabilityStore?: MetaSignalProviderReliabilityStore;
   reflectionStore?: ReflectionStore;
+  rewardStore?: RewardStore;
+  skillPolicyStateStore?: SqliteSkillPolicyStateStore;
 } {
   if (!(stateStore instanceof SqliteRuntimeStateStore)) {
     return {};
@@ -2911,7 +3513,9 @@ function deriveSqlitePersistenceFromStateStore(
     calibrationStore: calibrationStore ?? new SqliteCalibrationStore({ filename }),
     providerReliabilityStore:
       providerReliabilityStore ?? new SqliteProviderReliabilityStore({ filename }),
-    reflectionStore: reflectionStore ?? new SqliteReflectionStore({ filename })
+    reflectionStore: reflectionStore ?? new SqliteReflectionStore({ filename }),
+    rewardStore: rewardStore ?? new SqliteRewardStore({ filename }),
+    skillPolicyStateStore: new SqliteSkillPolicyStateStore({ filename })
   };
 }
 
@@ -2986,6 +3590,23 @@ function findSkillProposal(
   );
 }
 
+function deriveSkillLearningContext(
+  provider: ProceduralMemoryProvider,
+  proposals: Proposal[],
+  action: CandidateAction
+): { skill_id?: string; selection?: SkillSelection | null } | undefined {
+  const proposal = findSkillProposal(proposals, action);
+  if (!proposal || typeof proposal.payload.skill_id !== "string") {
+    return undefined;
+  }
+
+  const selection = provider.getLastSelection();
+  return {
+    skill_id: proposal.payload.skill_id,
+    selection: selection && selection.skill_id === proposal.payload.skill_id ? selection : null
+  };
+}
+
 function deriveSessionState(actionType: CandidateAction["action_type"]) {
   if (actionType === "ask_user") {
     return "waiting" as const;
@@ -3036,6 +3657,42 @@ function buildRuntimeActionExecution(
     ended_at: timestamp,
     executor: "runtime"
   };
+}
+
+function normalizeActuatorCommands(value: unknown): ActuatorCommand[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry, index) => {
+    if (!entry || typeof entry !== "object") {
+      return [];
+    }
+    const candidate = entry as Record<string, unknown>;
+    if (typeof candidate.actuator_id !== "string" || typeof candidate.command_type !== "string") {
+      return [];
+    }
+    return [{
+      command_id:
+        typeof candidate.command_id === "string" ? candidate.command_id : `cmd-${Date.now()}-${index}`,
+      actuator_id: candidate.actuator_id,
+      command_type: candidate.command_type,
+      parameters:
+        candidate.parameters && typeof candidate.parameters === "object" && !Array.isArray(candidate.parameters)
+          ? structuredClone(candidate.parameters as Record<string, unknown>)
+          : {},
+      timeout_ms: typeof candidate.timeout_ms === "number" ? candidate.timeout_ms : undefined,
+      priority: typeof candidate.priority === "number" ? candidate.priority : undefined,
+      preconditions: Array.isArray(candidate.preconditions)
+        ? candidate.preconditions.filter((item): item is string => typeof item === "string")
+        : undefined,
+      safety_constraints:
+        candidate.safety_constraints &&
+        typeof candidate.safety_constraints === "object" &&
+        !Array.isArray(candidate.safety_constraints)
+          ? structuredClone(candidate.safety_constraints as Record<string, unknown>)
+          : undefined
+    }];
+  });
 }
 
 function buildParallelToolObservation(
@@ -3537,6 +4194,29 @@ function summarizeConversationHistory(history: ConversationMessage[]): string | 
   });
 
   return `Earlier conversation summary (${history.length} messages): ${recent.join(" | ")}`;
+}
+
+function collectContentPartText(
+  parts?: Array<{ type: string; text?: string; alt_text?: string; text_excerpt?: string }>
+): string {
+  if (!Array.isArray(parts) || parts.length === 0) {
+    return "";
+  }
+  return parts
+    .map((part) => {
+      if (part.type === "text" && typeof part.text === "string") {
+        return part.text;
+      }
+      if (typeof part.alt_text === "string") {
+        return part.alt_text;
+      }
+      if (typeof part.text_excerpt === "string") {
+        return part.text_excerpt;
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
 }
 
 function deriveWorkingMemoryMaxEntries(profile: AgentProfile): number {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import test from "node:test";
+import WebSocket from "ws";
 import { ApiKeyAuthenticator } from "@neurocore/runtime-server";
 import { InMemoryEvalStore, SqliteEvalStore } from "@neurocore/runtime-server";
 import { Logger } from "@neurocore/runtime-server";
@@ -8,13 +9,58 @@ import { createRuntimeServer } from "@neurocore/runtime-server";
 import { defineAgent } from "@neurocore/sdk-core";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
+import { FileRuntimeStateStore } from "@neurocore/runtime-core";
 
 const echoAgent = defineAgent({
   id: "test-hosted-agent",
   role: "Deterministic hosted productization test agent."
 }).useReasoner({
   name: "test-hosted-reasoner",
+  async plan(ctx) {
+    return [
+      {
+        proposal_id: ctx.services.generateId("prp"),
+        schema_version: ctx.profile.schema_version,
+        session_id: ctx.session.session_id,
+        cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+        module_name: this.name,
+        proposal_type: "plan",
+        salience_score: 0.9,
+        confidence: 0.95,
+        risk: 0,
+        payload: { summary: "Echo the input back." }
+      }
+    ];
+  },
+  async respond(ctx) {
+    const input =
+      typeof ctx.runtime_state.current_input_content === "string"
+        ? ctx.runtime_state.current_input_content
+        : "";
+    return [
+      {
+        action_id: ctx.services.generateId("act"),
+        action_type: "respond",
+        title: "Echo",
+        description: input,
+        side_effect_level: "none"
+      }
+    ];
+  },
+  async *streamText(_ctx, action) {
+    yield action.description ?? action.title;
+  }
+});
+
+const observabilityDisabledAgent = defineAgent({
+  id: "test-observability-disabled-agent",
+  role: "Hosted productization agent with external observability disabled."
+}).configureObservability({
+  trace_enabled: false,
+  event_stream_enabled: false
+}).useReasoner({
+  name: "test-observability-disabled-reasoner",
   async plan(ctx) {
     return [
       {
@@ -183,6 +229,170 @@ test("M6.1: Auth middleware - healthz is not gated", async () => {
   }
 });
 
+test("M11: auth me returns authenticated principal context", async () => {
+  const keys = new Map([
+    ["key-auth-me", { tenant_id: "tenant-auth", permissions: ["read"], role: "viewer" }]
+  ]);
+  const server = createRuntimeServer({
+    agents: [echoAgent],
+    authenticator: new ApiKeyAuthenticator(keys)
+  });
+  const { url } = await server.listen();
+  try {
+    const res = await httpRequest(`${url}/v1/auth/me`, {
+      headers: {
+        authorization: "Bearer key-auth-me"
+      }
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.tenant_id, "tenant-auth");
+    assert.equal(res.body.api_key_id, "key-auth-me");
+    assert.deepEqual(res.body.permissions, ["read"]);
+    assert.equal(res.body.role, "viewer");
+  } finally {
+    await server.close();
+  }
+});
+
+test("M11: session detail endpoints expose memory, goals, world state, devices, and delegations", async () => {
+  const keys = new Map([
+    ["key-console", { tenant_id: "tenant-console", permissions: ["read", "write"], role: "admin" }]
+  ]);
+  const server = createRuntimeServer({
+    agents: [echoAgent],
+    authenticator: new ApiKeyAuthenticator(keys)
+  });
+  const { url } = await server.listen();
+  try {
+    const created = await httpRequest(`${url}/v1/agents/test-hosted-agent/sessions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer key-console"
+      },
+      body: JSON.stringify({
+        tenant_id: "tenant-console",
+        initial_input: { content: "hello console" }
+      })
+    });
+    assert.equal(created.status, 201);
+    const sessionId = created.body.session.session_id;
+
+    const [memory, goals, semantic, skills, worldState, devices, delegations] = await Promise.all([
+      httpRequest(`${url}/v1/sessions/${sessionId}/memory`, { headers: { authorization: "Bearer key-console" } }),
+      httpRequest(`${url}/v1/sessions/${sessionId}/goals`, { headers: { authorization: "Bearer key-console" } }),
+      httpRequest(`${url}/v1/sessions/${sessionId}/memory/semantic`, { headers: { authorization: "Bearer key-console" } }),
+      httpRequest(`${url}/v1/sessions/${sessionId}/skills`, { headers: { authorization: "Bearer key-console" } }),
+      httpRequest(`${url}/v1/sessions/${sessionId}/world-state`, { headers: { authorization: "Bearer key-console" } }),
+      httpRequest(`${url}/v1/devices`, { headers: { authorization: "Bearer key-console" } }),
+      httpRequest(`${url}/v1/delegations`, { headers: { authorization: "Bearer key-console" } })
+    ]);
+
+    assert.equal(memory.status, 200);
+    assert.ok(Array.isArray(memory.body.working_memory));
+    assert.equal(goals.status, 200);
+    assert.ok(Array.isArray(goals.body.goals));
+    assert.equal(semantic.status, 200);
+    assert.ok(Array.isArray(semantic.body.semantic_memory));
+    assert.equal(skills.status, 200);
+    assert.ok(Array.isArray(skills.body.skills));
+    assert.equal(worldState.status, 200);
+    assert.ok(Array.isArray(worldState.body.entities));
+    assert.ok(Array.isArray(worldState.body.relations));
+    assert.equal(devices.status, 200);
+    assert.ok(Array.isArray(devices.body.devices));
+    assert.equal(delegations.status, 200);
+    assert.ok(Array.isArray(delegations.body.delegations));
+  } finally {
+    await server.close();
+  }
+});
+
+test("M11: session list includes persisted sessions after restart", async () => {
+  const dir = join(tmpdir(), `neurocore-m11-${randomUUID()}`);
+  const makePersistedAgent = () => defineAgent({
+    id: "test-hosted-persisted-agent",
+    role: "Persisted hosted agent."
+  })
+    .useRuntimeStateStore(() => new FileRuntimeStateStore({ directory: dir }))
+    .useReasoner({
+      name: "persisted-hosted-reasoner",
+      async plan(ctx) {
+        return [{
+          proposal_id: ctx.services.generateId("prp"),
+          schema_version: ctx.profile.schema_version,
+          session_id: ctx.session.session_id,
+          cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+          module_name: this.name,
+          proposal_type: "plan",
+          salience_score: 0.8,
+          confidence: 0.9,
+          risk: 0,
+          payload: { summary: "Return input." }
+        }];
+      },
+      async respond(ctx) {
+        return [{
+          action_id: ctx.services.generateId("act"),
+          action_type: "respond",
+          title: "Echo",
+          description: typeof ctx.runtime_state.current_input_content === "string"
+            ? ctx.runtime_state.current_input_content
+            : "",
+          side_effect_level: "none"
+        }];
+      },
+      async *streamText(_ctx, action) {
+        yield action.description ?? action.title;
+      }
+    });
+
+  const keys = new Map([
+    ["key-persisted", { tenant_id: "tenant-persisted", permissions: ["read", "write"], role: "admin" }]
+  ]);
+
+  let server = createRuntimeServer({
+    agents: [makePersistedAgent()],
+    authenticator: new ApiKeyAuthenticator(keys)
+  });
+  const first = await server.listen();
+  let sessionId;
+  try {
+    const created = await httpRequest(`${first.url}/v1/agents/test-hosted-persisted-agent/sessions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer key-persisted"
+      },
+      body: JSON.stringify({
+        tenant_id: "tenant-persisted",
+        initial_input: { content: "persist me" }
+      })
+    });
+    assert.equal(created.status, 201);
+    sessionId = created.body.session.session_id;
+  } finally {
+    await server.close();
+  }
+
+  server = createRuntimeServer({
+    agents: [makePersistedAgent()],
+    authenticator: new ApiKeyAuthenticator(keys)
+  });
+  const second = await server.listen();
+  try {
+    const listed = await httpRequest(`${second.url}/v1/sessions`, {
+      headers: {
+        authorization: "Bearer key-persisted"
+      }
+    });
+    assert.equal(listed.status, 200);
+    assert.ok(listed.body.sessions.some((session) => session.session_id === sessionId));
+  } finally {
+    await server.close();
+  }
+});
+
 test("M6.1: Tenant isolation - session creation with mismatched tenant_id is rejected", async () => {
   const keys = new Map([
     ["key-t1", { tenant_id: "tenant-1", permissions: [] }]
@@ -234,6 +444,100 @@ test("M6.1: Auth middleware - valid key allows session creation", async () => {
     });
     assert.equal(res.status, 201);
     assert.ok(res.body.session);
+  } finally {
+    await server.close();
+  }
+});
+
+test("M6.1: WsServer delivers session events over /v1/ws", async () => {
+  const keys = new Map([
+    ["key-ws", { tenant_id: "tenant-ws", permissions: ["read", "write"] }]
+  ]);
+  const server = createRuntimeServer({
+    agents: [echoAgent],
+    authenticator: new ApiKeyAuthenticator(keys)
+  });
+  const { url } = await server.listen();
+
+  try {
+    const sessionRes = await httpRequest(`${url}/v1/agents/test-hosted-agent/sessions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer key-ws"
+      },
+      body: JSON.stringify({
+        tenant_id: "tenant-ws",
+        initial_input: { content: "hello ws" }
+      })
+    });
+    assert.equal(sessionRes.status, 201);
+    const sessionId = sessionRes.body.session.session_id;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const statusRes = await httpRequest(`${url}/v1/sessions/${sessionId}`, {
+        headers: {
+          authorization: "Bearer key-ws"
+        }
+      });
+      assert.equal(statusRes.status, 200);
+      if (!statusRes.body.active_run) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    const wsUrl = new URL(url);
+    const socket = new WebSocket(`ws://${wsUrl.host}/v1/ws?token=key-ws`, {
+      headers: {
+        authorization: "Bearer key-ws"
+      }
+    });
+
+    const eventPromise = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Timed out waiting for WS event")), 5000);
+      socket.on("message", (chunk) => {
+        const message = JSON.parse(String(chunk));
+        if (message.type === "event" && message.channel === `session:${sessionId}`) {
+          clearTimeout(timer);
+          resolve(message.payload);
+        }
+      });
+      socket.on("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+    });
+    const subscribeAck = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Timed out waiting for WS subscribe ack")), 5000);
+      socket.on("message", (chunk) => {
+        const message = JSON.parse(String(chunk));
+        if (message.type === "ack" && message.channel === `session:${sessionId}`) {
+          clearTimeout(timer);
+          resolve(message);
+        }
+      });
+      socket.on("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+    });
+
+    await new Promise((resolve, reject) => {
+      socket.on("open", resolve);
+      socket.on("error", reject);
+    });
+    socket.send(JSON.stringify({
+      type: "subscribe",
+      channel: `session:${sessionId}`,
+      payload: {},
+      message_id: "msg-subscribe",
+      timestamp: new Date().toISOString()
+    }));
+    await subscribeAck;
+
+    const payload = await eventPromise;
+    assert.equal(payload.session_id, sessionId);
+    socket.close();
   } finally {
     await server.close();
   }
@@ -566,6 +870,81 @@ test("M6.3: GET /v1/runtime/saturation returns runtime pressure snapshot", async
   }
 });
 
+test("M6.3: Runtime server accepts custom logger and tracer", async () => {
+  const logs = [];
+  const spans = [];
+  const logger = {
+    debug(message, fields) {
+      logs.push({ level: "debug", message, fields });
+    },
+    info(message, fields) {
+      logs.push({ level: "info", message, fields });
+    },
+    warn(message, fields) {
+      logs.push({ level: "warn", message, fields });
+    },
+    error(message, fields) {
+      logs.push({ level: "error", message, fields });
+    }
+  };
+  const tracer = {
+    startSpan(name, attributes) {
+      const span = { name, attributes: { ...(attributes ?? {}) }, events: [], ended: false, exception: undefined };
+      spans.push(span);
+      return {
+        setAttribute(key, value) {
+          span.attributes[key] = value;
+        },
+        addEvent(name, attributes) {
+          span.events.push({ name, attributes });
+        },
+        recordException(error) {
+          span.exception = error instanceof Error ? error.message : String(error);
+        },
+        end() {
+          span.ended = true;
+        }
+      };
+    }
+  };
+  const server = createRuntimeServer({ agents: [echoAgent], logger, tracer });
+  const { url } = await server.listen();
+  try {
+    const res = await httpRequest(`${url}/healthz`);
+    assert.equal(res.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  } finally {
+    await server.close();
+  }
+
+  assert.ok(logs.some((entry) => entry.level === "info" && entry.message === "request"));
+  assert.ok(spans.some((span) => span.name === "runtime_server.request" && span.ended === true));
+});
+
+test("M6.3: trace_enabled and event_stream_enabled gate trace and event APIs", async () => {
+  const server = createRuntimeServer({ agents: [observabilityDisabledAgent] });
+  const { url } = await server.listen();
+  try {
+    const createRes = await httpRequest(`${url}/v1/agents/test-observability-disabled-agent/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tenant_id: "t1", initial_input: { content: "observability gating" } })
+    });
+    assert.equal(createRes.status, 201);
+    const sessionId = createRes.body.session.session_id;
+
+    const tracesRes = await httpRequest(`${url}/v1/sessions/${sessionId}/traces`);
+    assert.equal(tracesRes.status, 403);
+    assert.equal(tracesRes.body.error, "trace_disabled");
+
+    const eventsRes = await httpRequest(`${url}/v1/sessions/${sessionId}/events`);
+    assert.equal(eventsRes.status, 403);
+    assert.equal(eventsRes.body.error, "event_stream_disabled");
+  } finally {
+    await server.close();
+  }
+});
+
 test("M6.2: GET /v1/sessions/:id/replay returns SessionReplay", async () => {
   const server = createRuntimeServer({ agents: [echoAgent] });
   const { url } = await server.listen();
@@ -716,6 +1095,320 @@ test("P3: Webhook delivery - all retries fail logs failure", async () => {
   } finally {
     await server.close();
     webhookServer.close();
+  }
+});
+
+test("P3: Webhook delivery - signature headers are attached when configured", async () => {
+  let receivedSignature;
+  let receivedTimestamp;
+  let receivedBody = "";
+  const secret = "top-secret";
+  const webhookServer = http.createServer((req, res) => {
+    receivedSignature = req.headers["x-neurocore-signature"];
+    receivedTimestamp = req.headers["x-neurocore-timestamp"];
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      receivedBody = Buffer.concat(chunks).toString("utf8");
+      res.writeHead(200);
+      res.end();
+    });
+  });
+  await new Promise((resolve) => webhookServer.listen(0, "127.0.0.1", resolve));
+  const whPort = webhookServer.address().port;
+
+  const server = createRuntimeServer({
+    agents: [echoAgent],
+    webhooks: [{
+      url: `http://127.0.0.1:${whPort}/hook`,
+      event_types: ["session.created"],
+      signature_secret: secret
+    }]
+  });
+  const { url } = await server.listen();
+
+  try {
+    await httpRequest(`${url}/v1/agents/test-hosted-agent/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tenant_id: "t1", initial_input: { content: "signed" } })
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.equal(typeof receivedSignature, "string");
+    assert.equal(typeof receivedTimestamp, "string");
+    const expected = `sha256=${createHmac("sha256", secret).update(`${receivedTimestamp}.${receivedBody}`).digest("hex")}`;
+    assert.equal(receivedSignature, expected);
+  } finally {
+    await server.close();
+    webhookServer.close();
+  }
+});
+
+test("P3: Webhook delivery - timeout pushes event into DLQ", async () => {
+  const webhookServer = http.createServer(() => {});
+  await new Promise((resolve) => webhookServer.listen(0, "127.0.0.1", resolve));
+  const whPort = webhookServer.address().port;
+
+  const server = createRuntimeServer({
+    agents: [echoAgent],
+    webhooks: [{
+      url: `http://127.0.0.1:${whPort}/hook`,
+      event_types: ["session.created"],
+      timeout_ms: 100,
+      max_attempts: 2,
+      retry_backoff_ms: 20
+    }]
+  });
+  const { url } = await server.listen();
+  try {
+    await httpRequest(`${url}/v1/agents/test-hosted-agent/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tenant_id: "t1", initial_input: { content: "timeout dlq" } })
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const dlqRes = await httpRequest(`${url}/v1/webhooks/dlq`);
+    assert.equal(dlqRes.status, 200);
+    assert.ok(Array.isArray(dlqRes.body.dead_letters));
+    const deadLetter = dlqRes.body.dead_letters.find((record) => record.event_type === "session.created");
+    assert.ok(deadLetter);
+    assert.equal(deadLetter.attempts, 2);
+  } finally {
+    await server.close();
+    webhookServer.close();
+  }
+});
+
+test("P3: Batch session creation API returns per-item results", async () => {
+  const server = createRuntimeServer({ agents: [echoAgent] });
+  const { url } = await server.listen();
+  try {
+    const res = await httpRequest(`${url}/v1/agents/test-hosted-agent/sessions/batch`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        continue_on_error: true,
+        sessions: [
+          { tenant_id: "t1", initial_input: { content: "batch one" } },
+          { tenant_id: "t1", initial_input: {} }
+        ]
+      })
+    });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.total, 2);
+    assert.equal(res.body.succeeded, 1);
+    assert.equal(res.body.failed, 1);
+    assert.equal(res.body.results.length, 2);
+    assert.equal(res.body.results[0].success, true);
+    assert.equal(res.body.results[1].success, false);
+  } finally {
+    await server.close();
+  }
+});
+
+test("P3: Agent versioning routes sessions to requested version and preserves resume compatibility", async () => {
+  const v1 = defineAgent({
+    id: "versioned-agent",
+    version: "1.0.0",
+    role: "v1 agent"
+  }).useReasoner({
+    name: "versioned-v1",
+    async plan() {
+      return [];
+    },
+    async respond(ctx) {
+      return [{
+        action_id: ctx.services.generateId("act"),
+        action_type: "respond",
+        title: "v1",
+        description: "v1",
+        side_effect_level: "none"
+      }];
+    },
+    async *streamText() {
+      yield "v1";
+    }
+  });
+  const v2 = defineAgent({
+    id: "versioned-agent",
+    version: "2.0.0",
+    role: "v2 agent"
+  }).useReasoner({
+    name: "versioned-v2",
+    async plan() {
+      return [];
+    },
+    async respond(ctx) {
+      return [{
+        action_id: ctx.services.generateId("act"),
+        action_type: "respond",
+        title: "v2",
+        description: "v2",
+        side_effect_level: "none"
+      }];
+    },
+    async *streamText() {
+      yield "v2";
+    }
+  });
+
+  let server = createRuntimeServer({ agents: [v1, v2] });
+  let url;
+  try {
+    ({ url } = await server.listen());
+    const createRes = await httpRequest(`${url}/v1/agents/versioned-agent/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        tenant_id: "t1",
+        agent_version: "1.0.0",
+        initial_input: { content: "hello" }
+      })
+    });
+    assert.equal(createRes.status, 201);
+    assert.equal(createRes.body.session.agent_version, "1.0.0");
+
+    const sessionId = createRes.body.session.session_id;
+    await server.close();
+
+    server = createRuntimeServer({ agents: [v1, v2] });
+    ({ url } = await server.listen());
+    const sessionRes = await httpRequest(`${url}/v1/sessions/${sessionId}`);
+    assert.equal(sessionRes.status, 200);
+    assert.equal(sessionRes.body.session.agent_version, "1.0.0");
+
+    const listRes = await httpRequest(`${url}/v1/agents`);
+    const versioned = listRes.body.agents.find((entry) => entry.agent_id === "versioned-agent");
+    assert.deepEqual(versioned.versions, ["2.0.0", "1.0.0"]);
+  } finally {
+    await server.close();
+  }
+});
+
+test("P3: Session sharing enforces viewer, contributor, and approver roles", async () => {
+  const keys = new Map([
+    ["owner-key", { tenant_id: "tenant-1", permissions: ["read", "write", "approve"], role: "operator" }],
+    ["viewer-key", { tenant_id: "tenant-1", permissions: ["read"], role: "viewer" }],
+    ["contrib-key", { tenant_id: "tenant-1", permissions: ["read", "write"], role: "operator" }],
+    ["approver-key", { tenant_id: "tenant-1", permissions: ["read", "approve"], role: "operator" }]
+  ]);
+  const server = createRuntimeServer({
+    agents: [echoAgent, approvalAgent],
+    authenticator: new ApiKeyAuthenticator(keys)
+  });
+  const { url } = await server.listen();
+  try {
+    const collaborativeRes = await httpRequest(`${url}/v1/agents/test-hosted-agent/sessions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer owner-key"
+      },
+      body: JSON.stringify({
+        tenant_id: "tenant-1",
+        run_immediately: false,
+        initial_input: { content: "shared session" }
+      })
+    });
+    assert.equal(collaborativeRes.status, 201);
+    const sessionId = collaborativeRes.body.session.session_id;
+
+    await httpRequest(`${url}/v1/sessions/${sessionId}/shares`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer owner-key"
+      },
+      body: JSON.stringify({ principal_id: "viewer-key", role: "viewer" })
+    });
+    await httpRequest(`${url}/v1/sessions/${sessionId}/shares`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer owner-key"
+      },
+      body: JSON.stringify({ principal_id: "contrib-key", role: "contributor" })
+    });
+    await httpRequest(`${url}/v1/sessions/${sessionId}/shares`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer owner-key"
+      },
+      body: JSON.stringify({ principal_id: "approver-key", role: "approver" })
+    });
+
+    const viewerGet = await httpRequest(`${url}/v1/sessions/${sessionId}`, {
+      headers: { authorization: "Bearer viewer-key" }
+    });
+    assert.equal(viewerGet.status, 200);
+
+    const viewerWrite = await httpRequest(`${url}/v1/sessions/${sessionId}/inputs`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer viewer-key"
+      },
+      body: JSON.stringify({ input: { content: "viewer write" } })
+    });
+    assert.equal(viewerWrite.status, 403);
+
+    const contributorWrite = await httpRequest(`${url}/v1/sessions/${sessionId}/inputs`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer contrib-key"
+      },
+      body: JSON.stringify({ input: { content: "contributor write" } })
+    });
+    assert.equal(contributorWrite.status, 200);
+
+    const approvalRes = await httpRequest(`${url}/v1/agents/test-approval-agent/sessions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer owner-key"
+      },
+      body: JSON.stringify({
+        tenant_id: "tenant-1",
+        initial_input: { content: "needs approval" }
+      })
+    });
+    assert.equal(approvalRes.status, 201);
+    const approvalSessionId = approvalRes.body.session.session_id;
+    const approvalId = approvalRes.body.pending_approval.approval_id;
+    await httpRequest(`${url}/v1/sessions/${approvalSessionId}/shares`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer owner-key"
+      },
+      body: JSON.stringify({ principal_id: "approver-key", role: "approver" })
+    });
+
+    const contributorApprove = await httpRequest(`${url}/v1/approvals/${approvalId}/decision`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer contrib-key"
+      },
+      body: JSON.stringify({ approver_id: "contrib-key", decision: "approved" })
+    });
+    assert.equal(contributorApprove.status, 403);
+
+    const approverDecision = await httpRequest(`${url}/v1/approvals/${approvalId}/decision`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer approver-key"
+      },
+      body: JSON.stringify({ approver_id: "approver-key", decision: "approved" })
+    });
+    assert.equal(approverDecision.status, 200);
+  } finally {
+    await server.close();
   }
 });
 

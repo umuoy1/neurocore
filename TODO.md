@@ -1,11 +1,12 @@
 # NeuroCore Execution Roadmap
 
-> Calibrated against the current codebase on 2026-04-18.
+> Calibrated against the current codebase on 2026-04-22.
 >
 > 当前最重要的变化：
 > - 记忆系统已经从 fat snapshot 路径切到 SQL-first
 > - Prefrontal / Meta 已经从“架构构想期”进入“元认知运行时 v1”
 > - 个人助理交互链已经切到原生 `Reasoner.streamText -> runtime.output / runtime.status`，Web Chat / Feishu / Hosted Runtime / Console 不再各走一套消息路径
+> - `M10 / 技能强化学习` 当前阶段已收口完成，skill 主链已补 reward / policy / exploration / evaluation / transfer / online learner 全链路
 > - 下一阶段关键词不再是扩更多概念模块，而是：收口、闭环、持久化、SPI 化、评估化
 
 ## Milestone 5: Cognitive Core
@@ -88,9 +89,9 @@
   - [x] Add trace/workspace/events/episodes lookup APIs
   - [x] Add approval decision API
   - [x] Add eval report lookup API
-  - [ ] Add session/approval list and filter APIs
-  - [ ] Add replay browsing and comparison APIs
-  - [ ] Add admin UI layer
+- [x] Add session/approval list and filter APIs
+- [x] Add replay browsing and comparison APIs
+- [x] Add admin UI layer
 
 ## Milestone 8: Runtime Hardening
 
@@ -157,6 +158,45 @@
   - [x] Add `AsyncIterable` token streaming for reasoner output
   - [x] Differentiate token streaming from background `async` mode semantics
 
+## Milestone 9.5: Skill Reinforcement Learning (historical M10)
+
+- [done] Reward signal framework
+  - [x] Add `RewardSignal` / `RewardDimension` / `RewardConfig`
+  - [x] Implement four default reward dimensions: task completion / efficiency / safety / user satisfaction
+  - [x] Implement `RewardComputer` from episode + execution context
+  - [x] Add `RewardStore` with in-memory and SQLite persistence
+  - [x] Persist reward `metrics / baseline_metrics` for relative efficiency baselines
+  - [x] Emit `reward.computed`
+- [done] Skill policy
+  - [x] Add `SkillPolicy` / `SkillCandidate` / `SkillSelection` / `PolicyFeedback`
+  - [x] Implement `BanditSkillPolicy`
+  - [x] Add hierarchical contextual policy resolution: `exact -> operational -> family -> global`
+  - [x] Integrate learned selection into `ProceduralMemoryProvider.retrieve()`
+  - [x] Emit `policy.updated`
+- [done] Exploration and exploitation
+  - [x] Add `ExplorationStrategy` SPI
+  - [x] Implement epsilon-greedy / UCB / Thompson sampling
+  - [x] Exclude high-risk skills from exploration
+  - [x] Emit `exploration.triggered`
+- [done] Skill evaluation and pruning
+  - [x] Add `SkillEvaluator` / `SkillEvaluation`
+  - [x] Score skills with success rate / average reward / usage frequency / recency / reward trend
+  - [x] Support deprecated and pruned lifecycle
+  - [x] Emit `skill.evaluated` / `skill.pruned`
+- [done] Skill transfer
+  - [x] Add `SkillTransferEngine` / `DomainSimilarity` / `SkillTransferResult`
+  - [x] Support domain-adapted skill transfer with confidence penalty
+  - [x] Emit `skill.transferred`
+- [done] Online learning pipeline
+  - [x] Add `OnlineLearner` / `Experience`
+  - [x] Implement prioritized replay buffer
+  - [x] Add async mini-batch replay updates without blocking the main cycle
+  - [x] Keep fallback to existing static behavior when `rl_config` is absent
+- [done] Final M10 closeout
+  - [x] Add structured RL event payloads for `policy.updated / exploration.triggered / skill.transferred / skill.pruned`
+  - [x] Add SQLite migration for persisted reward metrics/baselines
+  - [x] Re-run focused M10 regression and close current-stage gaps
+
 ## Milestone 10: Meta Stack v2 Closure
 
 - [done] Control plane convergence
@@ -205,26 +245,26 @@
 
 ## Milestone 11: Operational Maturity
 
-- [in_progress] Webhook reliability
+- [done] Webhook reliability
   - [x] Add basic webhook delivery hooks
-  - [ ] Add retry with exponential backoff on webhook delivery failure
-  - [ ] Add dead letter queue for permanently failed deliveries
-  - [ ] Add webhook signature (HMAC) for recipient verification
-  - [ ] Add delivery timeout configuration
-- [pending] Batch and bulk operations
-  - [ ] Add concurrent eval case execution with configurable parallelism
-  - [ ] Add batch session creation API on `runtime-server`
-- [pending] Agent versioning
-  - [ ] Support multiple versions of the same agent in the registry
-  - [ ] Add version routing and compatibility validation on session resume
-- [pending] Session sharing
-  - [ ] Add role-based session access (viewer/contributor/approver)
-  - [ ] Add concurrent input conflict resolution beyond mutex rejection
-- [pending] Pluggable observability
-  - [ ] Add pluggable logger interface to replace hardcoded `debugLog`
-  - [ ] Add metrics collection interface for latency/token/cost export
-  - [ ] Add OpenTelemetry span creation for distributed tracing
-  - [ ] Honor `ObservabilityConfig.trace_enabled` and `event_stream_enabled`
+  - [x] Add retry with exponential backoff on webhook delivery failure
+  - [x] Add dead letter queue for permanently failed deliveries
+  - [x] Add webhook signature (HMAC) for recipient verification
+  - [x] Add delivery timeout configuration
+- [done] Batch and bulk operations
+  - [x] Add concurrent eval case execution with configurable parallelism
+  - [x] Add batch session creation API on `runtime-server`
+- [done] Agent versioning
+  - [x] Support multiple versions of the same agent in the registry
+  - [x] Add version routing and compatibility validation on session resume
+- [done] Session sharing
+  - [x] Add role-based session access (viewer/contributor/approver)
+  - [x] Add concurrent input conflict mitigation with serialized session operations
+- [done] Pluggable observability
+  - [x] Add pluggable logger interface to replace hardcoded `debugLog`
+  - [x] Add metrics collection interface for latency/token/cost export
+  - [x] Add OpenTelemetry-style span creation SPI for server-side tracing
+  - [x] Honor `ObservabilityConfig.trace_enabled` and `event_stream_enabled`
 
 ## Milestone 12: SDK Robustness
 

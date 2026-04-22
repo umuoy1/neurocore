@@ -31,7 +31,7 @@ import type {
   MetaSignalProviderReliabilityStore,
   ReflectionRule
 } from "@neurocore/protocol";
-import type { DeviceRegistry, PerceptionPipeline } from "@neurocore/device-core";
+import type { DeviceRegistry, PerceptionPipeline, SensorFusionStrategy } from "@neurocore/device-core";
 import type { WorldStateGraph } from "@neurocore/world-model";
 import type { TaskDelegator, AgentRegistry } from "@neurocore/multi-agent";
 import { GradedContextCompressor } from "../context/graded-compressor.js";
@@ -67,6 +67,7 @@ export interface CycleExecutionInput {
   reflectionLearner?: ReflectionLearner;
   deviceRegistry?: DeviceRegistry;
   perceptionPipeline?: PerceptionPipeline;
+  sensorFusionStrategy?: SensorFusionStrategy;
   worldStateGraph?: WorldStateGraph;
   taskDelegator?: TaskDelegator;
   agentRegistry?: AgentRegistry;
@@ -126,6 +127,7 @@ export class CycleEngine {
         current_input_parts: input.input.content_parts ?? [],
         current_input_metadata: input.input.metadata ?? null,
         current_input_structured_response: input.input.structured_response ?? null,
+        current_goal_type: input.goals.find((goal) => goal.status === "active")?.goal_type ?? null,
         ...buildConversationRuntimeState(input.traceRecords ?? [], input.profile, input.input.content),
       },
       services,
@@ -151,10 +153,11 @@ export class CycleEngine {
 
           if (validReadings.length > 0) {
             const percepts = await input.perceptionPipeline.ingest(validReadings);
+            const fusedPercepts = input.sensorFusionStrategy ? await input.sensorFusionStrategy.fuse(percepts) : percepts;
             input.worldStateGraph.decayConfidence(now);
             input.worldStateGraph.pruneExpired(now);
-            if (percepts.length > 0) {
-              input.worldStateGraph.applyPercepts(percepts);
+            if (fusedPercepts.length > 0) {
+              input.worldStateGraph.applyPercepts(fusedPercepts);
             }
           }
         } else {

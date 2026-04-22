@@ -6,7 +6,7 @@ import {
 } from "recharts";
 import { useMetricsStore } from "../stores/metrics.store";
 import { apiFetch } from "../api/client";
-import type { NeuroCoreEvent } from "../api/types";
+import type { LatencyPercentiles, NeuroCoreEvent } from "../api/types";
 import { useWebSocket } from "../hooks/useWebSocket";
 
 const WS_URL = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/v1/ws`;
@@ -69,9 +69,9 @@ export function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    fetch("/v1/healthz").then((r) => setHealthOk(r.ok)).catch(() => setHealthOk(false));
+    apiFetch("/v1/healthz").then(() => setHealthOk(true)).catch(() => setHealthOk(false));
     const id = setInterval(() => {
-      fetch("/v1/healthz").then((r) => setHealthOk(r.ok)).catch(() => setHealthOk(false));
+      apiFetch("/v1/healthz").then(() => setHealthOk(true)).catch(() => setHealthOk(false));
     }, 15000);
     return () => clearInterval(id);
   }, []);
@@ -156,7 +156,7 @@ export function DashboardPage() {
     value: p.value,
   }));
 
-  const latencyData = latency?.agents ?? [];
+  const latencyData = toLatencyRows(latency);
 
   return (
     <div className="p-6 space-y-5">
@@ -386,6 +386,18 @@ export function DashboardPage() {
       </div>
     </div>
   );
+}
+
+function toLatencyRows(latency: LatencyPercentiles | null) {
+  if (!latency) {
+    return [];
+  }
+  return Object.entries(latency.by_agent ?? {}).map(([agent_id, value]) => ({
+    agent_id,
+    p50: value.p50,
+    p95: value.p95,
+    p99: value.p99
+  }));
 }
 
 function HealthRow({ label, ok }: { label: string; ok: boolean }) {

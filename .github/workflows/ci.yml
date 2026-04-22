@@ -33,6 +33,21 @@ jobs:
       - name: Test
         run: npm run test:unit
 
+  hosted-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Hosted Runtime Tests
+        run: npm run test:hosted
+
   meta-stack:
     runs-on: ubuntu-latest
     steps:

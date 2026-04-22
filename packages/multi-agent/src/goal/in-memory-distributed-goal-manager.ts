@@ -1,11 +1,13 @@
-import type { AgentDescriptor, GoalAssignment } from "../types.js";
+import type { AgentDescriptor, GoalAssignment, GoalConflictRecord } from "../types.js";
 import type { CoordinationStrategy } from "../coordination/coordination-strategy.js";
 import type { DistributedGoalManager } from "./distributed-goal-manager.js";
+import type { GoalMutationContext } from "./distributed-goal-manager.js";
 import type { InterAgentBus } from "../bus/inter-agent-bus.js";
 
 export class InMemoryDistributedGoalManager implements DistributedGoalManager {
   private readonly assignments = new Map<string, GoalAssignment>();
   private readonly parentIndex = new Map<string, Set<string>>();
+  private readonly conflicts: GoalConflictRecord[] = [];
   private propagationStrategy: "all_success" | "majority" | "any_success" = "all_success";
 
   constructor(private readonly bus?: InterAgentBus) {}
@@ -86,9 +88,23 @@ export class InMemoryDistributedGoalManager implements DistributedGoalManager {
     return [...childIds].map((id) => this.assignments.get(id)!).filter(Boolean);
   }
 
-  async updateStatus(goalId: string, status: string, progress?: number): Promise<void> {
+  async updateStatus(goalId: string, status: string, progress?: number, context?: GoalMutationContext): Promise<void> {
     const assignment = this.assignments.get(goalId);
     if (!assignment) return;
+    if (context && !this.canMutate(assignment, context)) {
+      await this.recordConflict({
+        goal_id: goalId,
+        parent_goal_id: this.findParentGoalId(goalId),
+        attempted_agent_id: context.agent_id,
+        attempted_instance_id: context.instance_id,
+        current_agent_id: assignment.agent_id,
+        current_instance_id: assignment.instance_id,
+        action: "status_update",
+        detected_at: new Date().toISOString(),
+        resolved_by: "reject_stale_writer"
+      });
+      return;
+    }
     assignment.status = status;
     if (progress !== undefined) assignment.progress = progress;
     assignment.updated_at = new Date().toISOString();
@@ -116,9 +132,23 @@ export class InMemoryDistributedGoalManager implements DistributedGoalManager {
     }
   }
 
-  async reassign(goalId: string, newAgentId: string, newInstanceId: string): Promise<void> {
+  async reassign(goalId: string, newAgentId: string, newInstanceId: string, context?: GoalMutationContext): Promise<void> {
     const assignment = this.assignments.get(goalId);
     if (!assignment) return;
+    if (context && !this.canMutate(assignment, context)) {
+      await this.recordConflict({
+        goal_id: goalId,
+        parent_goal_id: this.findParentGoalId(goalId),
+        attempted_agent_id: context.agent_id,
+        attempted_instance_id: context.instance_id,
+        current_agent_id: assignment.agent_id,
+        current_instance_id: assignment.instance_id,
+        action: "reassign",
+        detected_at: new Date().toISOString(),
+        resolved_by: "reject_stale_writer"
+      });
+      return;
+    }
     assignment.agent_id = newAgentId;
     assignment.instance_id = newInstanceId;
     assignment.updated_at = new Date().toISOString();
@@ -147,6 +177,10 @@ export class InMemoryDistributedGoalManager implements DistributedGoalManager {
       completed,
       progress: children.length > 0 ? completed / children.length : 0
     };
+  }
+
+  async getConflicts(goalId?: string): Promise<GoalConflictRecord[]> {
+    return goalId ? this.conflicts.filter((conflict) => conflict.goal_id === goalId) : [...this.conflicts];
   }
 
   private async propagateStatus(parentGoalId: string): Promise<void> {
@@ -185,6 +219,44 @@ export class InMemoryDistributedGoalManager implements DistributedGoalManager {
           parentAssignment.updated_at = new Date().toISOString();
         }
         break;
+    }
+  }
+
+  private canMutate(assignment: GoalAssignment, context: GoalMutationContext): boolean {
+    if (assignment.agent_id !== context.agent_id) {
+      return false;
+    }
+    if (context.instance_id && assignment.instance_id !== context.instance_id) {
+      return false;
+    }
+    return true;
+  }
+
+  private findParentGoalId(goalId: string): string | undefined {
+    for (const [parentId, childIds] of this.parentIndex) {
+      if (childIds.has(goalId)) {
+        return parentId;
+      }
+    }
+    return undefined;
+  }
+
+  private async recordConflict(conflict: GoalConflictRecord): Promise<void> {
+    this.conflicts.push(conflict);
+    if (this.bus) {
+      await this.bus.publish("goal.conflict", {
+        message_id: `goal-conflict-${conflict.goal_id}-${Date.now()}`,
+        correlation_id: conflict.goal_id,
+        trace_id: conflict.goal_id,
+        pattern: "event",
+        source_agent_id: conflict.attempted_agent_id,
+        source_instance_id: conflict.attempted_instance_id ?? conflict.attempted_agent_id,
+        payload: {
+          type: "goal_conflict_detected",
+          conflict
+        },
+        created_at: new Date().toISOString()
+      });
     }
   }
 }

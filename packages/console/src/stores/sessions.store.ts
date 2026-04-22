@@ -1,13 +1,6 @@
 import { create } from "zustand";
 import { apiFetch } from "../api/client";
-import type { AgentSession, NeuroCoreEvent, Goal, WorkingMemoryRecord } from "../api/types";
-
-interface SessionListItem {
-  session_id: string;
-  agent_id: string;
-  session: AgentSession;
-  active_run: boolean;
-}
+import type { AgentSession, NeuroCoreEvent, Goal, SessionListItem, WorkingMemoryRecord } from "../api/types";
 
 interface SessionsState {
   sessions: SessionListItem[];
@@ -55,24 +48,27 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 
   fetchSessionDetail: async (sessionId: string) => {
     const data = await apiFetch<{
+      session_id: string;
       session: AgentSession;
       trace_count: number;
       episode_count: number;
       active_run: boolean;
+      working_memory_count?: number;
+      goals_count?: number;
     }>(`/v1/sessions/${sessionId}`);
 
-    const [eventsRes] = await Promise.all([
+    const [eventsRes, goalsRes, memoryRes] = await Promise.all([
       apiFetch<{ events: NeuroCoreEvent[] }>(`/v1/sessions/${sessionId}/events`).catch(() => ({ events: [] })),
-      apiFetch<{ traces: unknown[] }>(`/v1/sessions/${sessionId}/traces`).catch(() => ({ traces: [] })),
-      apiFetch<{ episodes: unknown[] }>(`/v1/sessions/${sessionId}/episodes`).catch(() => ({ episodes: [] })),
+      apiFetch<{ goals: Goal[] }>(`/v1/sessions/${sessionId}/goals`).catch(() => ({ goals: [] })),
+      apiFetch<{ working_memory: WorkingMemoryRecord[] }>(`/v1/sessions/${sessionId}/memory`).catch(() => ({ working_memory: [] })),
     ]);
 
     set({
       currentSession: {
         session_id: sessionId,
         session: data.session,
-        goals: [],
-        workingMemory: [],
+        goals: goalsRes.goals ?? [],
+        workingMemory: memoryRes.working_memory ?? [],
         events: eventsRes.events,
         traceCount: data.trace_count,
         episodeCount: data.episode_count,

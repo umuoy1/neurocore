@@ -1,20 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api/client";
-
-interface AgentProfileSummary {
-  agent_id: string;
-  name: string;
-  description?: string;
-  updated_at?: string;
-}
-
-interface PolicyTemplate {
-  policy_id: string;
-  name: string;
-  description?: string;
-  level?: string;
-  updated_at?: string;
-}
+import type { AgentProfileSummary, ConfigApiKeyEntry, PolicyTemplate } from "../api/types";
 
 export function ConfigEditorPage() {
   const [tab, setTab] = useState<"profiles" | "policies" | "keys">("profiles");
@@ -22,12 +8,11 @@ export function ConfigEditorPage() {
   const [policies, setPolicies] = useState<PolicyTemplate[]>([]);
   const [profileJson, setProfileJson] = useState<string>("");
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
-  const [keys, setKeys] = useState<{ key_id: string; name: string; created_at: string; last_used_at?: string }[]>([]);
+  const [keys, setKeys] = useState<ConfigApiKeyEntry[]>([]);
 
   useEffect(() => {
-    apiFetch<{ profiles: AgentProfileSummary[] }>("/v1/agents").then((res) => {
-      const list = res.profiles ?? [];
-      setProfiles(list);
+    apiFetch<{ agents: AgentProfileSummary[] }>("/v1/agents").then((res) => {
+      setProfiles(res.agents ?? []);
     }).catch(() => {});
   }, []);
 
@@ -38,15 +23,15 @@ export function ConfigEditorPage() {
   }, []);
 
   useEffect(() => {
-    apiFetch<{ keys: { key_id: string; name: string; created_at: string; last_used_at?: string }[] }>("/v1/api-keys").then((res) => {
+    apiFetch<{ keys: ConfigApiKeyEntry[] }>("/v1/api-keys").then((res) => {
       setKeys(res.keys ?? []);
     }).catch(() => {});
   }, []);
 
   const loadProfile = async (agentId: string) => {
     try {
-      const res = await apiFetch<Record<string, unknown>>(`/v1/agents/${agentId}/profile`);
-      setProfileJson(JSON.stringify(res, null, 2));
+      const res = await apiFetch<{ profile: Record<string, unknown> }>(`/v1/agents/${agentId}/profile`);
+      setProfileJson(JSON.stringify(res.profile ?? {}, null, 2));
       setSelectedProfileId(agentId);
     } catch { setProfileJson("{}"); }
   };
@@ -133,15 +118,15 @@ export function ConfigEditorPage() {
               {policies.length === 0 ? (
                 <tr><td colSpan={4} className="py-8 text-center text-zinc-600">No policies</td></tr>
               ) : policies.map((p) => (
-                <tr key={p.policy_id} className="border-t border-zinc-800/50">
-                  <td className="py-2 px-3 font-mono text-zinc-400">{p.policy_id.slice(0, 12)}</td>
+                <tr key={p.id} className="border-t border-zinc-800/50">
+                  <td className="py-2 px-3 font-mono text-zinc-400">{p.id.slice(0, 12)}</td>
                   <td className="py-2 px-3 text-zinc-300">{p.name}</td>
                   <td className="py-2 px-3">
                     <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                      p.level === "block" ? "bg-red-500/10 text-red-400" :
-                      p.level === "warn" ? "bg-amber-500/10 text-amber-400" :
+                      p.risk_levels?.includes("high") ? "bg-red-500/10 text-red-400" :
+                      p.risk_levels?.includes("medium") ? "bg-amber-500/10 text-amber-400" :
                       "bg-blue-500/10 text-blue-400"
-                    }`}>{p.level ?? "info"}</span>
+                    }`}>{(p.risk_levels ?? []).join(", ") || "info"}</span>
                   </td>
                   <td className="py-2 px-3 text-zinc-500">{p.description ?? "-"}</td>
                 </tr>
@@ -168,7 +153,7 @@ export function ConfigEditorPage() {
               ) : keys.map((k) => (
                 <tr key={k.key_id} className="border-t border-zinc-800/50">
                   <td className="py-2 px-3 font-mono text-zinc-400">{k.key_id.slice(0, 12)}</td>
-                  <td className="py-2 px-3 text-zinc-300">{k.name}</td>
+                  <td className="py-2 px-3 text-zinc-300">{k.key_prefix}</td>
                   <td className="py-2 px-3 text-zinc-500">{new Date(k.created_at).toLocaleDateString()}</td>
                   <td className="py-2 px-3 text-zinc-500">{k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : "Never"}</td>
                 </tr>

@@ -20,10 +20,15 @@ export class SqliteSkillStore implements SkillStore {
         tenant_id TEXT NOT NULL,
         name TEXT NOT NULL,
         version TEXT NOT NULL,
+        status TEXT,
         kind TEXT NOT NULL,
         description TEXT,
+        required_inputs_json TEXT,
+        applicable_domains_json TEXT,
         risk_level TEXT,
         execution_template_json TEXT NOT NULL,
+        fallback_policy_json TEXT,
+        evaluation_metrics_json TEXT,
         metadata_json TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -42,6 +47,11 @@ export class SqliteSkillStore implements SkillStore {
       CREATE INDEX IF NOT EXISTS idx_skill_trigger_lookup
         ON procedural_skill_triggers(skill_id, field, operator);
     `);
+    ensureColumn(this.db, "procedural_skills", "status", "TEXT");
+    ensureColumn(this.db, "procedural_skills", "required_inputs_json", "TEXT");
+    ensureColumn(this.db, "procedural_skills", "applicable_domains_json", "TEXT");
+    ensureColumn(this.db, "procedural_skills", "fallback_policy_json", "TEXT");
+    ensureColumn(this.db, "procedural_skills", "evaluation_metrics_json", "TEXT");
   }
 
   public save(skill: SkillDefinition): void {
@@ -58,23 +68,32 @@ export class SqliteSkillStore implements SkillStore {
           tenant_id,
           name,
           version,
+          status,
           kind,
           description,
+          required_inputs_json,
+          applicable_domains_json,
           risk_level,
           execution_template_json,
+          fallback_policy_json,
+          evaluation_metrics_json,
           metadata_json,
           created_at,
           updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(skill_id) DO UPDATE SET
           tenant_id = excluded.tenant_id,
           name = excluded.name,
           version = excluded.version,
+          status = excluded.status,
           kind = excluded.kind,
           description = excluded.description,
+          required_inputs_json = excluded.required_inputs_json,
+          applicable_domains_json = excluded.applicable_domains_json,
           risk_level = excluded.risk_level,
           execution_template_json = excluded.execution_template_json,
+          fallback_policy_json = excluded.fallback_policy_json,
+          evaluation_metrics_json = excluded.evaluation_metrics_json,
           metadata_json = excluded.metadata_json,
           updated_at = excluded.updated_at
       `)
@@ -83,10 +102,15 @@ export class SqliteSkillStore implements SkillStore {
         tenantId,
         skill.name,
         skill.version,
+        skill.status ?? null,
         skill.kind,
         skill.description ?? null,
+        skill.required_inputs ? JSON.stringify(skill.required_inputs) : null,
+        skill.applicable_domains ? JSON.stringify(skill.applicable_domains) : null,
         skill.risk_level ?? null,
         JSON.stringify(skill.execution_template),
+        skill.fallback_policy ? JSON.stringify(skill.fallback_policy) : null,
+        skill.evaluation_metrics ? JSON.stringify(skill.evaluation_metrics) : null,
         skill.metadata ? JSON.stringify(skill.metadata) : null,
         existingCreatedAt?.created_at ?? now,
         now
@@ -147,6 +171,9 @@ export class SqliteSkillStore implements SkillStore {
   public findByTrigger(tenantId: string, context: Record<string, unknown>): SkillDefinition[] {
     const matched: SkillDefinition[] = [];
     for (const skill of this.list(tenantId)) {
+      if (skill.status === "deprecated" || skill.status === "pruned") {
+        continue;
+      }
       if (skill.trigger_conditions.length === 0) {
         continue;
       }
@@ -196,6 +223,7 @@ export class SqliteSkillStore implements SkillStore {
       schema_version: "1.0.0",
       name: row.name,
       version: row.version,
+      status: row.status as SkillDefinition["status"] | null ?? undefined,
       kind: row.kind as SkillDefinition["kind"],
       description: row.description ?? undefined,
       trigger_conditions: triggerRows.map((trigger) => ({
@@ -210,8 +238,20 @@ export class SqliteSkillStore implements SkillStore {
                 ? true
                 : false
       })),
+      required_inputs: row.required_inputs_json
+        ? JSON.parse(row.required_inputs_json) as SkillDefinition["required_inputs"]
+        : undefined,
       execution_template: JSON.parse(row.execution_template_json) as SkillDefinition["execution_template"],
+      applicable_domains: row.applicable_domains_json
+        ? JSON.parse(row.applicable_domains_json) as SkillDefinition["applicable_domains"]
+        : undefined,
       risk_level: row.risk_level as SkillDefinition["risk_level"] | null ?? undefined,
+      fallback_policy: row.fallback_policy_json
+        ? JSON.parse(row.fallback_policy_json) as SkillDefinition["fallback_policy"]
+        : undefined,
+      evaluation_metrics: row.evaluation_metrics_json
+        ? JSON.parse(row.evaluation_metrics_json) as SkillDefinition["evaluation_metrics"]
+        : undefined,
       metadata: row.metadata_json ? parseRecord(row.metadata_json) : undefined
     };
   }
@@ -221,10 +261,15 @@ interface SqliteSkillRow {
   skill_id: string;
   name: string;
   version: string;
+  status: string | null;
   kind: string;
   description: string | null;
+  required_inputs_json: string | null;
+  applicable_domains_json: string | null;
   risk_level: string | null;
   execution_template_json: string;
+  fallback_policy_json: string | null;
+  evaluation_metrics_json: string | null;
   metadata_json: string | null;
 }
 
@@ -274,4 +319,12 @@ function parseRecord(value: string): Record<string, unknown> {
     return {};
   }
   return parsed as Record<string, unknown>;
+}
+
+function ensureColumn(db: DatabaseSync, table: string, column: string, definition: string) {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (rows.some((row) => row.name === column)) {
+    return;
+  }
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
 }

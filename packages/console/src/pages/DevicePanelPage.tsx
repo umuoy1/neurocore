@@ -19,14 +19,17 @@ export function DevicePanelPage() {
 
   const filtered = devices
     .filter((d) => filter === "all" || d.device_type === filter)
-    .filter((d) => !statusFilter || d.status === statusFilter);
+    .filter((d) => !statusFilter || d.descriptor.status === statusFilter);
 
   const sensors = filtered.filter((d) => d.device_type === "sensor");
   const actuators = filtered.filter((d) => d.device_type === "actuator");
 
   const statusColors: Record<string, string> = {
     online: "bg-emerald-500",
+    ready: "bg-emerald-500",
+    busy: "bg-amber-500",
     offline: "bg-red-500",
+    error: "bg-red-500",
     degraded: "bg-amber-500",
     unknown: "bg-zinc-500",
   };
@@ -61,8 +64,10 @@ export function DevicePanelPage() {
         >
           <option value="">All Statuses</option>
           <option value="online">Online</option>
+          <option value="ready">Ready</option>
+          <option value="busy">Busy</option>
           <option value="offline">Offline</option>
-          <option value="degraded">Degraded</option>
+          <option value="error">Error</option>
         </select>
         <div className="text-xs text-zinc-500">{filtered.length} devices</div>
       </div>
@@ -105,11 +110,13 @@ function DeviceCard({ device, statusColors, healthColors }: {
   statusColors: Record<string, string>;
   healthColors: Record<string, string>;
 }) {
+  const status = device.descriptor.status;
+  const modality = "modality" in device.descriptor ? device.descriptor.modality : undefined;
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5">
-          <span className={`inline-block h-2 w-2 rounded-full ${statusColors[device.status] ?? "bg-zinc-500"}`} />
+          <span className={`inline-block h-2 w-2 rounded-full ${statusColors[status] ?? "bg-zinc-500"}`} />
           <span className="text-xs text-zinc-300 font-medium">{device.device_id.slice(0, 12)}</span>
         </div>
         <span className={`px-1.5 py-0.5 rounded text-[10px] ${healthColors[device.health_status] ?? "text-zinc-500"}`}>
@@ -118,8 +125,8 @@ function DeviceCard({ device, statusColors, healthColors }: {
       </div>
       <div className="flex items-center gap-2 text-[10px] text-zinc-500">
         <span className="px-1 py-0.5 rounded bg-zinc-800">{device.device_type}</span>
-        <span>{device.status}</span>
-        {device.modality && <span>{device.modality}</span>}
+        <span>{status}</span>
+        {modality && <span>{modality}</span>}
       </div>
     </div>
   );

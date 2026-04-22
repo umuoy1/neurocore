@@ -29,6 +29,7 @@ export interface DefineAgentOptions {
   version?: string;
   schemaVersion?: string;
   domain?: string;
+  observabilityConfig?: AgentProfile["observability_config"];
 }
 
 export interface AgentRuntimeInfrastructure
@@ -138,7 +139,8 @@ export class AgentBuilder {
         max_cycles: 8,
         cycle_mode: "standard",
         checkpoint_interval: "cycle"
-      }
+      },
+      observability_config: options.observabilityConfig
     };
   }
 
@@ -169,6 +171,15 @@ export class AgentBuilder {
       ...this.profile.runtime_config,
       ...config,
       ...(nextToolExecution ? { tool_execution: nextToolExecution } : {})
+    };
+    this.invalidateRuntime();
+    return this;
+  }
+
+  public configureObservability(config: Partial<NonNullable<AgentProfile["observability_config"]>>): this {
+    this.profile.observability_config = {
+      ...this.profile.observability_config,
+      ...config
     };
     this.invalidateRuntime();
     return this;

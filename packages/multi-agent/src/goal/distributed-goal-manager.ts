@@ -1,5 +1,10 @@
-import type { AgentDescriptor, GoalAssignment } from "../types.js";
+import type { AgentDescriptor, GoalAssignment, GoalConflictRecord } from "../types.js";
 import type { CoordinationStrategy } from "../coordination/coordination-strategy.js";
+
+export interface GoalMutationContext {
+  agent_id: string;
+  instance_id?: string;
+}
 
 export interface DistributedGoalManager {
   decompose(
@@ -10,7 +15,8 @@ export interface DistributedGoalManager {
   ): Promise<GoalAssignment[]>;
   getAssignment(goalId: string): Promise<GoalAssignment | undefined>;
   listAssignments(parentGoalId: string): Promise<GoalAssignment[]>;
-  updateStatus(goalId: string, status: string, progress?: number): Promise<void>;
-  reassign(goalId: string, newAgentId: string, newInstanceId: string): Promise<void>;
+  updateStatus(goalId: string, status: string, progress?: number, context?: GoalMutationContext): Promise<void>;
+  reassign(goalId: string, newAgentId: string, newInstanceId: string, context?: GoalMutationContext): Promise<void>;
   aggregateProgress(parentGoalId: string): Promise<{ total: number; completed: number; progress: number }>;
+  getConflicts(goalId?: string): Promise<GoalConflictRecord[]>;
 }

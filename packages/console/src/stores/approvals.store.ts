@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { apiFetch } from "../api/client";
-import type { ApprovalRequest } from "../api/types";
+import type { ApprovalRequest, AuditLogEntry } from "../api/types";
 
 export interface ApprovalListItem {
   approval: ApprovalRequest;
@@ -11,15 +11,18 @@ export interface ApprovalListItem {
 interface ApprovalsState {
   pending: ApprovalListItem[];
   history: ApprovalListItem[];
+  audit: AuditLogEntry[];
   loading: boolean;
   fetchPending: () => Promise<void>;
   fetchHistory: (status?: string) => Promise<void>;
+  fetchAudit: () => Promise<void>;
   decide: (approvalId: string, decision: "approved" | "rejected", approverId: string, comment?: string) => Promise<void>;
 }
 
 export const useApprovalsStore = create<ApprovalsState>((set, get) => ({
   pending: [],
   history: [],
+  audit: [],
   loading: false,
 
   fetchPending: async () => {
@@ -34,6 +37,17 @@ export const useApprovalsStore = create<ApprovalsState>((set, get) => ({
     const q = status ? `?status=${status}` : "";
     const res = await apiFetch<{ approvals: ApprovalListItem[] }>(`/v1/approvals${q}`);
     set({ history: res.approvals });
+  },
+
+  fetchAudit: async () => {
+    const [approved, rejected] = await Promise.all([
+      apiFetch<{ entries: AuditLogEntry[] }>("/v1/audit-logs?action=approval.approved&limit=100").catch(() => ({ entries: [] })),
+      apiFetch<{ entries: AuditLogEntry[] }>("/v1/audit-logs?action=approval.rejected&limit=100").catch(() => ({ entries: [] }))
+    ]);
+    const audit = [...approved.entries, ...rejected.entries].sort((left, right) =>
+      Date.parse(right.timestamp) - Date.parse(left.timestamp)
+    );
+    set({ audit });
   },
 
   decide: async (approvalId, decision, approverId, comment) => {

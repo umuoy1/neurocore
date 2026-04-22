@@ -25,7 +25,8 @@ export function compileSkillFromEpisodes(
   patternKey: string,
   tenantId: string,
   generateId: (prefix: string) => string,
-  now: () => string
+  now: () => string,
+  applicableDomains?: string[]
 ): SkillDefinition {
   const matching = episodes.filter(
     (ep) => ep.outcome === "success" && derivePatternKey(ep) === patternKey
@@ -62,9 +63,11 @@ export function compileSkillFromEpisodes(
     schema_version: "1.0.0",
     name: patternKey.replace(/[^a-z0-9:_]/g, "_"),
     version: "1.0.0",
+    status: "active",
     kind,
     description: `Auto-compiled from ${matching.length} successful episodes`,
     trigger_conditions: triggerConditions,
+    applicable_domains: applicableDomains && applicableDomains.length > 0 ? [...new Set(applicableDomains)] : undefined,
     execution_template: {
       kind: kind === "toolchain_skill" ? "toolchain" : "reasoning",
       steps: uniqueSteps,

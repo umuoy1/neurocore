@@ -21,6 +21,11 @@ export class HeuristicPredictionSignalProvider implements MetaSignalProvider<Pre
     const avgPredictionUncertainty = average(
       input.predictions.map((prediction) => prediction.uncertainty).filter((value): value is number => typeof value === "number")
     );
+    const avgExpectedFreeEnergy = average(
+      input.predictions
+        .map((prediction) => prediction.expected_free_energy)
+        .filter((value): value is number => typeof value === "number")
+    );
     const predictorDisagreement = computePredictorDisagreement(input.predictions);
     const calibrationGap = clamp01(input.predictionErrorRate ?? 0);
     const predictorBucketReliability = clamp01(1 - calibrationGap * 0.8);
@@ -59,6 +64,7 @@ export class HeuristicPredictionSignalProvider implements MetaSignalProvider<Pre
       signals: {
         predicted_success_probability: avgPredictionSuccess,
         predicted_downside_severity: sideEffectSeverity,
+        expected_free_energy_score: avgExpectedFreeEnergy,
         uncertainty_decomposition: {
           epistemic,
           aleatoric,

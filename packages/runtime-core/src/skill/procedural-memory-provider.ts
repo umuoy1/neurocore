@@ -2,12 +2,19 @@ import type {
   ActionExecution,
   CandidateAction,
   Episode,
+  SkillCandidate,
+  SkillEvaluation,
   MemoryDigest,
   MemoryProvider,
   ModuleContext,
   ProceduralMemorySnapshot,
   Proposal,
   SkillDefinition,
+  SkillEvaluator,
+  SkillPolicy,
+  SkillSelection,
+  SkillTransferResult,
+  SkillTransferEngine,
   SkillProvider,
   SkillStore
 } from "@neurocore/protocol";
@@ -29,14 +36,31 @@ export class ProceduralMemoryProvider implements MemoryProvider, SkillProvider {
 
   private readonly store: SkillStore;
   private readonly promotionThreshold: number;
+  private readonly skillPolicy?: SkillPolicy;
+  private readonly skillEvaluator?: SkillEvaluator;
+  private readonly transferEngine?: SkillTransferEngine;
   private readonly tenantBySession = new Map<string, string>();
   private readonly episodesBySession = new Map<string, Episode[]>();
   private readonly episodesByTenantPattern = new Map<string, TenantEpisodeGroup>();
   private lastPromotedSkill: SkillDefinition | null = null;
+  private lastSelection: SkillSelection | null = null;
+  private lastEvaluations: SkillEvaluation[] = [];
+  private lastPrunedSkills: SkillDefinition[] = [];
+  private lastTransferredSkill: SkillDefinition | null = null;
+  private lastTransferResult: SkillTransferResult | null = null;
 
-  public constructor(store?: SkillStore, promotionThreshold = 3) {
+  public constructor(
+    store?: SkillStore,
+    promotionThreshold = 3,
+    skillPolicy?: SkillPolicy,
+    skillEvaluator?: SkillEvaluator,
+    transferEngine?: SkillTransferEngine
+  ) {
     this.store = store ?? new InMemorySkillStore();
     this.promotionThreshold = promotionThreshold;
+    this.skillPolicy = skillPolicy;
+    this.skillEvaluator = skillEvaluator;
+    this.transferEngine = transferEngine;
   }
 
   public getStore(): SkillStore {
@@ -51,41 +75,136 @@ export class ProceduralMemoryProvider implements MemoryProvider, SkillProvider {
     this.lastPromotedSkill = null;
   }
 
+  public getLastSelection(): SkillSelection | null {
+    return this.lastSelection;
+  }
+
+  public clearLastSelection(): void {
+    this.lastSelection = null;
+  }
+
+  public drainLastEvaluations(): SkillEvaluation[] {
+    const next = this.lastEvaluations;
+    this.lastEvaluations = [];
+    return next;
+  }
+
+  public drainLastPrunedSkills(): SkillDefinition[] {
+    const next = this.lastPrunedSkills;
+    this.lastPrunedSkills = [];
+    return next;
+  }
+
+  public getLastTransferredSkill(): SkillDefinition | null {
+    return this.lastTransferredSkill;
+  }
+
+  public clearLastTransferredSkill(): void {
+    this.lastTransferredSkill = null;
+  }
+
+  public getLastTransferResult(): SkillTransferResult | null {
+    return this.lastTransferResult;
+  }
+
+  public clearLastTransferResult(): void {
+    this.lastTransferResult = null;
+  }
+
   public async retrieve(ctx: ModuleContext): Promise<Proposal[]> {
     if (ctx.profile.memory_config.procedural_memory_enabled === false) {
       return [];
     }
 
+    this.lastSelection = null;
+    this.lastTransferredSkill = null;
+    this.lastTransferResult = null;
+
     const triggerContext = this.buildTriggerContext(ctx);
-    const skills = this.store.findByTrigger(ctx.tenant_id, triggerContext);
+    const skills = this.resolveCandidateSkills(ctx, triggerContext);
     if (skills.length === 0) return [];
 
     const cycleId = ctx.session.current_cycle_id ?? ctx.services.generateId("cyc");
-    return skills.map((skill) => ({
+    if (!ctx.profile.rl_config?.enabled || !this.skillPolicy) {
+      return skills.map((skill) => ({
+        proposal_id: ctx.services.generateId("prp"),
+        schema_version: ctx.profile.schema_version,
+        session_id: ctx.session.session_id,
+        cycle_id: cycleId,
+        module_name: this.name,
+        proposal_type: "skill_match" as const,
+        salience_score: 0.88,
+        confidence: 0.85,
+        risk: 0,
+        payload: {
+          skill_id: skill.skill_id,
+          skill_name: skill.name,
+          name: skill.name,
+          kind: skill.kind,
+          version: skill.version,
+          tool_name: this.getTriggerConditionValue(skill, "tool_name"),
+          action_type: this.getTriggerConditionValue(skill, "action_type"),
+          default_tool_args: skill.execution_template.default_args,
+          execution_template: skill.execution_template,
+          trigger_conditions: skill.trigger_conditions,
+          risk_level: skill.risk_level
+        },
+        explanation: `Matched skill "${skill.name}" (${skill.kind}) based on trigger conditions.`
+      }));
+    }
+
+    const candidates = skills.map((skill) => this.toSkillCandidate(ctx, cycleId, skill));
+    const selection = await this.skillPolicy.selectSkill({
+      tenant_id: ctx.tenant_id,
+      session_id: ctx.session.session_id,
+      cycle_id: cycleId,
+      candidates,
+      profile: ctx.profile,
+      runtime_state: ctx.runtime_state
+    });
+    this.lastSelection = selection;
+    if (!selection) {
+      return [];
+    }
+
+    const selectedSkill = skills.find((skill) => skill.skill_id === selection.skill_id);
+    if (!selectedSkill) {
+      return [];
+    }
+
+    const selectedCandidate = candidates.find((candidate) => candidate.skill_id === selection.skill_id);
+    if (!selectedCandidate) {
+      return [];
+    }
+
+    return [{
       proposal_id: ctx.services.generateId("prp"),
       schema_version: ctx.profile.schema_version,
       session_id: ctx.session.session_id,
       cycle_id: cycleId,
       module_name: this.name,
       proposal_type: "skill_match" as const,
-      salience_score: 0.88,
-      confidence: 0.85,
+      salience_score: clamp(0.4 + selectedCandidate.q_value * 0.5, 0.05, 0.99),
+      confidence: selection.confidence,
       risk: 0,
       payload: {
-        skill_id: skill.skill_id,
-        skill_name: skill.name,
-        name: skill.name,
-        kind: skill.kind,
-        version: skill.version,
-        tool_name: this.getTriggerConditionValue(skill, "tool_name"),
-        action_type: this.getTriggerConditionValue(skill, "action_type"),
-        default_tool_args: skill.execution_template.default_args,
-        execution_template: skill.execution_template,
-        trigger_conditions: skill.trigger_conditions,
-        risk_level: skill.risk_level
+        skill_id: selectedSkill.skill_id,
+        skill_name: selectedSkill.name,
+        name: selectedSkill.name,
+        kind: selectedSkill.kind,
+        version: selectedSkill.version,
+        tool_name: this.getTriggerConditionValue(selectedSkill, "tool_name"),
+        action_type: this.getTriggerConditionValue(selectedSkill, "action_type"),
+        default_tool_args: selectedSkill.execution_template.default_args,
+        execution_template: selectedSkill.execution_template,
+        trigger_conditions: selectedSkill.trigger_conditions,
+        risk_level: selectedSkill.risk_level,
+        selection_reason: selection.selection_reason,
+        policy_score: selection.policy_score,
+        selection_strategy: selection.strategy
       },
-      explanation: `Matched skill "${skill.name}" (${skill.kind}) based on trigger conditions.`
-    }));
+      explanation: selection.rationale
+    }];
   }
 
   public async getDigest(ctx: ModuleContext): Promise<MemoryDigest[]> {
@@ -120,7 +239,8 @@ export class ProceduralMemoryProvider implements MemoryProvider, SkillProvider {
       ctx.tenant_id,
       patternKey,
       ctx.services.generateId.bind(ctx.services),
-      ctx.services.now.bind(ctx.services)
+      ctx.services.now.bind(ctx.services),
+      ctx.profile.domain ? [ctx.profile.domain] : undefined
     );
     if (promoted) {
       this.lastPromotedSkill = promoted;
@@ -230,6 +350,115 @@ export class ProceduralMemoryProvider implements MemoryProvider, SkillProvider {
 
   public listSkills(tenantId: string): SkillDefinition[] {
     return this.store.list(tenantId);
+  }
+
+  public evaluateSkills(
+    tenantId: string,
+    rewardsBySkillId: (skillId: string) => import("@neurocore/protocol").RewardSignal[],
+    profile: import("@neurocore/protocol").AgentProfile,
+    now: string
+  ): SkillEvaluation[] {
+    if (!this.skillEvaluator || profile.rl_config?.enabled === false) {
+      return [];
+    }
+
+    const evaluations: SkillEvaluation[] = [];
+    const prunedSkills: SkillDefinition[] = [];
+    for (const skill of this.store.list(tenantId)) {
+      const evaluation = this.skillEvaluator.evaluate({
+        tenant_id: tenantId,
+        skill,
+        rewards: rewardsBySkillId(skill.skill_id),
+        policyState: this.skillPolicy?.getState(tenantId, skill.skill_id),
+        now,
+        config: profile.rl_config
+      });
+      evaluations.push(evaluation);
+
+      const nextSkill: SkillDefinition = {
+        ...structuredClone(skill),
+        status: evaluation.status
+      };
+      this.store.save(nextSkill);
+
+      const pruneTtlMs = profile.rl_config?.evaluation?.prune_ttl_ms;
+      const lastSelectedAt = this.skillPolicy?.getState(tenantId, skill.skill_id)?.last_selected_at;
+      const ttlExpired =
+        pruneTtlMs !== undefined &&
+        Date.parse(now) - Date.parse(lastSelectedAt ?? readTimestamp(skill.metadata?.compiled_at) ?? now) >= pruneTtlMs;
+      const shouldPrune =
+        ttlExpired || evaluation.status === "pruned";
+      if (shouldPrune) {
+        if (profile.rl_config?.evaluation?.prune_mode === "hard") {
+          this.store.delete(skill.skill_id);
+        } else {
+          this.store.save({
+            ...nextSkill,
+            status: "pruned"
+          });
+        }
+        prunedSkills.push({
+          ...nextSkill,
+          status: "pruned"
+        });
+      }
+    }
+
+    this.lastEvaluations = evaluations;
+    this.lastPrunedSkills = prunedSkills;
+    return evaluations;
+  }
+
+  public reconcileTransferredSkillOutcome(
+    tenantId: string,
+    skillId: string,
+    outcome: Episode["outcome"]
+  ): SkillDefinition | null {
+    const skill = this.store.get(skillId);
+    if (!skill) {
+      return null;
+    }
+
+    const metadata =
+      skill.metadata && typeof skill.metadata === "object"
+        ? (skill.metadata as Record<string, unknown>)
+        : undefined;
+    const sourceSkillId =
+      typeof metadata?.transferred_from_skill_id === "string"
+        ? metadata.transferred_from_skill_id
+        : undefined;
+    if (!sourceSkillId) {
+      return null;
+    }
+
+    if (outcome !== "success") {
+      this.store.delete(skillId);
+      return {
+        ...structuredClone(skill),
+        status: "pruned"
+      };
+    }
+
+    const validationRemaining = readNumber(metadata?.validation_remaining_uses);
+    if (validationRemaining === undefined) {
+      return null;
+    }
+
+    const nextMetadata = { ...(metadata ?? {}) };
+    if (validationRemaining > 1) {
+      nextMetadata.validation_remaining_uses = validationRemaining - 1;
+    } else {
+      delete nextMetadata.validation_remaining_uses;
+      delete nextMetadata.confidence_penalty;
+      nextMetadata.transfer_validated_at = nowIso();
+    }
+
+    const updatedSkill: SkillDefinition = {
+      ...structuredClone(skill),
+      metadata: nextMetadata
+    };
+    this.store.save(updatedSkill);
+    return updatedSkill;
   }
 
   private buildTriggerContext(ctx: ModuleContext): Record<string, unknown> {
@@ -348,7 +577,8 @@ export class ProceduralMemoryProvider implements MemoryProvider, SkillProvider {
     tenantId: string,
     patternKey: string,
     generateSkillId: (prefix: string) => string = generateId,
-    now: () => string = nowIso
+    now: () => string = nowIso,
+    applicableDomains?: string[]
   ): SkillDefinition | null {
     const groupKey = `${tenantId}:${patternKey}`;
     const group = this.episodesByTenantPattern.get(groupKey);
@@ -370,7 +600,8 @@ export class ProceduralMemoryProvider implements MemoryProvider, SkillProvider {
         patternKey,
         tenantId,
         generateSkillId,
-        now
+        now,
+        applicableDomains
       );
       this.store.save(compiled);
       return compiled;
@@ -378,7 +609,7 @@ export class ProceduralMemoryProvider implements MemoryProvider, SkillProvider {
 
     const [primary, ...duplicates] = existing;
     const refreshed = {
-      ...compileSkillFromEpisodes(episodes, patternKey, tenantId, () => primary.skill_id, now),
+      ...compileSkillFromEpisodes(episodes, patternKey, tenantId, () => primary.skill_id, now, primary.applicable_domains),
       skill_id: primary.skill_id,
       version: primary.version
     };
@@ -430,4 +661,124 @@ export class ProceduralMemoryProvider implements MemoryProvider, SkillProvider {
     );
     return condition?.value;
   }
+
+  private resolveCandidateSkills(
+    ctx: ModuleContext,
+    triggerContext: Record<string, unknown>
+  ): SkillDefinition[] {
+    const matched = this.store.findByTrigger(ctx.tenant_id, triggerContext);
+    const currentDomain = ctx.profile.domain?.trim().toLowerCase();
+
+    if (!currentDomain || ctx.profile.rl_config?.transfer?.enabled !== true || !this.transferEngine) {
+      return matched;
+    }
+
+    const next: SkillDefinition[] = [...matched];
+    for (const skill of matched) {
+      const domains = skill.applicable_domains?.map((domain) => domain.toLowerCase()) ?? [];
+      if (domains.length === 0 || domains.includes(currentDomain)) {
+        continue;
+      }
+
+      const existingTransfer = this.findTransferredSkill(ctx.tenant_id, skill.skill_id, currentDomain);
+      if (existingTransfer) {
+        next.push(existingTransfer);
+        continue;
+      }
+
+      const transferred = this.transferEngine.transfer({
+        tenant_id: ctx.tenant_id,
+        profile: ctx.profile,
+        target_domain: currentDomain,
+        skill
+      });
+      if (!transferred) {
+        continue;
+      }
+
+      this.store.save(transferred.skill);
+      this.lastTransferredSkill = transferred.skill;
+      this.lastTransferResult = transferred.result;
+      next.push(transferred.skill);
+    }
+
+    return dedupeSkills(next);
+  }
+
+  private findTransferredSkill(
+    tenantId: string,
+    sourceSkillId: string,
+    targetDomain: string
+  ): SkillDefinition | null {
+    const duplicates = this.store.list(tenantId).filter((skill) => {
+      const metadata =
+        skill.metadata && typeof skill.metadata === "object"
+          ? (skill.metadata as Record<string, unknown>)
+          : undefined;
+      return (
+        typeof metadata?.transferred_from_skill_id === "string" &&
+        metadata.transferred_from_skill_id === sourceSkillId &&
+        typeof metadata?.target_domain === "string" &&
+        metadata.target_domain === targetDomain
+      );
+    });
+
+    const [primary, ...rest] = duplicates;
+    for (const duplicate of rest) {
+      this.store.delete(duplicate.skill_id);
+    }
+    return primary ?? null;
+  }
+
+  private toSkillCandidate(
+    ctx: ModuleContext,
+    cycleId: string,
+    skill: SkillDefinition
+  ): SkillCandidate {
+    const state = this.skillPolicy?.getState(ctx.tenant_id, skill.skill_id);
+    const metadata =
+      skill.metadata && typeof skill.metadata === "object"
+        ? (skill.metadata as Record<string, unknown>)
+        : undefined;
+    return {
+      tenant_id: ctx.tenant_id,
+      session_id: ctx.session.session_id,
+      cycle_id: cycleId,
+      skill_id: skill.skill_id,
+      skill_name: skill.name,
+      skill_version: skill.version,
+      risk_level: skill.risk_level,
+      applicable_domains: skill.applicable_domains,
+      trigger_score: 1,
+      q_value: state?.q_value ?? (ctx.profile.rl_config?.policy?.default_q_value ?? 0.5),
+      sample_count: state?.sample_count ?? 0,
+      success_rate:
+        state && state.sample_count > 0
+          ? state.success_count / state.sample_count
+          : 0,
+      average_reward: state?.average_reward ?? 0,
+      confidence_penalty: readNumber(metadata?.confidence_penalty),
+      validation_remaining_uses: readNumber(metadata?.validation_remaining_uses)
+    };
+  }
+}
+
+function dedupeSkills(skills: SkillDefinition[]): SkillDefinition[] {
+  const next = new Map<string, SkillDefinition>();
+  for (const skill of skills) {
+    next.set(skill.skill_id, skill);
+  }
+  return [...next.values()];
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readTimestamp(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }

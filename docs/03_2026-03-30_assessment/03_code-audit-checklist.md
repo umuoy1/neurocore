@@ -2,6 +2,10 @@
 
 > 当前项目总进度以 [`docs/README.md`](../README.md) 为准。
 >
+> 2026-04-23 修正：
+> - 本文档保留 2026-04-03 的审计快照。
+> - 其中 `M8 / M9 / M10` 的“未实现”判断已经过时；当前真实状态以 [`docs/README.md`](../README.md) 和 [`02_gap-analysis-and-roadmap.md`](./02_gap-analysis-and-roadmap.md) 为准。
+>
 > 本文档从**现有代码、测试和运行路径**反推当前系统状态，回答四个问题：
 > - 当前 Agent 是否达到一个相对完备阶段
 > - 各个 Milestone 是否真正完成
@@ -21,20 +25,20 @@
 - M9 定向回归：`npm run build` 后执行 `tests/multi-agent-delegation.test.mjs + tests/multi-agent-runtime.test.mjs`，`20 pass / 0 fail`
 - personal-assistant 抽样回归：`tests/personal-assistant-gateway.test.mjs + tests/personal-assistant-approval.test.mjs + tests/personal-assistant-proactive.test.mjs + tests/personal-assistant-web-chat.test.mjs + tests/personal-assistant-e2e.test.mjs + tests/personal-assistant-config.test.mjs` 通过/可跳过，说明 Phase A 的本地 Web / router / search / approval resume / startup auto-approve / proactive 最小闭环已落地；其中 Web Chat socket E2E 仍需在允许本地端口监听的环境完成
 - 历史抽样中，hosted runtime 相关失败主要来自当前环境监听 `127.0.0.1` 时触发 `listen EPERM`
-- 因此，**本地纯逻辑与 M9 核心闭环已验证**，但 **hosted / socket / Console 联调** 仍需要在允许本地端口监听的环境中完成全量验证
+- 因此，**本地纯逻辑、M8 / M9 当前阶段闭环、hosted 的核心主链与 M11 的 Console/API/WS 主链都已验证**，但更大范围 socket/真实环境联调仍需要在允许本地端口监听的环境中完成全量验证
 
 ## 总体判断
 
 **如果目标是“有状态单 Agent 认知运行时”，当前代码已经达到一个相对完整、可运行、可恢复、可观测的阶段。**
 
-**如果目标是“完整 Agent 平台 / 完整多轮个人助理产品 / 完整 Console 产品”，当前代码还没有收口。**
+**如果目标是“完整 Agent 平台 / 完整多轮个人助理产品 / 完整 Console 产品”，当前代码已把 Console 当前阶段收口，但个人助理真实平台联调和更远期分布式能力仍未收口。**
 
 更准确地说：
 
 - `single-agent + tool + memory + checkpoint + replay + eval` 已形成主闭环
 - `device/world-model` 已接入主链路
 - `multi-agent` 已具备核心原语，且本地 in-process 路径已形成闭环
-- `console` 有预实现，但还不是产品级闭环
+- `console` 当前阶段已经形成产品级闭环
 - `personal-assistant` 已有 Phase A 局部落地，但完整产品层还没有收口
 - `memory-evolution / M10 / M12` 目前仍主要停留在设计与排期层
 
@@ -60,10 +64,10 @@
 | M5.3 | ✅ | 技能系统已落地 | procedural promotion + skill match/execute |
 | M6 | ✅ | Hosted Runtime 核心完成，但 hosted E2E 需在可监听端口环境验证 | HTTP API / auth / persistence / replay / eval API |
 | M7 | ✅ | 测试、CI、release workflow 已落地 | GitHub Actions + changesets |
-| M8 | ✅ | 世界模型与设备接入已接入主链路且有集成验证 | device-core + world-model + perceive/simulate |
-| M9 | ◐ | 多 Agent 本地/in-process 核心闭环已完成；剩余缺口主要在分布式与生产化增强 | registry / bus / delegator / coordination / mesh / runtime-server 接入已打通 |
-| M10 | ⬜ | 未见技能强化学习实现 | 仅文档与排期存在 |
-| M11 | ⏸ / ◐ | Console 已有方案与预实现，但未形成产品闭环 | 页面、store、REST、WS 仍待联调 |
+| M8 | ✅ | 世界模型与设备接入当前阶段已完成，含 Active Inference / Device Coordination 主链接线 | device-core + world-model + perceive/simulate/act |
+| M9 | ✅ | 多 Agent 当前阶段已完成；本地/in-process 闭环与 lifecycle/conflict/status 补齐 | registry / bus / delegator / coordination / mesh / lifecycle / runtime-server 接入已打通 |
+| M10 | ✅ | 当前阶段已完成 reward / policy / exploration / evaluation / transfer / online learner 全链路 | `RewardSignal / RewardStore / RewardComputer`、`BanditSkillPolicy`、探索策略、`SkillEvaluator`、`SkillTransferEngine`、`SkillOnlineLearner`、事件与 SQLite 持久化 |
+| M11 | ✅ | Console 当前阶段已完成 | 页面、store、REST、WS、鉴权、持久会话浏览、多视图端点已接通 |
 | M12 | ⬜ | 未开始 | 依赖 M9 + M10 收口 |
 
 ## 代码层关键结论
@@ -82,7 +86,7 @@
 
 这说明当前系统不是“若干模块并列存在”，而是已经存在一个能真正运转的核心调度器。
 
-### 2. 逻辑总体自洽，M9 的本地核心闭环已经成立
+### 2. 逻辑总体自洽，M9 当前阶段已经成立
 
 此前 `call_tool` 路径可以自动续跑，但 `delegate` 路径虽然会记录 observation，却没有被提升到同等级续跑语义。
 
@@ -94,25 +98,30 @@
 - `runtime-server` 已可自动装配多 Agent mesh，而不是只停留在单 Agent builder 列表
 - 新增 runtime 级测试，验证 supervisor -> worker -> result -> supervisor resume 的端到端链路
 
-因此，M9 更准确的状态应是“**本地核心闭环已完成，分布式/生产化增强后置**”。
+随后代码又继续补齐了以下缺口：
 
-### 3. Console 还处在预实现阶段，不应视为 M11 完成
+- registry lifecycle callbacks 与 `agent.registered / agent.deregistered / agent.heartbeat_lost / agent.status_changed` 事件
+- `TaskDelegator.getStatus()`、cancel 状态跟踪与更完整的 delegation lifecycle
+- goal/shared-state conflict 记录与版本校验
+- coordination strategy registry 与可配置策略解析
+- child-process / remote lifecycle mode、resource limits 与 graceful terminate/save-state
 
-当前 Console 的状态更接近：
+因此，M9 更准确的状态应是“**当前阶段已完成；后续只保留真正的分布式/生产化增强**”。
+
+### 3. Console 当前阶段已形成 M11 闭环
+
+当前 Console 的状态已经进入产品级主链：
 
 - 有 SPA 骨架
 - 有 dashboard/session/trace/memory/workspace/world-model 等页面
 - 有 Zustand store 和前后端契约草稿
 - 有 `WsServer`、metrics/config/audit store 等后端支持资产
+- 已有真实 `auth/me`、持久会话聚合、审批历史聚合、memory/semantic/skills/world-state/devices/delegations/goals 端点
+- 已有带 token 的 WS 鉴权、断线重连与自动重新订阅
 
-但仍存在明确缺口：
+此前存在的 `/v1/v1/*`、`auth/me` 缺失、未鉴权 WS、若干 response shape 错位，以及 `goals / memory / semantic / skills / world-state / devices / delegations` 端点缺口当前阶段都已收口。
 
-- API 路径存在 `/v1/v1/*` 重复问题
-- `WsServer` 已实现，但 `runtime-server` 启动接线仍未收口
-- 多个页面直接写明“需要后端端点”
-- 前后端若干 response shape 和字段命名不一致
-
-所以，当前的 Console 应被视为“**后续 M11 的输入资产**”，而不是“已完成交付”。
+所以，当前的 Console 应被视为“**M11 当前阶段已完成交付**”，而不是后续输入资产。
 
 ### 3.5 personal-assistant 不再只是设计稿，但也还不是完成态
 
@@ -157,7 +166,7 @@
 ### 半闭环
 
 - hosted runtime 端到端链路
-- console 数据面与订阅面
+- console 在真实环境下的更大范围联调
 - personal-assistant Phase A 本地 Web / router / search / config 路径
 
 ### 未闭环
@@ -177,7 +186,7 @@
    - 当前已具备 `im-gateway`、`service-connectors`、Web Chat、搜索/浏览器连接器与 Agent 组装基础能力
    - 下一步应继续收口飞书接入、审批恢复路径与完整 E2E
 
-2. Console 准备项收口
+2. Console 真实环境联调与产品回归
    - 统一 API 基础层路径规则和 response shape
    - 接通 `runtime-server` 的 WS 启动接线、鉴权约定和前端订阅
    - 校准前后端字段命名与类型定义
@@ -185,8 +194,8 @@
 
 ### P1：补足当前代码最真实的内核缺口
 
-1. 收紧 `runtime-server` 与 Console 的联调契约
-2. 给 hosted / WS / Console 相关路径补一轮可在真实环境执行的回归验证
+1. 给 hosted / WS / Console 相关路径补一轮可在真实环境执行的回归验证
+2. 保持 Console 契约与 runtime-server 新增端点同步
 3. 为分布式 bus / 多实例 registry / 生命周期隔离补生产化实现
 
 ### P2：下一阶段
@@ -198,11 +207,10 @@
 ### P3：未来项
 
 1. M10 技能强化学习
-2. M11 Console 正式恢复实施与 E2E 收口
 3. M12 通用自主体
 
 ## 建议的对外口径
 
 对当前代码最准确的描述应是：
 
-**NeuroCore 已经具备较完整的认知运行时内核，M1 ~ M8 基本成立，M9 的本地多 Agent 核心闭环已形成；M10 / M11 / M12 还不是完成态。当前主线仍是个人助理产品层与 Console 准备，随后进入记忆系统演进。**
+**NeuroCore 已经具备较完整的认知运行时内核，M1 ~ M11 当前阶段均已形成主体闭环；当前主线转向个人助理真实平台联调、M12 与更远期分布式增强。**

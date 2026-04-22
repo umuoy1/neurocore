@@ -18,6 +18,7 @@ export type MutableAgentProfileOverrides = Omit<
 export interface CreateSessionCommand {
   command_type: "create_session";
   agent_id: string;
+  agent_version?: string;
   tenant_id: string;
   user_id?: string;
   session_mode?: "sync" | "async" | "stream";

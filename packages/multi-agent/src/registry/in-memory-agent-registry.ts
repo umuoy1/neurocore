@@ -1,5 +1,10 @@
 import type { AgentDescriptor, AgentQuery, AgentStatus, StatusChangeCallback } from "../types.js";
-import type { AgentRegistry } from "./agent-registry.js";
+import type {
+  AgentDeregistrationCallback,
+  AgentHeartbeatLostCallback,
+  AgentRegistrationCallback,
+  AgentRegistry
+} from "./agent-registry.js";
 import { HeartbeatMonitor } from "./heartbeat-monitor.js";
 
 export class InMemoryAgentRegistry implements AgentRegistry {
@@ -7,13 +12,23 @@ export class InMemoryAgentRegistry implements AgentRegistry {
   private readonly capabilityIndex = new Map<string, Set<string>>();
   private readonly domainIndex = new Map<string, Set<string>>();
   private readonly statusCallbacks = new Set<StatusChangeCallback>();
+  private readonly registrationCallbacks = new Set<AgentRegistrationCallback>();
+  private readonly deregistrationCallbacks = new Set<AgentDeregistrationCallback>();
+  private readonly heartbeatLostCallbacks = new Set<AgentHeartbeatLostCallback>();
   public readonly heartbeatMonitor = new HeartbeatMonitor();
 
   constructor() {
     this.heartbeatMonitor.onMiss = (instanceId) => {
       const agent = this.agents.get(instanceId);
       if (agent && agent.status !== "unreachable" && agent.status !== "terminated") {
+        const previous = agent.status;
         this.changeStatus(instanceId, "unreachable");
+        const updated = this.agents.get(instanceId);
+        if (updated) {
+          for (const callback of this.heartbeatLostCallbacks) {
+            callback(updated, previous);
+          }
+        }
       }
     };
     this.heartbeatMonitor.onTimeout = (instanceId) => {
@@ -52,6 +67,12 @@ export class InMemoryAgentRegistry implements AgentRegistry {
       set.add(descriptor.instance_id);
     }
     this.heartbeatMonitor.track(descriptor.instance_id, descriptor.heartbeat_interval_ms);
+    const registered = this.agents.get(descriptor.instance_id);
+    if (registered) {
+      for (const callback of this.registrationCallbacks) {
+        callback(registered);
+      }
+    }
   }
 
   async deregister(instanceId: string): Promise<void> {
@@ -65,6 +86,9 @@ export class InMemoryAgentRegistry implements AgentRegistry {
     }
     this.heartbeatMonitor.untrack(instanceId);
     this.agents.delete(instanceId);
+    for (const callback of this.deregistrationCallbacks) {
+      callback(agent);
+    }
   }
 
   async heartbeat(instanceId: string): Promise<void> {
@@ -133,6 +157,18 @@ export class InMemoryAgentRegistry implements AgentRegistry {
 
   onStatusChange(callback: StatusChangeCallback): void {
     this.statusCallbacks.add(callback);
+  }
+
+  onRegistered(callback: AgentRegistrationCallback): void {
+    this.registrationCallbacks.add(callback);
+  }
+
+  onDeregistered(callback: AgentDeregistrationCallback): void {
+    this.deregistrationCallbacks.add(callback);
+  }
+
+  onHeartbeatLost(callback: AgentHeartbeatLostCallback): void {
+    this.heartbeatLostCallbacks.add(callback);
   }
 
   private changeStatus(instanceId: string, newStatus: AgentStatus): void {

@@ -1,12 +1,27 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
+export interface DebugSink {
+  debug(scope: string, message: string, data?: Record<string, unknown>): void;
+}
+
+let activeDebugSink: DebugSink | undefined;
+
+export function configureDebugSink(sink?: DebugSink): void {
+  activeDebugSink = sink;
+}
+
 function isDebugEnabled(): boolean {
   const value = process.env.NEUROCORE_DEBUG;
   return value === "1" || value === "true" || value === "yes" || value === "debug";
 }
 
 export function debugLog(scope: string, message: string, data?: Record<string, unknown>): void {
+  if (activeDebugSink) {
+    activeDebugSink.debug(scope, message, data);
+    return;
+  }
+
   if (!isDebugEnabled()) {
     return;
   }

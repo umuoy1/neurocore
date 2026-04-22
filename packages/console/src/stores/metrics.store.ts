@@ -51,14 +51,14 @@ export const useMetricsStore = create<MetricsState>((set, get) => ({
     const window = timeRangeMs[get().timeRange];
     const interval = get().timeRange === "1h" ? 60000 : get().timeRange === "6h" ? 300000 : 900000;
     const res = await apiFetch<{ points: TimeseriesPoint[] }>(
-      `/v1/metrics/timeseries?metric=cycles_executed&window=${window}&interval=${interval}`
+      `/v1/metrics/timeseries?metric=cycles_executed&window_ms=${window}&interval_ms=${interval}`
     );
     set({ timeseries: res.points });
   },
 
   fetchLatency: async () => {
     const window = timeRangeMs[get().timeRange];
-    const res = await apiFetch<LatencyPercentiles>(`/v1/metrics/latency?window=${window}`);
+    const res = await apiFetch<LatencyPercentiles>(`/v1/metrics/latency?window_ms=${window}`);
     set({ latency: res });
   },
 

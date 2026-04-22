@@ -12,15 +12,33 @@ type WsHandler = (msg: WsMessage) => void;
 export function useWebSocket(url: string) {
   const wsRef = useRef<WebSocket | null>(null);
   const handlersRef = useRef<Map<string, Set<WsHandler>>>(new Map());
+  const subscriptionsRef = useRef<Set<string>>(new Set());
   const [connected, setConnected] = useState(false);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    const apiKey = typeof window === "undefined" ? null : window.localStorage.getItem("nc_api_key");
+    if (!apiKey) {
+      setConnected(false);
+      return;
+    }
 
-    const ws = new WebSocket(url);
+    const wsUrl = new URL(url, window.location.origin);
+    wsUrl.searchParams.set("token", apiKey);
+    const ws = new WebSocket(wsUrl.toString());
     wsRef.current = ws;
 
-    ws.onopen = () => setConnected(true);
+    ws.onopen = () => {
+      setConnected(true);
+      for (const channel of subscriptionsRef.current) {
+        ws.send(JSON.stringify({
+          type: "subscribe",
+          channel,
+          message_id: `sub_${Date.now()}_${channel}`,
+          timestamp: new Date().toISOString(),
+        }));
+      }
+    };
     ws.onclose = () => {
       setConnected(false);
       setTimeout(connect, 2000);
@@ -61,16 +79,32 @@ export function useWebSocket(url: string) {
       handlersRef.current.set(channel, new Set());
     }
     handlersRef.current.get(channel)!.add(handler);
+    subscriptionsRef.current.add(channel);
 
-    wsRef.current?.send(JSON.stringify({
-      type: "subscribe",
-      channel,
-      message_id: `sub_${Date.now()}`,
-      timestamp: new Date().toISOString(),
-    }));
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: "subscribe",
+        channel,
+        message_id: `sub_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+      }));
+    }
 
     return () => {
-      handlersRef.current.get(channel)?.delete(handler);
+      const handlers = handlersRef.current.get(channel);
+      handlers?.delete(handler);
+      if (!handlers || handlers.size === 0) {
+        handlersRef.current.delete(channel);
+        subscriptionsRef.current.delete(channel);
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            type: "unsubscribe",
+            channel,
+            message_id: `unsub_${Date.now()}`,
+            timestamp: new Date().toISOString(),
+          }));
+        }
+      }
     };
   }, []);
 

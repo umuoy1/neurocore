@@ -94,6 +94,7 @@ export class RemoteAgentClient {
       {
         command_type: "create_session",
         agent_id: this.agentId,
+        agent_version: command.agent_version,
         tenant_id: command.tenant_id,
         user_id: command.user_id,
         session_mode: command.session_mode,

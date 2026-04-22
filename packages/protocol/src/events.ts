@@ -7,12 +7,21 @@ import type {
   Episode,
   Goal,
   Observation,
+  ExplorationEvent,
+  PolicyUpdateEvent,
+  RewardSignal,
   Prediction,
   PredictionError,
+  SkillPruneEvent,
+  SkillEvaluation,
+  SkillTransferEvent,
   RuntimeOutput,
   RuntimeStatus,
   SessionCheckpoint,
+  SkillPolicyState,
   SkillDefinition,
+  SkillSelection,
+  SkillTransferResult,
   WorkspaceSnapshot,
   Proposal
 } from "./types.js";
@@ -36,9 +45,15 @@ export type NeuroCoreEventType =
   | "prediction.recorded"
   | "prediction_error.recorded"
   | "memory.written"
+  | "reward.computed"
+  | "policy.updated"
+  | "exploration.triggered"
   | "skill.matched"
   | "skill.executed"
   | "skill.promoted"
+  | "skill.evaluated"
+  | "skill.pruned"
+  | "skill.transferred"
   | "approval.requested"
   | "budget.exceeded"
   | "checkpoint.created"
@@ -89,9 +104,15 @@ export interface NeuroCoreEventPayloadMap {
   "prediction.recorded": Prediction;
   "prediction_error.recorded": PredictionError;
   "memory.written": Episode;
+  "reward.computed": RewardSignal;
+  "policy.updated": PolicyUpdateEvent;
+  "exploration.triggered": ExplorationEvent;
   "skill.matched": SkillDefinition;
   "skill.executed": ActionExecution;
   "skill.promoted": SkillDefinition;
+  "skill.evaluated": SkillEvaluation;
+  "skill.pruned": SkillPruneEvent;
+  "skill.transferred": SkillTransferEvent;
   "approval.requested": ApprovalRequest;
   "budget.exceeded": WorkspaceSnapshot;
   "checkpoint.created": SessionCheckpoint;

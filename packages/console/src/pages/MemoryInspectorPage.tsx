@@ -2,13 +2,26 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router";
 import { useMemoryStore } from "../stores/memory.store";
 import { useSessionsStore } from "../stores/sessions.store";
-import type { WorkingMemoryRecord, Episode } from "../api/types";
+import type { Episode, SemanticMemoryRecord, SkillDefinition, WorkingMemoryRecord } from "../api/types";
 
 type Layer = "working" | "episodic" | "semantic" | "procedural";
 
 export function MemoryInspectorPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
-  const { activeLayer, setActiveLayer, searchQuery, setSearchQuery, workingMemory, episodes, fetchWorkingMemory, fetchEpisodes } = useMemoryStore();
+  const {
+    activeLayer,
+    setActiveLayer,
+    searchQuery,
+    setSearchQuery,
+    workingMemory,
+    episodes,
+    semanticMemory,
+    skills,
+    fetchWorkingMemory,
+    fetchEpisodes,
+    fetchSemanticMemory,
+    fetchSkills
+  } = useMemoryStore();
   const { fetchSessionDetail } = useSessionsStore();
   const [outcomeFilter, setOutcomeFilter] = useState<string>("");
 
@@ -21,6 +34,8 @@ export function MemoryInspectorPage() {
     if (!sessionId) return;
     if (activeLayer === "working") fetchWorkingMemory(sessionId);
     if (activeLayer === "episodic") fetchEpisodes(sessionId);
+    if (activeLayer === "semantic") fetchSemanticMemory(sessionId);
+    if (activeLayer === "procedural") fetchSkills(sessionId);
   }, [activeLayer, sessionId]);
 
   const layers: { key: Layer; label: string }[] = [
@@ -37,6 +52,12 @@ export function MemoryInspectorPage() {
   const filteredEpisodes = episodes
     .filter((e) => !outcomeFilter || e.outcome === outcomeFilter)
     .filter((e) => !searchQuery || e.trigger_summary?.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredSemantic = semanticMemory.filter((record) =>
+    !searchQuery || record.summary.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+  const filteredSkills = skills.filter((skill) =>
+    !searchQuery || `${skill.name} ${skill.description ?? ""}`.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <div className="p-6 space-y-4">
@@ -102,14 +123,24 @@ export function MemoryInspectorPage() {
       )}
 
       {activeLayer === "semantic" && (
-        <div className="text-zinc-600 text-xs py-8 text-center">
-          Semantic memory view requires backend endpoint (GET /v1/sessions/:id/memory/semantic)
+        <div className="space-y-2">
+          <div className="text-xs text-zinc-500">{filteredSemantic.length} patterns</div>
+          {filteredSemantic.length === 0 ? (
+            <div className="text-zinc-600 text-xs py-8 text-center">No semantic patterns</div>
+          ) : filteredSemantic.map((record) => (
+            <SemanticCard key={record.memory_id} record={record} />
+          ))}
         </div>
       )}
 
       {activeLayer === "procedural" && (
-        <div className="text-zinc-600 text-xs py-8 text-center">
-          Procedural memory view requires backend endpoint (GET /v1/sessions/:id/skills)
+        <div className="space-y-2">
+          <div className="text-xs text-zinc-500">{filteredSkills.length} skills</div>
+          {filteredSkills.length === 0 ? (
+            <div className="text-zinc-600 text-xs py-8 text-center">No procedural skills</div>
+          ) : filteredSkills.map((skill) => (
+            <SkillCard key={skill.skill_id} skill={skill} />
+          ))}
         </div>
       )}
     </div>
@@ -171,6 +202,37 @@ function EpisodeCard({ episode }: { episode: Episode }) {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+function SemanticCard({ record }: { record: SemanticMemoryRecord }) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs text-zinc-300">{record.summary}</div>
+        <span className={`rounded px-1.5 py-0.5 text-[10px] ${record.valence === "negative" ? "bg-red-500/10 text-red-400" : "bg-emerald-500/10 text-emerald-400"}`}>
+          {record.valence}
+        </span>
+      </div>
+      <div className="mt-1 text-[11px] text-zinc-500">
+        occurrences: {record.occurrence_count} · sessions: {record.session_ids.length}
+      </div>
+    </div>
+  );
+}
+
+function SkillCard({ skill }: { skill: SkillDefinition }) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs text-zinc-300">{skill.name}</div>
+          <div className="text-[11px] text-zinc-500">{skill.kind} · {skill.version}</div>
+        </div>
+        <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">{skill.status ?? "active"}</span>
+      </div>
+      {skill.description && <div className="mt-1 text-[11px] text-zinc-500">{skill.description}</div>}
     </div>
   );
 }

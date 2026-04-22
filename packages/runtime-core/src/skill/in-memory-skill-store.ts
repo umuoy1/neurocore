@@ -35,6 +35,7 @@ export class InMemorySkillStore implements SkillStore {
     const matched: SkillDefinition[] = [];
     for (const entry of this.entries.values()) {
       if (entry.tenantId !== tenantId) continue;
+      if (entry.skill.status === "deprecated" || entry.skill.status === "pruned") continue;
       if (entry.skill.trigger_conditions.length === 0) continue;
 
       const allMatch = entry.skill.trigger_conditions.every((condition) => {

@@ -1,17 +1,22 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api/client";
-import type { AgentDescriptor } from "../api/types";
+import type { AgentDescriptor, DelegationStatusRecord } from "../api/types";
 
 export function MultiAgentDashboardPage() {
   const [agents, setAgents] = useState<AgentDescriptor[]>([]);
+  const [delegations, setDelegations] = useState<DelegationStatusRecord[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
   useEffect(() => {
     apiFetch<{ agents: AgentDescriptor[] }>("/v1/agents").then((res) => {
       setAgents(res.agents ?? []);
     }).catch(() => {});
+    apiFetch<{ delegations: DelegationStatusRecord[] }>("/v1/delegations").then((res) => {
+      setDelegations(res.delegations ?? []);
+    }).catch(() => {});
     const id = setInterval(() => {
       apiFetch<{ agents: AgentDescriptor[] }>("/v1/agents").then((res) => setAgents(res.agents ?? [])).catch(() => {});
+      apiFetch<{ delegations: DelegationStatusRecord[] }>("/v1/delegations").then((res) => setDelegations(res.delegations ?? [])).catch(() => {});
     }, 10000);
     return () => clearInterval(id);
   }, []);
@@ -32,7 +37,7 @@ export function MultiAgentDashboardPage() {
               {agents.map((a) => {
                 const loadPct = a.max_capacity > 0 ? (a.current_load / a.max_capacity) * 100 : 0;
                 const loadColor = loadPct < 70 ? "bg-emerald-500" : loadPct < 90 ? "bg-amber-500" : "bg-red-500";
-                const statusColor = a.status === "active" ? "bg-emerald-500" : a.status === "busy" ? "bg-amber-500" : "bg-zinc-500";
+                const statusColor = a.status === "idle" ? "bg-emerald-500" : a.status === "busy" ? "bg-amber-500" : "bg-zinc-500";
                 return (
                   <button
                     key={a.agent_id}
@@ -46,7 +51,7 @@ export function MultiAgentDashboardPage() {
                         <span className={`inline-block h-2 w-2 rounded-full ${statusColor}`} />
                         <span className="text-zinc-300 font-medium">{a.name}</span>
                       </div>
-                      <span className="text-[10px] text-zinc-500">{a.instance_id.slice(0, 8)}</span>
+                      <span className="text-[10px] text-zinc-500">{a.instance_id?.slice(0, 8) ?? "-"}</span>
                     </div>
                     <div className="flex items-center gap-2 mt-1">
                       <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden">
@@ -106,8 +111,23 @@ export function MultiAgentDashboardPage() {
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
             <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-3">Delegations</h3>
             <div className="text-zinc-600 text-xs py-4 text-center">
-              Delegation tracking requires backend endpoint (GET /v1/delegations)
+              {delegations.length === 0 ? "No delegations recorded" : null}
             </div>
+            {delegations.length > 0 && (
+              <div className="space-y-1 text-xs">
+                {delegations.slice(0, 20).map((record) => (
+                  <div key={record.delegation_id} className="rounded border border-zinc-800 bg-zinc-950/70 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-zinc-300">{record.status}</span>
+                      <span className="text-zinc-500">{new Date(record.updated_at).toLocaleString()}</span>
+                    </div>
+                    <div className="mt-1 text-zinc-500">
+                      {record.source_agent_id} → {record.target_agent_id ?? "-"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -195,6 +195,10 @@ export class SemanticMemoryProvider implements MemoryProvider {
     this.store.deleteSession(sessionId);
   }
 
+  public list(tenantId: string, excludeSessionId?: string): SemanticMemoryRecord[] {
+    return structuredClone(this.store.list(tenantId, excludeSessionId));
+  }
+
   public evictSession(sessionId: string): void {
     if (this.store instanceof SemanticMemoryStore) {
       this.store.deleteSession(sessionId);

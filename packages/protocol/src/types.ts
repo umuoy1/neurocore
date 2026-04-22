@@ -168,6 +168,73 @@ export interface ObservabilityConfig {
   event_stream_enabled?: boolean;
 }
 
+export type RewardDimensionName =
+  | "task_completion"
+  | "efficiency"
+  | "safety"
+  | "user_satisfaction";
+
+export type RewardDimensionSource = "automatic" | "human_feedback" | "prediction_error";
+export type ExplorationStrategyType = "epsilon_greedy" | "ucb" | "thompson_sampling";
+export type SkillSelectionReason = "forced" | "exploit" | "explore" | "fallback";
+export type SkillStatus = "active" | "deprecated" | "pruned";
+export type SkillPruneMode = "soft" | "hard";
+
+export interface RewardDimensionConfig {
+  name: RewardDimensionName;
+  default_weight: number;
+  enabled: boolean;
+}
+
+export interface RewardConfig {
+  dimensions?: RewardDimensionConfig[];
+  default_weights?: Partial<Record<RewardDimensionName, number>>;
+}
+
+export interface ExplorationConfig {
+  strategy?: ExplorationStrategyType;
+  initial_epsilon?: number;
+  epsilon_decay?: number;
+  epsilon_min?: number;
+  ucb_coefficient?: number;
+}
+
+export interface SkillPolicyConfig {
+  alpha?: number;
+  default_q_value?: number;
+}
+
+export interface SkillEvaluationConfig {
+  enabled?: boolean;
+  deprecate_threshold?: number;
+  prune_ttl_ms?: number;
+  prune_mode?: SkillPruneMode;
+}
+
+export interface SkillTransferConfig {
+  enabled?: boolean;
+  similarity_threshold?: number;
+  confidence_penalty?: number;
+  validation_uses?: number;
+}
+
+export interface OnlineLearningConfig {
+  enabled?: boolean;
+  replay_buffer_size?: number;
+  batch_size?: number;
+  update_interval_episodes?: number;
+}
+
+export interface RLConfig {
+  enabled?: boolean;
+  reward?: RewardConfig;
+  policy?: SkillPolicyConfig;
+  exploration?: ExplorationConfig;
+  evaluation?: SkillEvaluationConfig;
+  transfer?: SkillTransferConfig;
+  online_learning?: OnlineLearningConfig;
+}
+
 export interface ContextBudget {
   max_context_tokens?: number;
   compression_strategy?: "truncate_oldest" | "summarize" | "graded";
@@ -207,6 +274,7 @@ export interface AgentProfile {
   policies: PolicyBundleRef;
   memory_config: MemoryConfig;
   prediction_config?: PredictionConfig;
+  rl_config?: RLConfig;
   runtime_config: RuntimeConfig;
   observability_config?: ObservabilityConfig;
   context_budget?: ContextBudget;
@@ -252,6 +320,7 @@ export interface AgentSession {
   schema_version: string;
   tenant_id: string;
   agent_id: string;
+  agent_version?: string;
   user_id?: string;
   state: SessionState;
   session_mode: SessionMode;
@@ -413,6 +482,7 @@ export interface UncertaintyDecomposition {
 export interface PredictionMetaSignals {
   predicted_success_probability: number;
   predicted_downside_severity: number;
+  expected_free_energy_score: number;
   uncertainty_decomposition: UncertaintyDecomposition;
   simulator_confidence: number;
   predictor_error_rate: number;
@@ -974,6 +1044,7 @@ export interface Prediction {
   side_effects?: string[];
   estimated_cost?: number;
   estimated_duration_ms?: number;
+  expected_free_energy?: number;
   required_preconditions?: string[];
   uncertainty?: number;
   reasoning?: string;
@@ -1046,6 +1117,7 @@ export interface SkillDefinition {
   schema_version: string;
   name: string;
   version: string;
+  status?: SkillStatus;
   kind: "reasoning_skill" | "workflow_skill" | "toolchain_skill" | "compiled_skill";
   description?: string;
   trigger_conditions: TriggerCondition[];
@@ -1056,6 +1128,208 @@ export interface SkillDefinition {
   fallback_policy?: FallbackPolicy;
   evaluation_metrics?: string[];
   metadata?: Record<string, unknown>;
+}
+
+export interface RewardDimension {
+  name: RewardDimensionName;
+  value: number;
+  weight: number;
+  source: RewardDimensionSource;
+}
+
+export interface RewardSignal {
+  signal_id: string;
+  episode_id: string;
+  skill_id?: string;
+  session_id: string;
+  tenant_id: string;
+  dimensions: RewardDimension[];
+  composite_reward: number;
+  metrics?: {
+    cycle_index?: number;
+    total_latency_ms?: number;
+    total_tokens?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+  };
+  baseline_metrics?: {
+    avg_cycles?: number;
+    avg_latency_ms?: number;
+    avg_tokens?: number;
+  };
+  timestamp: Timestamp;
+}
+
+export interface SkillCandidate {
+  tenant_id: string;
+  session_id: string;
+  cycle_id: string;
+  skill_id: string;
+  skill_name: string;
+  skill_version: string;
+  risk_level?: SkillDefinition["risk_level"];
+  applicable_domains?: string[];
+  trigger_score: number;
+  q_value: number;
+  sample_count: number;
+  success_rate: number;
+  average_reward: number;
+  confidence_penalty?: number;
+  validation_remaining_uses?: number;
+}
+
+export interface SkillSelection {
+  selection_id: string;
+  tenant_id: string;
+  session_id: string;
+  cycle_id: string;
+  skill_id: string;
+  context_key?: string;
+  context_resolution_level?: "exact" | "operational" | "family" | "global";
+  goal_type?: string;
+  domain?: string;
+  action_type?: string;
+  tool_name?: string;
+  risk_level?: SkillDefinition["risk_level"];
+  selection_reason: SkillSelectionReason;
+  confidence: number;
+  policy_score: number;
+  rationale: string;
+  strategy?: ExplorationStrategyType;
+  created_at: Timestamp;
+}
+
+export interface PolicyFeedback {
+  feedback_id: string;
+  tenant_id: string;
+  session_id: string;
+  cycle_id: string;
+  skill_id: string;
+  context_key?: string;
+  goal_type?: string;
+  domain?: string;
+  action_type?: string;
+  tool_name?: string;
+  risk_level?: SkillDefinition["risk_level"];
+  reward_signal_id: string;
+  composite_reward: number;
+  success: boolean;
+  task_bucket?: string;
+  source: "episode" | "replay";
+  updated_at: Timestamp;
+}
+
+export interface SkillPolicyState {
+  tenant_id: string;
+  skill_id: string;
+  context_key?: string;
+  goal_type?: string;
+  domain?: string;
+  action_type?: string;
+  tool_name?: string;
+  risk_level?: SkillDefinition["risk_level"];
+  q_value: number;
+  sample_count: number;
+  success_count: number;
+  failure_count: number;
+  average_reward: number;
+  selection_count: number;
+  exploit_count: number;
+  explore_count: number;
+  last_selected_at?: Timestamp;
+  last_reward_at?: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface PolicyUpdateResult {
+  state: SkillPolicyState;
+  td_error: number;
+}
+
+export interface PolicyUpdateEvent {
+  tenant_id: string;
+  updated_skills: number;
+  avg_td_error: number;
+  exploration_rate: number;
+  states: SkillPolicyState[];
+  updated_at: Timestamp;
+}
+
+export interface SkillEvaluation {
+  evaluation_id: string;
+  tenant_id: string;
+  skill_id: string;
+  success_rate: number;
+  average_reward: number;
+  usage_frequency: number;
+  recency_score: number;
+  reward_trend: number;
+  composite_score: number;
+  status: SkillStatus;
+  evaluated_at: Timestamp;
+}
+
+export interface DomainSimilarity {
+  source_domain: string;
+  target_domain: string;
+  similarity_score: number;
+}
+
+export interface SkillTransferResult {
+  transfer_id: string;
+  tenant_id: string;
+  source_skill_id: string;
+  target_skill_id: string;
+  source_domain: string;
+  target_domain: string;
+  similarity_score: number;
+  created_at: Timestamp;
+}
+
+export interface SkillPruneEvent {
+  skill_id: string;
+  tenant_id: string;
+  prune_mode: "soft" | "hard";
+  final_status: SkillStatus;
+  reason: string;
+  emitted_at: Timestamp;
+}
+
+export interface SkillTransferEvent {
+  source_skill_id: string;
+  transferred_skill_id: string;
+  tenant_id: string;
+  source_domain: string;
+  target_domain: string;
+  similarity_score: number;
+  confidence_penalty?: number;
+  validation_remaining_uses?: number;
+  emitted_at: Timestamp;
+}
+
+export interface ExplorationEvent {
+  tenant_id: string;
+  session_id: string;
+  cycle_id: string;
+  strategy: ExplorationStrategyType;
+  explored_skill_id: string;
+  selection_reason: SkillSelectionReason;
+  exploration_rate: number;
+  context_key?: string;
+  context_resolution_level?: SkillSelection["context_resolution_level"];
+  emitted_at: Timestamp;
+}
+
+export interface Experience {
+  experience_id: string;
+  tenant_id: string;
+  session_id: string;
+  cycle_id: string;
+  skill_id: string;
+  reward_signal_id: string;
+  reward: number;
+  td_error: number;
+  created_at: Timestamp;
 }
 
 export interface ConversationMessage {

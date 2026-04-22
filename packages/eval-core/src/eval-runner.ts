@@ -8,14 +8,13 @@ export interface EvalExecutor {
 export class EvalRunner {
   public constructor(private readonly executor: EvalExecutor) {}
 
-  public async run(cases: EvalCase[]): Promise<EvalRunReport> {
+  public async run(cases: EvalCase[], options?: { parallelism?: number }): Promise<EvalRunReport> {
     const startedAt = new Date().toISOString();
-    const results: EvalCaseResult[] = [];
-
-    for (const testCase of cases) {
+    const parallelism = Math.max(1, Math.floor(options?.parallelism ?? 1));
+    const results = await mapWithConcurrency(cases, parallelism, async (testCase) => {
       const observed = await this.executor.execute(testCase);
-      results.push(evaluateCase(testCase, observed));
-    }
+      return evaluateCase(testCase, observed);
+    });
 
     const endedAt = new Date().toISOString();
     const passCount = results.filter((result) => result.passed).length;
@@ -158,4 +157,27 @@ function sameSequence(left: string[], right: string[]): boolean {
   }
 
   return left.every((value, index) => value === right[index]);
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (true) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      if (currentIndex >= items.length) {
+        return;
+      }
+      results[currentIndex] = await fn(items[currentIndex], currentIndex);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
 }

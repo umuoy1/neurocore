@@ -2,10 +2,14 @@
 
 > 基于 2026-03-31 代码状态（P0-P3 + M7 全部完成），对六个阶段边界外方向的需求拆解与设计。
 >
-> 2026-04-02 排期修正：
+> 2026-04-23 排期修正：
 > - 本文档保留第二阶段的原始设计顺序。
-> - 当前实际执行优先级已调整为：个人助理产品线 + Console 相关准备 → `docs/05_2026-04-01_memory-evolution/` → 未来再恢复 M11 完整实施。
+> - 当前实际执行优先级已调整为：`M12 / 更远期分布式增强 / 记忆系统后续演进`。
 > - 因此，下面的 M8~M13 顺序应视为“设计参考”，不是当前正在执行的排期。
+>
+> 2026-04-22 状态修正：
+> - `M10 / 技能强化学习` 已在代码中完成当前阶段收口，当前真实状态以 [`docs/README.md`](../README.md) 与 [`../03_2026-03-30_assessment/02_gap-analysis-and-roadmap.md`](../03_2026-03-30_assessment/02_gap-analysis-and-roadmap.md) 为准。
+> - 本文中的 M10 仍保留为设计基线与需求索引，不再代表未实现状态。
 
 ## 1. 背景
 
@@ -96,11 +100,15 @@ NeuroCore 第一阶段已交付：
 
 **预期完成度变化**：Basal Ganglia 80% → 95%
 
+**当前状态（2026-04-22）**：已完成当前阶段实现，已补 RewardSignal / RewardStore / RewardComputer、BanditSkillPolicy、探索-利用策略、SkillEvaluator、SkillTransferEngine、SkillOnlineLearner、prioritized replay，以及 reward/policy/exploration/evaluation/transfer 事件与 SQLite 持久化。
+
 ### Milestone 11：运营控制台（D）
 
 **目标**：提供 Web UI 用于 Agent 运维、监控、调试。
 
 **交付物**：Dashboard 前端、REST API 扩展、WebSocket 实时推送
+
+**当前状态（2026-04-23）**：已完成当前阶段实现，已补齐 `auth/me`、Console 所需 REST 端点、鉴权 WS、持久会话聚合、审批历史聚合，以及 Dashboard / Session / Trace / Memory / Approval / Multi-Agent / Config 等主视图接线。
 
 ### Milestone 12：通用自主体能力（E）
 
@@ -116,19 +124,19 @@ NeuroCore 第一阶段已交付：
 
 ## 5.1 当前执行顺序（修正版）
 
-### 当前：个人助理 + Console 相关准备
+### 当前：M12 与更远期分布式增强
 
 - 个人助理作为当前主优先级，按 `docs/05_2026-04-01_personal-assistant/` 推进 Phase A。
-- Console 当前只做接口契约、后端支持、预实现维护和文档整理，为未来 M11 恢复做准备。
+- M11 当前阶段已完成，不再作为待恢复里程碑。
 
 ### 下一阶段：记忆系统演进
 
 - 完成个人助理当前阶段后，进入 `docs/05_2026-04-01_memory-evolution/`，推进五层记忆系统的需求、迁移与验证设计。
 
-### 更后阶段：Prefrontal 深化 + 恢复 M11
+### 更后阶段：记忆系统后续演进 + 分布式增强
 
 - 在记忆系统演进的主线收口后，推进 Direction F，完成深层元认知与自评估设计向实现的迁移。
-- M11 则继续按产品化准备节奏推进，待时机合适时恢复正式联调、E2E 与完整交付。
+- 更远期再推进真正分布式 bus、多实例共享状态后端与去中心化增强。
 
 ## 6. 详细设计文档索引
 

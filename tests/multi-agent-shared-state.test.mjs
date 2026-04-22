@@ -162,4 +162,51 @@ test("InMemorySharedStateStore", async (t) => {
     const vv = store.getVersionVector("nonexistent");
     assert.deepEqual(vv, {});
   });
+
+  await t.test("stale version writes record conflict", async () => {
+    const store = new InMemorySharedStateStore();
+    await store.applyDiff("agent-a", "ns1", {
+      added_entities: [{ entity_id: "e1", entity_type: "t", properties: { value: 1 }, confidence: 1, last_observed: new Date().toISOString() }],
+      updated_entities: [],
+      removed_entity_ids: [],
+      added_relations: [],
+      removed_relation_ids: []
+    });
+    await store.applyDiff("agent-b", "ns1", {
+      added_entities: [],
+      updated_entities: [{ entity_id: "e1", changes: { value: 2 } }],
+      removed_entity_ids: [],
+      added_relations: [],
+      removed_relation_ids: []
+    }, {
+      expectedVersionVector: { "agent-a": 0 },
+      resolution: "merge"
+    });
+    const conflicts = store.getConflicts("ns1");
+    assert.ok(conflicts.length >= 1);
+    assert.ok(conflicts.some((conflict) => conflict.conflict_type === "stale_version"));
+  });
+
+  await t.test("last_writer_wins resolution replaces entity body", async () => {
+    const store = new InMemorySharedStateStore();
+    await store.applyDiff("agent-a", "ns1", {
+      added_entities: [{ entity_id: "e1", entity_type: "t", properties: { a: 1, b: 2 }, confidence: 1, last_observed: new Date().toISOString() }],
+      updated_entities: [],
+      removed_entity_ids: [],
+      added_relations: [],
+      removed_relation_ids: []
+    });
+    await store.applyDiff("agent-b", "ns1", {
+      added_entities: [],
+      updated_entities: [{ entity_id: "e1", changes: { b: 9 } }],
+      removed_entity_ids: [],
+      added_relations: [],
+      removed_relation_ids: []
+    }, {
+      expectedVersionVector: { "agent-a": 1 },
+      resolution: "last_writer_wins"
+    });
+    const state = await store.getState("ns1");
+    assert.deepEqual(state["e1"], { b: 9 });
+  });
 });

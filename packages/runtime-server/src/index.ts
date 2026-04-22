@@ -4,5 +4,6 @@ export * from "./config-store.js";
 export * from "./eval-store.js";
 export * from "./logger.js";
 export * from "./metrics-store.js";
+export * from "./tracer.js";
 export * from "./runtime-server.js";
 export * from "./ws-server.js";

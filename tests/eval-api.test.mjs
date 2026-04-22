@@ -78,7 +78,7 @@ test("C: remote eval API - POST /v1/evals/runs creates report, GET retrieves it"
       }
     ];
 
-    const report = await evalClient.runEval("test-eval-api-agent", cases);
+    const report = await evalClient.runEval("test-eval-api-agent", cases, { parallelism: 2 });
 
     assert.equal(typeof report.run_id, "string");
     assert.ok(report.run_id.length > 0);

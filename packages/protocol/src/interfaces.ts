@@ -23,6 +23,17 @@ import type {
   MetaDecisionV2,
   MetaDecision,
   ReflectionRule,
+  RewardConfig,
+  RewardSignal,
+  PolicyFeedback,
+  PolicyUpdateResult,
+  SkillCandidate,
+  SkillDefinition,
+  SkillEvaluation,
+  SkillPolicyState,
+  SkillSelection,
+  SkillTransferResult,
+  Experience,
   MetaTriggerTag,
   Observation,
   PolicyDecision,
@@ -30,7 +41,6 @@ import type {
   PredictionError,
   Proposal,
   RuntimeSessionSnapshot,
-  SkillDefinition,
   ToolExecutionPolicy,
   VerifierMode,
   VerifierResult,
@@ -239,6 +249,89 @@ export interface SkillStore {
   findByTrigger(tenantId: string, context: Record<string, unknown>): SkillDefinition[];
   delete(skillId: string): void;
   deleteByTenant?(tenantId: string): void;
+}
+
+export interface RewardComputeContext {
+  tenant_id: string;
+  session_id: string;
+  skill_id?: string;
+  reward_config?: RewardConfig;
+  prediction_errors: PredictionError[];
+  trace?: CycleTraceRecord;
+  cycle_metrics?: {
+    cycle_index?: number;
+    total_latency_ms?: number;
+    total_tokens?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+  };
+  baseline_metrics?: {
+    avg_cycles?: number;
+    avg_latency_ms?: number;
+    avg_tokens?: number;
+  };
+}
+
+export interface RewardStore {
+  save(signal: RewardSignal): void;
+  getByEpisodeId(episodeId: string): RewardSignal | undefined;
+  listBySkillId(tenantId: string, skillId: string): RewardSignal[];
+  listByTenantId(tenantId: string): RewardSignal[];
+  getAverageMetrics?(input: {
+    tenant_id: string;
+    skill_id?: string;
+    window_size?: number;
+  }): {
+    avg_cycles?: number;
+    avg_latency_ms?: number;
+    avg_tokens?: number;
+  };
+  deleteSession(sessionId: string): void;
+  close?(): void;
+}
+
+export interface RewardComputer {
+  compute(episode: Episode, context: RewardComputeContext): Promise<RewardSignal>;
+}
+
+export interface SkillPolicy {
+  selectSkill(input: {
+    tenant_id: string;
+    session_id: string;
+    cycle_id: string;
+    candidates: SkillCandidate[];
+    profile: AgentProfile;
+    runtime_state?: Record<string, unknown>;
+  }): Promise<SkillSelection | null>;
+  update(feedback: PolicyFeedback): Promise<PolicyUpdateResult>;
+  batchUpdate?(feedbackBatch: PolicyFeedback[]): Promise<PolicyUpdateResult[]>;
+  getState(tenantId: string, skillId: string, contextKey?: string): SkillPolicyState | undefined;
+  listStates(tenantId: string): SkillPolicyState[];
+}
+
+export interface SkillEvaluator {
+  evaluate(input: {
+    tenant_id: string;
+    skill: SkillDefinition;
+    rewards: RewardSignal[];
+    policyState?: SkillPolicyState;
+    now: string;
+    config?: AgentProfile["rl_config"];
+  }): SkillEvaluation;
+}
+
+export interface SkillTransferEngine {
+  transfer(input: {
+    tenant_id: string;
+    profile: AgentProfile;
+    target_domain: string;
+    skill: SkillDefinition;
+  }): { result: SkillTransferResult; skill: SkillDefinition } | null;
+}
+
+export interface OnlineLearner {
+  observe(experience: Experience): void;
+  close?(): void;
 }
 
 export interface TokenEstimator {

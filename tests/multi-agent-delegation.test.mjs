@@ -280,6 +280,48 @@ test("DefaultTaskDelegator", async (t) => {
     await delegator.cancel("del-1");
     await bus.close();
   });
+
+  await t.test("getStatus tracks completed delegation", async () => {
+    const registry = new InMemoryAgentRegistry();
+    const bus = new LocalInterAgentBus();
+    await registry.register(makeDescriptor({ instance_id: "inst-b", agent_id: "agent-b" }));
+    bus.registerHandler("inst-b", async (msg) => ({
+      ...msg,
+      message_id: "resp-status",
+      pattern: "response",
+      source_agent_id: "agent-b",
+      source_instance_id: "inst-b",
+      target_agent_id: msg.source_instance_id,
+      payload: { result: { status: "success", summary: "Tracked" } }
+    }));
+    const delegator = new DefaultTaskDelegator(registry, bus);
+    const request = makeRequest();
+    await delegator.delegate(request);
+    const status = await delegator.getStatus(request.delegation_id);
+    assert.equal(status?.status, "completed");
+    assert.equal(status?.target_agent_id, "agent-b");
+    assert.equal(status?.result_summary, "Tracked");
+    await bus.close();
+  });
+
+  await t.test("cancel updates in-flight delegation state", async () => {
+    const registry = new InMemoryAgentRegistry();
+    const bus = new LocalInterAgentBus();
+    await registry.register(makeDescriptor({ instance_id: "inst-b", agent_id: "agent-b" }));
+    bus.registerHandler("inst-b", async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      return undefined;
+    });
+    const delegator = new DefaultTaskDelegator(registry, bus);
+    const request = makeRequest({ timeout_ms: 500 });
+    const promise = delegator.delegate(request);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await delegator.cancel(request.delegation_id);
+    const status = await delegator.getStatus(request.delegation_id);
+    assert.equal(status?.status, "cancelled");
+    await promise;
+    await bus.close();
+  });
 });
 
 test("CapabilityBasedMatcher", async (t) => {

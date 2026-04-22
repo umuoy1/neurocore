@@ -1,5 +1,12 @@
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
+export interface StructuredLogger {
+  debug(message: string, fields?: Record<string, unknown>): void;
+  info(message: string, fields?: Record<string, unknown>): void;
+  warn(message: string, fields?: Record<string, unknown>): void;
+  error(message: string, fields?: Record<string, unknown>): void;
+}
+
 const LEVEL_ORDER: Record<LogLevel, number> = {
   debug: 0,
   info: 1,
@@ -14,7 +21,7 @@ export interface StructuredLog {
   [key: string]: unknown;
 }
 
-export class Logger {
+export class Logger implements StructuredLogger {
   private readonly minLevel: number;
 
   public constructor(options?: { minLevel?: LogLevel }) {

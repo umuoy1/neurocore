@@ -42,10 +42,15 @@ test("InMemoryAgentRegistry", async (t) => {
 
   await t.test("deregister removes agent", async () => {
     const registry = new InMemoryAgentRegistry();
+    const deregistered = [];
+    registry.onDeregistered((descriptor) => {
+      deregistered.push(descriptor.instance_id);
+    });
     await registry.register(makeDescriptor());
     await registry.deregister("inst-1");
     const found = await registry.get("inst-1");
     assert.equal(found, undefined);
+    assert.deepEqual(deregistered, ["inst-1"]);
   });
 
   await t.test("listAll returns all agents", async () => {
@@ -130,6 +135,16 @@ test("InMemoryAgentRegistry", async (t) => {
     assert.equal(changes[0].to, "unreachable");
   });
 
+  await t.test("onRegistered callback fires", async () => {
+    const registry = new InMemoryAgentRegistry();
+    const registered = [];
+    registry.onRegistered((descriptor) => {
+      registered.push(descriptor.instance_id);
+    });
+    await registry.register(makeDescriptor({ instance_id: "inst-1" }));
+    assert.deepEqual(registered, ["inst-1"]);
+  });
+
   await t.test("heartbeat resets miss count", async () => {
     const registry = new InMemoryAgentRegistry();
     await registry.register(makeDescriptor({ instance_id: "inst-1", heartbeat_interval_ms: 10 }));
@@ -156,6 +171,20 @@ test("InMemoryAgentRegistry", async (t) => {
     registry.heartbeatMonitor.check();
     const terminated = changes.find((c) => c.to === "terminated");
     assert.ok(terminated, "Should have transitioned to terminated");
+  });
+
+  await t.test("heartbeat loss callback fires on miss", async () => {
+    const registry = new InMemoryAgentRegistry();
+    const losses = [];
+    registry.onHeartbeatLost((descriptor, previous) => {
+      losses.push({ instanceId: descriptor.instance_id, previous });
+    });
+    await registry.register(makeDescriptor({ instance_id: "inst-1", heartbeat_interval_ms: 10 }));
+    await new Promise((r) => setTimeout(r, 20));
+    registry.heartbeatMonitor.check();
+    assert.equal(losses.length, 1);
+    assert.equal(losses[0].instanceId, "inst-1");
+    assert.equal(losses[0].previous, "idle");
   });
 
   await t.test("heartbeat recovery from unreachable", async () => {

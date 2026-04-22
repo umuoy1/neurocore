@@ -94,7 +94,8 @@ export class DeepEvaluator {
     const simulationReliability = clamp01(
       (input.frame.prediction_signals.predicted_success_probability +
         input.frame.prediction_signals.simulator_confidence +
-        (1 - input.frame.prediction_signals.world_model_mismatch_score)) / 3 -
+        (1 - input.frame.prediction_signals.world_model_mismatch_score) +
+        (1 - input.frame.prediction_signals.expected_free_energy_score)) / 4 -
         Math.max(providerReliabilityFloor.penalty, predictorCalibrationFloor.penalty)
     );
     const toolReadiness = clamp01(
@@ -241,7 +242,8 @@ function buildConfidenceVector(frame: MetaSignalFrame) {
   const simulationConfidence =
     (frame.prediction_signals.predicted_success_probability +
       frame.prediction_signals.simulator_confidence +
-      (1 - frame.prediction_signals.world_model_mismatch_score)) / 3;
+      (1 - frame.prediction_signals.world_model_mismatch_score) +
+      (1 - frame.prediction_signals.expected_free_energy_score)) / 4;
   const actionSafetyConfidence =
     (1 - frame.action_signals.side_effect_severity + frame.action_signals.reversibility_score) / 2;
   const toolReadinessConfidence =

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import process from "node:process";
 import {
   DefaultAgentLifecycleManager,
   InMemoryAgentRegistry,
@@ -77,6 +78,51 @@ test("DefaultAgentLifecycleManager", async (t) => {
     const agent = await registry.get("inst-1");
     assert.equal(agent?.max_capacity, 10);
     assert.equal(agent?.heartbeat_interval_ms, 5000);
+    await bus.close();
+  });
+
+  await t.test("child_process mode starts managed process", async () => {
+    const registry = new InMemoryAgentRegistry();
+    const bus = new LocalInterAgentBus();
+    const mgr = new DefaultAgentLifecycleManager(registry, bus);
+    await mgr.spawn("agent-1", "inst-child", {
+      mode: "child_process",
+      command: process.execPath,
+      args: ["-e", "setInterval(() => {}, 1000)"]
+    });
+    const instance = mgr.getInstance("inst-child");
+    assert.equal(instance?.mode, "child_process");
+    assert.ok(instance?.process);
+    await mgr.terminate("inst-child", true);
+    await bus.close();
+  });
+
+  await t.test("remote mode stores endpoint and resource limits", async () => {
+    const registry = new InMemoryAgentRegistry();
+    const bus = new LocalInterAgentBus();
+    const mgr = new DefaultAgentLifecycleManager(registry, bus);
+    await mgr.spawn("agent-1", "inst-remote", {
+      mode: "remote",
+      endpoint: "https://remote-agent.internal/run",
+      resource_limits: { max_memory_mb: 512, max_cpu_percent: 50 }
+    });
+    const agent = await registry.get("inst-remote");
+    assert.equal(agent?.endpoint, "https://remote-agent.internal/run");
+    assert.deepEqual(agent?.metadata?.resource_limits, { max_memory_mb: 512, max_cpu_percent: 50 });
+    await mgr.terminate("inst-remote", true);
+    await bus.close();
+  });
+
+  await t.test("terminate captures graceful state snapshot", async () => {
+    const registry = new InMemoryAgentRegistry();
+    const bus = new LocalInterAgentBus();
+    const mgr = new DefaultAgentLifecycleManager(registry, bus);
+    await mgr.spawn("agent-1", "inst-save", {
+      save_state: async (instanceId) => ({ instanceId, saved: true })
+    });
+    await mgr.terminate("inst-save", true);
+    const instance = mgr.getInstance("inst-save");
+    assert.equal(instance, undefined);
     await bus.close();
   });
 });

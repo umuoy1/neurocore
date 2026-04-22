@@ -129,10 +129,10 @@ export function SessionListPage() {
                   <td className="py-2 px-3">
                     <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 text-[10px]">{s.session.session_mode}</span>
                   </td>
-                  <td className="py-2 px-3 text-right text-zinc-400">{s.active_run ? "..." : "-"}</td>
-                  <td className="py-2 px-3 text-right text-zinc-400">-</td>
-                  <td className="py-2 px-3 text-right">-</td>
-                  <td className="py-2 px-3 text-right text-zinc-500">-</td>
+                  <td className="py-2 px-3 text-right text-zinc-400">{s.trace_count ?? 0}</td>
+                  <td className="py-2 px-3 text-right text-zinc-400">{s.episode_count ?? 0}</td>
+                  <td className="py-2 px-3 text-right text-zinc-400">{s.pending_approval ? "1" : "0"}</td>
+                  <td className="py-2 px-3 text-right text-zinc-500">{s.created_at ? new Date(s.created_at).toLocaleDateString() : "-"}</td>
                 </tr>
               ))
             )}

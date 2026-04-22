@@ -152,6 +152,7 @@ export class FastMonitor {
       frame.prediction_signals.predicted_success_probability,
       frame.prediction_signals.simulator_confidence,
       1 - frame.prediction_signals.world_model_mismatch_score,
+      1 - frame.prediction_signals.expected_free_energy_score,
       predictorReliabilityFloor
     ]);
     const actionSafetyConfidence = mean([
@@ -219,7 +220,8 @@ export class FastMonitor {
 
     if (
       frame.prediction_signals.uncertainty_decomposition.model_disagreement >= 0.6 ||
-      frame.prediction_signals.simulator_confidence < 0.4
+      frame.prediction_signals.simulator_confidence < 0.4 ||
+      frame.prediction_signals.expected_free_energy_score >= 0.6
     ) {
       tags.add("simulation_unreliable");
     }

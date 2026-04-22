@@ -223,6 +223,7 @@ function mergeFamilySignals(family: MetaSignalFamily, left: any, right: any) {
       return {
         predicted_success_probability: Math.min(left.predicted_success_probability, right.predicted_success_probability),
         predicted_downside_severity: Math.max(left.predicted_downside_severity, right.predicted_downside_severity),
+        expected_free_energy_score: Math.max(left.expected_free_energy_score, right.expected_free_energy_score),
         uncertainty_decomposition: {
           epistemic: Math.max(left.uncertainty_decomposition.epistemic, right.uncertainty_decomposition.epistemic),
           aleatoric: Math.max(left.uncertainty_decomposition.aleatoric, right.uncertainty_decomposition.aleatoric),
@@ -304,6 +305,7 @@ function applyProviderReliabilityPenalty(family: MetaSignalFamily, signals: any,
       return {
         ...signals,
         predictor_bucket_reliability: clamp01(Math.min(signals.predictor_bucket_reliability, reliabilityFloor)),
+        expected_free_energy_score: clamp01(signals.expected_free_energy_score + penalty * 0.4),
         world_model_mismatch_score: clamp01(signals.world_model_mismatch_score + penalty * 0.5),
         uncertainty_decomposition: {
           ...signals.uncertainty_decomposition,
@@ -386,6 +388,7 @@ function fallbackPredictionSignals(input: MetaSignalInput, timestamp: string) {
     signals: {
       predicted_success_probability: 0.35,
       predicted_downside_severity: 0.55,
+      expected_free_energy_score: 0.7,
       uncertainty_decomposition: {
         epistemic: 0.7,
         aleatoric: 0.5,

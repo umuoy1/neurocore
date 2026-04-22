@@ -1,3 +1,13 @@
+export interface DebugSink {
+  debug(scope: string, message: string, data?: Record<string, unknown>): void;
+}
+
+let activeDebugSink: DebugSink | undefined;
+
+export function configureDebugSink(sink?: DebugSink): void {
+  activeDebugSink = sink;
+}
+
 function isDebugEnabled(): boolean {
   const value =
     typeof process !== "undefined" && process.env ? process.env.NEUROCORE_DEBUG : undefined;
@@ -5,6 +15,11 @@ function isDebugEnabled(): boolean {
 }
 
 export function debugLog(scope: string, message: string, data?: Record<string, unknown>): void {
+  if (activeDebugSink) {
+    activeDebugSink.debug(scope, message, data);
+    return;
+  }
+
   if (!isDebugEnabled()) {
     return;
   }
@@ -17,4 +32,3 @@ export function debugLog(scope: string, message: string, data?: Record<string, u
 
   console.log(prefix);
 }
-

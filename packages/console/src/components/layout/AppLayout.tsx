@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from "react-router";
+import { useAuthStore } from "../../stores/auth.store";
 
 const navSections = [
   {
@@ -30,12 +31,18 @@ const navSections = [
 ];
 
 export function AppLayout() {
+  const { tenantId, role, logout } = useAuthStore();
+
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100">
       <aside className="w-56 shrink-0 border-r border-zinc-800 flex flex-col">
         <div className="px-4 py-3 border-b border-zinc-800">
           <h1 className="text-sm font-bold tracking-wide text-zinc-300">NeuroCore</h1>
           <p className="text-xs text-zinc-500">Operations Console</p>
+          <div className="mt-2 text-[10px] text-zinc-600">
+            <div>{tenantId ?? "unknown tenant"}</div>
+            <div>{role ?? "viewer"}</div>
+          </div>
         </div>
         <nav className="flex-1 overflow-y-auto py-2">
           {navSections.map((section) => (
@@ -61,6 +68,14 @@ export function AppLayout() {
             </div>
           ))}
         </nav>
+        <div className="border-t border-zinc-800 p-3">
+          <button
+            onClick={logout}
+            className="w-full rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+          >
+            Sign Out
+          </button>
+        </div>
       </aside>
       <main className="flex-1 overflow-y-auto">
         <Outlet />

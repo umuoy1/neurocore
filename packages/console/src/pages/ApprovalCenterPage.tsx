@@ -3,7 +3,7 @@ import { useApprovalsStore } from "../stores/approvals.store";
 import type { ApprovalListItem } from "../stores/approvals.store";
 
 export function ApprovalCenterPage() {
-  const { pending, history, fetchPending, fetchHistory, decide } = useApprovalsStore();
+  const { pending, history, audit, fetchPending, fetchHistory, fetchAudit, decide } = useApprovalsStore();
   const [tab, setTab] = useState<"queue" | "history" | "audit">("queue");
   const [commentMap, setCommentMap] = useState<Record<string, string>>({});
   const [approverId] = useState(() => `user_${Math.random().toString(36).slice(2, 8)}`);
@@ -11,6 +11,7 @@ export function ApprovalCenterPage() {
   useEffect(() => {
     fetchPending();
     fetchHistory();
+    fetchAudit();
     const id = setInterval(() => { fetchPending(); }, 10000);
     return () => clearInterval(id);
   }, []);
@@ -30,7 +31,11 @@ export function ApprovalCenterPage() {
         {(["queue", "history", "audit"] as const).map((t) => (
           <button
             key={t}
-            onClick={() => { setTab(t); if (t === "history") fetchHistory(); }}
+            onClick={() => {
+              setTab(t);
+              if (t === "history") fetchHistory();
+              if (t === "audit") fetchAudit();
+            }}
             className={`px-3 py-1.5 rounded text-xs capitalize ${tab === t ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"}`}
           >
             {t === "queue" ? `Queue (${pending.length})` : t}
@@ -39,7 +44,7 @@ export function ApprovalCenterPage() {
       </div>
 
       {tab === "audit" ? (
-        <AuditLogView />
+        <AuditLogView audit={audit} />
       ) : (
         <div className="space-y-3">
           {items.length === 0 ? (
@@ -131,10 +136,23 @@ function ApprovalCard({ item, isQueue, comment, onCommentChange, onDecision }: {
   );
 }
 
-function AuditLogView() {
+function AuditLogView({ audit }: { audit: Array<{ entry_id: string; action: string; user_id: string; target_id: string; timestamp: string }> }) {
+  if (audit.length === 0) {
+    return <div className="text-zinc-600 text-xs py-8 text-center">No approval audit records</div>;
+  }
   return (
-    <div className="text-zinc-600 text-xs py-8 text-center">
-      Audit log requires backend endpoint (GET /v1/audit-logs)
+    <div className="space-y-2">
+      {audit.map((entry) => (
+        <div key={entry.entry_id} className="rounded border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-zinc-300">{entry.action}</span>
+            <span className="text-zinc-500">{new Date(entry.timestamp).toLocaleString()}</span>
+          </div>
+          <div className="mt-1 text-zinc-500">
+            {entry.user_id} · {entry.target_id}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

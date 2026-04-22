@@ -1,3 +1,5 @@
+import type { VersionVector } from "./state/shared-state-store.js";
+
 export type AgentStatus = "registering" | "idle" | "busy" | "draining" | "unreachable" | "terminated";
 
 export interface AgentCapability {
@@ -59,7 +61,26 @@ export type DelegationStatus =
   | "running"
   | "completed"
   | "failed"
-  | "timeout";
+  | "timeout"
+  | "cancelled";
+
+export type CoordinationStrategyName = "hierarchical" | "peer_to_peer" | "market_based";
+
+export interface DelegationStatusRecord {
+  delegation_id: string;
+  status: DelegationStatus;
+  mode: DelegationMode;
+  source_agent_id: string;
+  source_session_id: string;
+  target_agent_id?: string;
+  target_instance_id?: string;
+  created_at: string;
+  updated_at: string;
+  started_at?: string;
+  completed_at?: string;
+  error?: string;
+  result_summary?: string;
+}
 
 export interface DelegationRequest {
   delegation_id: string;
@@ -155,6 +176,18 @@ export interface GoalAssignment {
   updated_at: string;
 }
 
+export interface GoalConflictRecord {
+  parent_goal_id?: string;
+  goal_id: string;
+  attempted_agent_id: string;
+  attempted_instance_id?: string;
+  current_agent_id: string;
+  current_instance_id: string;
+  action: "status_update" | "reassign";
+  detected_at: string;
+  resolved_by: "reject_stale_writer" | "reassign_override";
+}
+
 export interface MultiAgentConfig {
   enabled: boolean;
   heartbeat_interval_ms?: number;
@@ -163,7 +196,7 @@ export interface MultiAgentConfig {
   delegation_timeout_ms?: number;
   auction_timeout_ms?: number;
   max_delegation_depth?: number;
-  coordination_strategy?: "hierarchical" | "peer_to_peer" | "market_based";
+  coordination_strategy?: CoordinationStrategyName;
   capabilities?: AgentCapability[];
   domains?: string[];
   max_capacity?: number;
@@ -173,6 +206,40 @@ export interface MultiAgentConfig {
     namespaces?: string[];
     conflict_resolution: "last_writer_wins" | "merge";
   };
+}
+
+export interface SharedStateConflictRecord {
+  namespace: string;
+  entity_id?: string;
+  source_agent_id: string;
+  conflict_type: "stale_version" | "concurrent_update";
+  expected_version_vector?: VersionVector;
+  current_version_vector: VersionVector;
+  detected_at: string;
+  resolved_by: "last_writer_wins" | "merge";
+}
+
+export type LifecycleSpawnMode = "in_memory" | "child_process" | "remote";
+
+export interface AgentResourceLimits {
+  max_memory_mb?: number;
+  max_cpu_percent?: number;
+  max_runtime_ms?: number;
+}
+
+export interface AgentSpawnOptions {
+  mode?: LifecycleSpawnMode;
+  endpoint?: string;
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  max_capacity?: number;
+  heartbeat_interval_ms?: number;
+  resource_limits?: AgentResourceLimits;
+  graceful_shutdown_timeout_ms?: number;
+  state_snapshot?: Record<string, unknown>;
+  save_state?: (instanceId: string) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
 }
 
 export interface HierarchicalConfig {

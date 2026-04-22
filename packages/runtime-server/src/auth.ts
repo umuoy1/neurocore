@@ -4,6 +4,7 @@ export interface AuthContext {
   tenant_id: string;
   api_key_id: string;
   permissions: string[];
+  role?: string;
 }
 
 export interface Authenticator {
@@ -13,6 +14,7 @@ export interface Authenticator {
 export interface ApiKeyEntry {
   tenant_id: string;
   permissions: string[];
+  role?: string;
 }
 
 export class ApiKeyAuthenticator implements Authenticator {
@@ -36,7 +38,8 @@ export class ApiKeyAuthenticator implements Authenticator {
     return {
       tenant_id: entry.tenant_id,
       api_key_id: key,
-      permissions: entry.permissions
+      permissions: entry.permissions,
+      role: entry.role
     };
   }
 
