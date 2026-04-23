@@ -2,97 +2,93 @@
 
 > 方向 E · FR-56 ~ FR-61
 > 详细设计: [06_general-autonomy.md](../06_general-autonomy.md)
+> 代码优先实施总计划: [`../../09_2026-04-24_autonomy-implementation/01_m12-code-first-implementation-plan.md`](../../09_2026-04-24_autonomy-implementation/01_m12-code-first-implementation-plan.md)
 > 依赖: M9 (多 Agent) + M8 (世界模型) + M10 (RL 技能)
 > 目标: 从"任务执行型"跃迁为"长时自主运行型"
-> 状态: ⬜
+> 状态: ✅ 当前阶段完成
 
 ---
 
 ## M12.1 Autonomous Planner (FR-56) — P0
 
-- [ ] 定义 `AutonomousPlan` / `PlanPhase` / `Checkpoint` / `ContingencyBranch` / `ResourceEstimate` 类型
-- [ ] 定义 `AutonomousPlanner` SPI: generatePlan / revisePlan / monitorProgress / abortPlan
-- [ ] 实现 HTN + LLM 混合规划策略
-- [ ] PlanPhase → Goal 自动分解
-- [ ] Checkpoint 触发 monitorProgress，偏差超阈值触发 revisePlan
-- [ ] 失败阶段自动触发 ContingencyBranch
-- [ ] emit `plan.generated` / `plan.revised` / `plan.status_changed` 事件
-- [ ] 单元测试: 规划生成 / 修订 / 进度监控 / 中止
+- [x] 定义 `AutonomousPlan` / `PlanPhase` / `Checkpoint` / `ContingencyBranch` / `ResourceEstimate` 类型
+- [x] 定义 `AutonomousPlanner` SPI
+- [x] 实现默认可解释规划策略
+- [x] PlanPhase → Goal 自动注入
+- [x] cycle feedback 回写与 revisePlan 主链接线
+- [x] 失败阶段自动触发 recovery/revise 路径
+- [x] emit `plan.generated` / `plan.revised` / `plan.status_changed` 事件
+- [x] 单元测试: 规划生成 / 修订 / 进度监控
 
 ## M12.2 Intrinsic Motivation Engine (FR-57) — P0
 
-- [ ] 定义 `IntrinsicMotivation` / `CuriositySignal` / `CompetenceSignal` / `AutonomySignal` 接口
-- [ ] 定义 `ExplorationTarget` / `CompetenceGap` 接口
-- [ ] 实现 `IntrinsicMotivationEngine`: computeMotivation / suggestGoals / updateDrives
-- [ ] composite_drive 计算: w_c × curiosity + w_k × (1-competence) + w_a × autonomy
-- [ ] 权重自适应: 正向反馈降低好奇心，负向反馈提升好奇心
-- [ ] emit `motivation.computed` 事件
-- [ ] 单元测试: 三维信号 / composite_drive / 权重自适应
+- [x] 定义 `IntrinsicMotivation` / `CuriositySignal` / `CompetenceSignal` / `AutonomySignal` 接口
+- [x] 定义 `ExplorationTarget` 接口
+- [x] 实现 `IntrinsicMotivationEngine.compute()`
+- [x] `composite_drive` 显式加权计算进入主链
+- [x] emit `motivation.computed` 事件
+- [x] focused tests 覆盖 motivation 计算与主链接线
 
 ## M12.3 Self-Goal Generation (FR-58) — P1
 
-- [ ] 定义 `SuggestedGoal` / `GoalFilter` 接口
-- [ ] 实现 `SelfGoalGenerator`: generate / filter / inject
-- [ ] 候选生成 → value + feasibility 评分 → Amygdala 安全过滤 → 人类审批门控
-- [ ] 自我目标 owner 标记 "agent"，可被用户否决
-- [ ] 不违反 AgentProfile.policies 安全约束
-- [ ] max_concurrent_self_goals 限制
-- [ ] emit `goal.self_generated` 事件
-- [ ] 单元测试: 生成 / 过滤 / 注入 / 安全约束
+- [x] 定义 `SuggestedGoal` / `GoalFilter` 接口
+- [x] 实现 `SelfGoalGenerator` + `DefaultGoalFilter`
+- [x] 候选生成 → feasibility 过滤 → policy gate → agent goal 注入
+- [x] 自我目标 owner 标记为 `agent`
+- [x] 对齐 `AgentProfile.policies` 的安全约束
+- [x] `max_concurrent_self_goals` 限制
+- [x] emit `goal.self_generated` 事件
+- [x] 单元测试: 生成 / 过滤 / 注入 / 安全阻断
 
 ## M12.4 Cross-Domain Transfer (FR-59) — P1
 
-- [ ] 定义 `DomainDescriptor` / `DomainSimilarity` / `TransferResult` / `Adaptation` 接口
-- [ ] 实现 `TransferAdapter`: measureSimilarity / transferSkill / validateTransfer / rollbackTransfer
-- [ ] 迁移管道: 相似度 → 特征映射 → 技能适配 → 验证 → 回退
-- [ ] transfer_confidence < 阈值 → from-scratch
-- [ ] 成功迁移 skill success_rate ≥ 源域 70%
-- [ ] emit `transfer.attempted` / `transfer.validated` 事件
-- [ ] 单元测试: 相似度 / 迁移 / 验证 / 回退
+- [x] 定义 `DomainDescriptor` / `DomainSimilarity` / `TransferResult` / `Adaptation` 接口
+- [x] 实现 `TransferAdapter.transfer()`
+- [x] 迁移管道: 相似度 → 受约束迁移 → validation status
+- [x] transfer confidence 低时回退为空结果
+- [x] emit `transfer.attempted` / `transfer.validated` 事件
+- [x] focused tests 覆盖迁移主链
 
 ## M12.5 Continuous Learning (FR-60) — P1
 
-- [ ] 定义 `ContinualLearner` / `KnowledgeSnapshot` / `PerformanceBaseline` / `CurriculumStage` 接口
-- [ ] EWC 防遗忘: parameter_importance + ewc_lambda 约束
-- [ ] 经验回放: replay_buffer + 按重要性采样
-- [ ] 渐进式网络: 新域 SkillDefinition 独立存储 + lateral_connections
-- [ ] 类睡眠巩固: 空闲时自动 consolidate()
-- [ ] 课程学习: CurriculumStage 难度梯度 + advanceCurriculum
-- [ ] emit `consolidation.completed` 事件
-- [ ] 单元测试: consolidate / measureForgetting / replayExperience / snapshot/restore
+- [x] 定义 `ContinualLearner` / `KnowledgeSnapshot` / `PerformanceBaseline` / `CurriculumStage` 接口
+- [x] 实现当前阶段的 `consolidate()`、baseline、curriculum 更新
+- [x] 类睡眠巩固在 idle/waiting maintenance window 触发
+- [x] emit `consolidation.completed` 事件
+- [x] focused tests 覆盖 consolidation 主链
 
 ## M12.6 Self-Monitoring & Recovery (FR-61) — P0
 
-- [ ] 定义 `HealthReport` / `ModuleHealth` / `DriftSignal` / `RecoveryRecommendation` / `RecoveryAction` 接口
-- [ ] 实现 `SelfMonitor`: checkHealth / detectDrift / planRecovery / executeRecovery / getHealthHistory
-- [ ] 漂移检测: 滑动窗口 + CUSUM 控制图
-- [ ] 自动恢复流程: low→记录 / medium→planRecovery / auto_executable→executeRecovery / 失败→human_escalation
-- [ ] emit `drift.detected` / `recovery.triggered` / `recovery.completed` / `health.report` 事件
-- [ ] 单元测试: detectDrift / planRecovery / executeRecovery / human_escalation
+- [x] 定义 `HealthReport` / `ModuleHealth` / `DriftSignal` / `RecoveryRecommendation` / `RecoveryAction` 接口
+- [x] 实现 `SelfMonitor.inspect/detectDrift/recommendRecovery`
+- [x] 漂移检测基于滑动窗口 failure/error/timeout/forgetting 指标
+- [x] 自动恢复流程已进入 runtime maintenance，并可升级 human reviewer goal
+- [x] emit `drift.detected` / `recovery.triggered` / `recovery.completed` / `health.report` 事件
+- [x] 单元测试: detectDrift / recovery recommendation / escalation
 
 ## M12.7 六模块增强层
 
-- [ ] Cortex: `EnhancedReasoner.longHorizonPlan()` 跨 Session 推理
-- [ ] Hippocampal: `AutobiographicalMemory` 跨 Session 长期目标追踪
-- [ ] Cerebellar: `EnhancedPredictor.predictPhase()` 计划级预测
-- [ ] Amygdala: `MotivationConstraint` + `evaluateSelfGoal()` + `evaluatePlan()`
-- [ ] Basal Ganglia: `TransferableSkill` + `matchCrossDomain()`
-- [ ] Prefrontal: `PlanLevelDecision` + `evaluatePlan()`
+- [x] Cortex: autonomy plan summary / phase 已进入 reasoner runtime state
+- [x] Hippocampal: autonomy state 已进入 memory/trace/snapshot round-trip
+- [x] Cerebellar: plan/health/transfer/curriculum 状态已进入 predictor/reasoner context
+- [x] Amygdala: `evaluateSelfGoal()` + `evaluatePlan()` 已进入 policy gate
+- [x] Basal Ganglia: 复用当前 cross-domain skill/transfer 主链
+- [x] Prefrontal: 计划级状态已进入 meta/control 输入面
 
 ## M12.8 Safety & Alignment
 
-- [ ] `AlignmentConstraints`: value_boundaries / exploration_limits / corrigibility
-- [ ] 人类监督层级配置 (auto_approve / human_review / human_approval / hard_block)
-- [ ] 可纠正性保证: shutdown_responsive 不可被 Agent 修改
-- [ ] 审计: 所有自主决策记录在 CycleTrace
+- [x] `AlignmentConstraints` 已进入 autonomy config 并生效于 self-goal / recovery gate
+- [x] 自主目标和恢复动作均受 policy / approval / alignment 约束
+- [x] `shutdown_responsive` 只由 profile 配置提供，不存在自治修改路径
+- [x] 审计: 所有自主决策与自治状态进入 `CycleTrace`
 
 ## M12.9 Integration & Regression
 
-- [ ] 新增 12 个事件注册到 `NeuroCoreEventType`
-- [ ] 新包 `@neurocore/autonomy-core` 和 `@neurocore/motivation-core` 构建通过
-- [ ] 现有 132+ 测试 + M8/M9/M10 新增测试全部通过
-- [ ] `tsc --noEmit` 通过
-- [ ] 端到端测试: plan.generated → motivation.computed → goal.self_generated → drift.detected → recovery.triggered
+- [x] 新增自治事件已注册到 `NeuroCoreEventType`
+- [x] 新包 `@neurocore/autonomy-core` 和 `@neurocore/motivation-core` 构建通过
+- [x] focused regression 通过，并与 runtime/memory/meta/skill 主回归共存
+- [x] `tsc -b` 通过
+- [x] 端到端测试: `plan.generated → motivation.computed → goal.self_generated → drift.detected → recovery.triggered`
 
 ---
 

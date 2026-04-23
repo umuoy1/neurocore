@@ -116,6 +116,8 @@ NeuroCore 第一阶段已交付：
 
 **交付物**：AutonomousPlanner、IntrinsicMotivation 增强、MetaLearning 框架
 
+**施工计划（2026-04-24）**：已补齐代码优先实施总计划并完成当前阶段代码实现，见 [`../09_2026-04-24_autonomy-implementation/01_m12-code-first-implementation-plan.md`](../09_2026-04-24_autonomy-implementation/01_m12-code-first-implementation-plan.md)。
+
 ### Milestone 13：深层元认知与自评估（F）
 
 **目标**：将 Prefrontal / Meta 从轻量门控升级为深层自评估、慢路径控制、失败诊断与校准学习。
@@ -124,19 +126,22 @@ NeuroCore 第一阶段已交付：
 
 ## 5.1 当前执行顺序（修正版）
 
-### 当前：M12 与更远期分布式增强
+### 当前：M12 当前阶段已完成
 
-- 个人助理作为当前主优先级，按 `docs/05_2026-04-01_personal-assistant/` 推进 Phase A。
-- M11 当前阶段已完成，不再作为待恢复里程碑。
+- `M12 / 通用自主体能力` 已完成当前阶段的 `Phase 0 ~ Phase 6` 实现，不再处于“规划中”状态。
+- 当前代码已具备：自治状态面、自治规划、自我监控、内在动机、自生成目标、迁移适配、持续学习、自治增强与自治 benchmark 主链。
 
-### 下一阶段：记忆系统演进
+### 下一阶段：记忆系统后续演进 + 更长期自治基础设施
 
-- 完成个人助理当前阶段后，进入 `docs/05_2026-04-01_memory-evolution/`，推进五层记忆系统的需求、迁移与验证设计。
+- 继续推进 `docs/05_2026-04-01_memory-evolution/` 中的后续记忆演进，包括更强检索后端、长期评估与 schema 演进。
+- 在自治侧进入更长期增强，而不是继续补 M12 当前阶段缺口：
+  - 趋势级自治分析
+  - 更强在线学习与课程调度
+  - 更成熟的自治 benchmark 运营化
 
-### 更后阶段：记忆系统后续演进 + 分布式增强
+### 更后阶段：更远期分布式增强
 
-- 在记忆系统演进的主线收口后，推进 Direction F，完成深层元认知与自评估设计向实现的迁移。
-- 更远期再推进真正分布式 bus、多实例共享状态后端与去中心化增强。
+- 在当前自治与记忆主线稳定后，再推进真正分布式 bus、多实例共享状态后端、去中心化注册与更强冲突解决。
 
 ## 6. 详细设计文档索引
 
@@ -147,4 +152,5 @@ NeuroCore 第一阶段已交付：
 | [04_skill-reinforcement-learning.md](./04_skill-reinforcement-learning.md) | C. 技能自动提炼的强化学习详细设计 |
 | [05_operations-console.md](./05_operations-console.md) | D. 运营控制台详细设计 |
 | [06_general-autonomy.md](./06_general-autonomy.md) | E. 通用自主体能力详细设计 |
+| [../09_2026-04-24_autonomy-implementation/01_m12-code-first-implementation-plan.md](../09_2026-04-24_autonomy-implementation/01_m12-code-first-implementation-plan.md) | E. 通用自主体能力代码优先实施总计划 |
 | [../06_2026-04-14_metacognition-evolution/01_deep-metacognition-and-self-evaluation.md](../06_2026-04-14_metacognition-evolution/01_deep-metacognition-and-self-evaluation.md) | F. 深层元认知与自评估详细设计（2026-04-14 新文档） |

@@ -17,6 +17,8 @@
 > - 2026-04-23 再补充：`M10 / 技能强化学习` 已补齐 FR-45 的最小上下文化策略实现：`BanditSkillPolicy` 当前已按 `goal_type / domain / action_type / tool_name / risk_level` 维护 contextual state，并与全局 state 双层并存；当前实现是 contextual bandit，不是完整神经策略网络。
 > - 2026-04-23 再补充：`M10 / 技能强化学习` 已继续增强两点：`RewardComputer` 的效率维度已改为基于真实 `cycle / latency / token` 统计；`BanditSkillPolicy` 已从单层 exact-context 升级为 `exact -> operational -> family -> global` 的分层上下文 bandit。
 > - 2026-04-23 最终校准：`M10 / 技能强化学习` 当前阶段已 100% 收口；当前又补齐了 reward `metrics / baseline_metrics` 持久化、基于历史 reward 的相对效率基线，以及 `policy.updated / exploration.triggered / skill.transferred / skill.pruned` 的结构化事件载荷和对应 SQLite schema 迁移。
+> - 2026-04-24 补充：`M12 / 通用自主体能力` 当前已补齐代码优先实施总计划，见 [`../09_2026-04-24_autonomy-implementation/01_m12-code-first-implementation-plan.md`](../09_2026-04-24_autonomy-implementation/01_m12-code-first-implementation-plan.md)。
+> - 2026-04-24 再补充：`M12` 当前阶段已收口完成。当前交付包含 `Phase 0 ~ Phase 6`：协议冻结、自治状态面、planner、self-monitor、intrinsic motivation、自生成目标、transfer/continual、六模块自治增强、alignment/trace/audit，以及 autonomy benchmark summary 与 focused regression。
 
 ## 完成度
 

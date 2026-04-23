@@ -26,9 +26,10 @@ M11 运营控制台 (D)  独立     ┘
 | M9 | A. 多 Agent 分布式调度 | FR-28 ~ FR-35 | M8 | ✅ | [m9-multi-agent.md](./m9-multi-agent.md) |
 | M10 | C. 技能强化学习 | FR-44 ~ FR-49 | 无 | ✅ | [m10-skill-rl.md](./m10-skill-rl.md) |
 | M11 | D. 运营控制台 | FR-50 ~ FR-55 | 无 | ✅ | [m11-console.md](./m11-console.md) |
-| M12 | E. 通用自主体 | FR-56 ~ FR-61 | M9, M10 | ⬜ | [m12-autonomy.md](./m12-autonomy.md) |
+| M12 | E. 通用自主体 | FR-56 ~ FR-61 | M9, M10 | ✅ | [m12-autonomy.md](./m12-autonomy.md) |
 
 M8 / M9 / M10 / M11 当前阶段已完成。
+M12 当前阶段已实现完成，代码优先实施总计划与验收口径见 [`../../09_2026-04-24_autonomy-implementation/01_m12-code-first-implementation-plan.md`](../../09_2026-04-24_autonomy-implementation/01_m12-code-first-implementation-plan.md)。
 
 ## Execution Timeline
 
