@@ -6,6 +6,8 @@
   },
   "references": [
     { "path": "../protocol" },
+    { "path": "../autonomy-core" },
+    { "path": "../motivation-core" },
     { "path": "../memory-core" },
     { "path": "../policy-core" },
     { "path": "../device-core" },
@@ -14,4 +16,3 @@
   ],
   "include": ["src/**/*.ts"]
 }
-

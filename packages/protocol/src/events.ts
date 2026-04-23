@@ -2,19 +2,28 @@ import type {
   ActionExecution,
   AgentSession,
   ApprovalRequest,
+  AutonomousPlan,
+  AutonomyDecision,
   CandidateAction,
   CycleTrace,
   Episode,
+  DriftSignal,
   Goal,
+  HealthReport,
+  IntrinsicMotivation,
+  KnowledgeSnapshot,
   Observation,
   ExplorationEvent,
   PolicyUpdateEvent,
+  RecoveryAction,
   RewardSignal,
   Prediction,
   PredictionError,
+  SuggestedGoal,
   SkillPruneEvent,
   SkillEvaluation,
   SkillTransferEvent,
+  TransferResult,
   RuntimeOutput,
   RuntimeStatus,
   SessionCheckpoint,
@@ -48,6 +57,18 @@ export type NeuroCoreEventType =
   | "reward.computed"
   | "policy.updated"
   | "exploration.triggered"
+  | "plan.generated"
+  | "plan.revised"
+  | "plan.status_changed"
+  | "motivation.computed"
+  | "goal.self_generated"
+  | "transfer.attempted"
+  | "transfer.validated"
+  | "consolidation.completed"
+  | "drift.detected"
+  | "recovery.triggered"
+  | "recovery.completed"
+  | "health.report"
   | "skill.matched"
   | "skill.executed"
   | "skill.promoted"
@@ -107,6 +128,18 @@ export interface NeuroCoreEventPayloadMap {
   "reward.computed": RewardSignal;
   "policy.updated": PolicyUpdateEvent;
   "exploration.triggered": ExplorationEvent;
+  "plan.generated": AutonomousPlan;
+  "plan.revised": AutonomousPlan;
+  "plan.status_changed": AutonomyDecision;
+  "motivation.computed": IntrinsicMotivation;
+  "goal.self_generated": SuggestedGoal;
+  "transfer.attempted": TransferResult;
+  "transfer.validated": TransferResult;
+  "consolidation.completed": KnowledgeSnapshot;
+  "drift.detected": DriftSignal;
+  "recovery.triggered": RecoveryAction;
+  "recovery.completed": RecoveryAction;
+  "health.report": HealthReport;
   "skill.matched": SkillDefinition;
   "skill.executed": ActionExecution;
   "skill.promoted": SkillDefinition;

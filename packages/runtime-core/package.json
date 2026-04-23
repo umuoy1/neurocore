@@ -25,6 +25,8 @@
   },
   "dependencies": {
     "@neurocore/protocol": "^0.1.0",
+    "@neurocore/autonomy-core": "^0.1.0",
+    "@neurocore/motivation-core": "^0.1.0",
     "@neurocore/memory-core": "^0.1.0",
     "@neurocore/policy-core": "^0.1.0",
     "@neurocore/device-core": "^0.1.0",

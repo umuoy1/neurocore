@@ -5,6 +5,11 @@ import type {
   AskUserField,
   AskUserPromptSchema,
   ApprovalRequest,
+  AutonomousPlanner,
+  AutonomyContinualLearner,
+  AutonomyDecision,
+  AutonomyPlanStore,
+  AutonomyState,
   CalibrationRecord,
   CalibrationStore,
   CandidateAction,
@@ -14,6 +19,10 @@ import type {
   CycleTraceRecord,
   CreateSessionCommand,
   Episode,
+  Goal,
+  HealthReport,
+  IntrinsicMotivationEngine,
+  ModuleContext,
   MemoryProvider,
   MetaController,
   NeuroCoreEvent,
@@ -37,6 +46,8 @@ import type {
   RuntimeStatus,
   RuntimeSessionSnapshot,
   RuntimeStateStore,
+  SelfGoalGenerator,
+  SelfMonitor,
   SessionCheckpoint,
   SessionReplay,
   SessionState,
@@ -48,14 +59,29 @@ import type {
   SkillStore,
   SkillTransferEvent,
   SkillTransferEngine,
+  SuggestedGoal,
   TraceStore,
   ExplorationEvent,
-  Goal,
+  PlanFeedback,
   JsonValue,
   OnlineLearner,
+  RecoveryRecommendation,
+  TransferAdapter,
   UserInput,
   WorkspaceSnapshot
 } from "@neurocore/protocol";
+import {
+  DefaultAutonomousPlanner,
+  DefaultSelfMonitor,
+  InMemoryAutonomyPlanStore
+} from "@neurocore/autonomy-core";
+import {
+  DefaultContinualLearner,
+  DefaultGoalFilter,
+  DefaultIntrinsicMotivationEngine,
+  DefaultSelfGoalGenerator,
+  DefaultTransferAdapter
+} from "@neurocore/motivation-core";
 import type {
   ActuatorCommand,
   ActuatorOrchestrator,
@@ -145,6 +171,13 @@ export interface AgentRuntimeOptions {
   skillEvaluator?: SkillEvaluator;
   skillTransferEngine?: SkillTransferEngine;
   onlineLearner?: OnlineLearner;
+  autonomousPlanner?: AutonomousPlanner;
+  autonomyPlanStore?: AutonomyPlanStore;
+  selfMonitor?: SelfMonitor;
+  intrinsicMotivationEngine?: IntrinsicMotivationEngine;
+  selfGoalGenerator?: SelfGoalGenerator;
+  transferAdapter?: TransferAdapter;
+  continualLearner?: AutonomyContinualLearner;
   predictionStore?: PredictionStore;
   deviceRegistry?: DeviceRegistry;
   worldStateGraph?: WorldStateGraph;
@@ -252,9 +285,17 @@ export class AgentRuntime {
   private readonly skillPolicy: SkillPolicy;
   private readonly skillEvaluator: SkillEvaluator;
   private readonly onlineLearner: OnlineLearner;
+  private readonly autonomousPlanner?: AutonomousPlanner;
+  private readonly autonomyPlanStore: AutonomyPlanStore;
+  private readonly selfMonitor: SelfMonitor;
+  private readonly intrinsicMotivationEngine: IntrinsicMotivationEngine;
+  private readonly selfGoalGenerator: SelfGoalGenerator;
+  private readonly transferAdapter: TransferAdapter;
+  private readonly continualLearner: AutonomyContinualLearner;
   private readonly approvals = new Map<string, ApprovalRequest>();
   private readonly pendingApprovals = new Map<string, PendingApprovalContext>();
   private readonly eventSequences = new Map<string, number>();
+  private readonly autonomyStates = new Map<string, AutonomyState>();
   private readonly deviceRegistry?: DeviceRegistry;
   private readonly worldStateGraph?: WorldStateGraph;
   private readonly perceptionPipeline?: PerceptionPipeline;
@@ -315,6 +356,14 @@ export class AgentRuntime {
       new SkillOnlineLearner({
         policy: this.skillPolicy
       });
+    this.autonomousPlanner = options.autonomousPlanner ?? new DefaultAutonomousPlanner();
+    this.autonomyPlanStore = options.autonomyPlanStore ?? new InMemoryAutonomyPlanStore();
+    this.selfMonitor = options.selfMonitor ?? new DefaultSelfMonitor();
+    this.intrinsicMotivationEngine =
+      options.intrinsicMotivationEngine ?? new DefaultIntrinsicMotivationEngine();
+    this.selfGoalGenerator = options.selfGoalGenerator ?? new DefaultSelfGoalGenerator();
+    this.transferAdapter = options.transferAdapter ?? new DefaultTransferAdapter();
+    this.continualLearner = options.continualLearner ?? new DefaultContinualLearner();
     this.workingMemoryProvider = new WorkingMemoryProvider(
       undefined,
       memoryPersistence?.working as WorkingMemoryPersistenceStore | undefined
@@ -383,7 +432,9 @@ export class AgentRuntime {
   public async runOnce(profile: AgentProfile, sessionId: string, input: UserInput) {
     const releaseLock = await this.sessions.acquireSessionLock(sessionId);
     try {
-      return await this.runOnceUnlocked(profile, sessionId, input);
+      const result = await this.runOnceUnlocked(profile, sessionId, input);
+      await this.performAutonomyMaintenance(profile, sessionId, input, result);
+      return result;
     } finally {
       releaseLock();
     }
@@ -403,6 +454,7 @@ export class AgentRuntime {
 
     try {
     await this.decomposeGoals(profile, session, input);
+    await this.ensureAutonomousPlan(profile, session, input);
     const activeGoals = this.goals.active(sessionId);
 
     const predictionErrorRate = this.predictionStore.getRecentErrorRate(sessionId, 5);
@@ -418,6 +470,7 @@ export class AgentRuntime {
       predictors: this.predictors,
       policies: this.policyProviders,
       skillProviders: this.skillProviders,
+      autonomyState: this.autonomyStates.get(sessionId),
       reasoner: this.reasoner,
       metaController: this.metaController,
       predictionErrorRate,
@@ -434,6 +487,14 @@ export class AgentRuntime {
       taskDelegator: this.taskDelegator,
       agentRegistry: this.agentRegistry
     });
+
+    const autonomyState = this.autonomyStates.get(sessionId);
+    if (autonomyState) {
+      result.workspace = {
+        ...result.workspace,
+        autonomy_state: structuredClone(autonomyState)
+      };
+    }
 
     for (const prediction of result.predictions) {
       this.predictionStore.recordPrediction(prediction);
@@ -660,6 +721,7 @@ export class AgentRuntime {
       });
 
       const step = await this.runOnceUnlocked(profile, sessionId, currentInput);
+      await this.performAutonomyMaintenance(profile, sessionId, currentInput, step);
       steps.push(step);
 
       if (!shouldContinue(step)) {
@@ -747,6 +809,23 @@ export class AgentRuntime {
 
   public getWorldState() {
     return this.worldStateGraph?.snapshot();
+  }
+
+  public getAutonomyState(sessionId: string): AutonomyState | undefined {
+    this.ensureSessionLoaded(sessionId);
+    const state = this.autonomyStates.get(sessionId);
+    return state ? structuredClone(state) : undefined;
+  }
+
+  public setAutonomyState(sessionId: string, state: AutonomyState | undefined): void {
+    this.requireSession(sessionId);
+    this.replaceAutonomyState(sessionId, state);
+    this.persistSessionState(sessionId);
+  }
+
+  public listAutonomousPlans(sessionId: string) {
+    this.ensureSessionLoaded(sessionId);
+    return this.autonomyPlanStore.list(sessionId);
   }
 
   public listDevices() {
@@ -838,6 +917,7 @@ export class AgentRuntime {
       goals: structuredClone(this.goals.list(sessionId)),
       traces: structuredClone(this.getTraceRecords(sessionId)),
       pending_input: derivePendingInput(this.getTraceRecords(sessionId), session),
+      autonomy_state: structuredClone(this.autonomyStates.get(sessionId)),
       created_at: nowIso()
     };
 
@@ -902,6 +982,7 @@ export class AgentRuntime {
 
     this.sessions.hydrate(restoredSession);
     this.goals.hydrate(sessionId, structuredClone(checkpoint.goals));
+    this.replaceAutonomyState(sessionId, checkpoint.autonomy_state);
     this.restoreCheckpointMemory(checkpoint, restoredSession.tenant_id);
     this.traceRecorder.getStore().replaceSession(
       sessionId,
@@ -1007,8 +1088,10 @@ export class AgentRuntime {
     this.calibrator.deleteSession(sessionId);
     this.providerReliabilityStore.deleteSession(sessionId);
     this.reflectionLearner.deleteSession(sessionId);
+    this.autonomyPlanStore.deleteSession(sessionId);
     this.eventBus.deleteSession(sessionId);
     this.eventSequences.delete(sessionId);
+    this.autonomyStates.delete(sessionId);
     this.sessions.deleteSession(sessionId);
     try {
       this.stateStore?.deleteSession?.(sessionId);
@@ -1168,6 +1251,7 @@ export class AgentRuntime {
       },
       pending.selectedAction
     );
+    await this.performAutonomyMaintenance(profile, approval.session_id, pending.input, step);
 
     return {
       approval: structuredClone(approval),
@@ -1328,6 +1412,645 @@ export class AgentRuntime {
     );
   }
 
+  private async ensureAutonomousPlan(
+    profile: AgentProfile,
+    session: AgentSession,
+    input: UserInput
+  ): Promise<void> {
+    if (!this.autonomousPlanner) {
+      return;
+    }
+
+    const existingState = this.autonomyStates.get(session.session_id);
+    if (existingState?.active_plan) {
+      return;
+    }
+
+    const baseState: AutonomyState =
+      existingState ??
+      {
+        schema_version: profile.schema_version,
+        session_id: session.session_id,
+        plan_history: [],
+        suggested_goals: [],
+        drift_signals: [],
+        recovery_queue: [],
+        updated_at: nowIso()
+      };
+    const goals = this.goals.list(session.session_id);
+    const context: ModuleContext = {
+      tenant_id: session.tenant_id,
+      session,
+      profile,
+      goals,
+      runtime_state: {
+        current_input_content: input.content,
+        current_input_parts: input.content_parts ?? [],
+        current_input_metadata: input.metadata ?? null,
+        current_input_structured_response: input.structured_response ?? null
+      },
+      services: {
+        now: nowIso,
+        generateId
+      },
+      memory_config: profile.memory_config
+    };
+    const generatedPlan = await this.autonomousPlanner.generatePlan(context, structuredClone(baseState));
+    if (!generatedPlan) {
+      this.replaceAutonomyState(session.session_id, baseState);
+      return;
+    }
+    const planPolicies = await this.evaluatePlanPolicies(context, generatedPlan);
+    if (planPolicies.some((decision) => decision.level === "block")) {
+      const blockedState: AutonomyState = {
+        ...baseState,
+        last_decision: {
+          decision_id: generateId("adn"),
+          session_id: session.session_id,
+          source: "planner",
+          decision_type: "pause_execution",
+          summary: "Autonomous plan blocked by policy review.",
+          created_at: nowIso()
+        },
+        updated_at: nowIso()
+      };
+      this.replaceAutonomyState(session.session_id, blockedState);
+      return;
+    }
+
+    const injectedGoals = this.injectPlanGoals(session.session_id, generatedPlan);
+    const activePlan = {
+      ...generatedPlan,
+      goal_ids: injectedGoals.map((goal) => goal.goal_id),
+      checkpoints: generatedPlan.checkpoints.map((checkpoint, index) => {
+        const goal = injectedGoals[index];
+        return {
+          ...checkpoint,
+          goal_ids: goal ? [goal.goal_id] : checkpoint.goal_ids
+        };
+      }),
+      updated_at: nowIso()
+    };
+    const nextState: AutonomyState = {
+      ...baseState,
+      active_plan: activePlan,
+      plan_history: [
+        ...(baseState.plan_history ?? []).filter((plan) => plan.plan_id !== activePlan.plan_id),
+        activePlan
+      ],
+      updated_at: nowIso()
+    };
+
+    this.replaceAutonomyState(session.session_id, nextState);
+    this.emitEvent(session, "plan.generated", activePlan, session.current_cycle_id);
+  }
+
+  private injectPlanGoals(
+    sessionId: string,
+    plan: import("@neurocore/protocol").AutonomousPlan
+  ): Goal[] {
+    const now = nowIso();
+    const phaseGoalIdByPhaseId = new Map<string, string>();
+
+    for (const phase of plan.phases) {
+      phaseGoalIdByPhaseId.set(phase.phase_id, generateId("gol"));
+    }
+
+    return this.goals.addMany(
+      sessionId,
+      plan.phases.map((phase) => ({
+        goal_id: phaseGoalIdByPhaseId.get(phase.phase_id) ?? generateId("gol"),
+        schema_version: "0.1.0",
+        session_id: sessionId,
+        title: phase.title,
+        description: phase.summary,
+        goal_type: phase.goal_type,
+        status: "blocked",
+        priority: phase.priority,
+        owner: "system",
+        dependencies: phase.dependencies?.map(
+          (dependencyPhaseId) => phaseGoalIdByPhaseId.get(dependencyPhaseId) ?? dependencyPhaseId
+        ),
+        created_at: now,
+        updated_at: now,
+        metadata: {
+          autonomy_plan_id: plan.plan_id,
+          autonomy_phase_id: phase.phase_id,
+          plan_owned: true
+        }
+      }))
+    );
+  }
+
+  private updateAutonomyStateFromTrace(
+    sessionId: string,
+    traceInput: Parameters<TraceRecorder["record"]>[0]
+  ): AutonomyState | undefined {
+    const current = this.autonomyStates.get(sessionId);
+    if (!current?.active_plan) {
+      return current ? structuredClone(current) : undefined;
+    }
+
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return structuredClone(current);
+    }
+
+    const nextState = structuredClone(current);
+    const activePlan = structuredClone(current.active_plan);
+    const feedback: PlanFeedback = {
+      feedback_id: generateId("pfb"),
+      plan_id: activePlan.plan_id,
+      outcome:
+        traceInput.observation?.status === "failure" || traceInput.actionExecution?.status === "failed"
+          ? "failure"
+          : traceInput.observation
+            ? "partial"
+            : "success",
+      summary:
+        traceInput.observation?.summary ??
+        traceInput.actionExecution?.status ??
+        traceInput.selectedAction?.title ??
+        "Autonomy cycle update.",
+      created_at: nowIso()
+    };
+    activePlan.feedback = [...(activePlan.feedback ?? []), feedback];
+
+    let decision: AutonomyDecision | undefined;
+    if (feedback.outcome === "failure") {
+      activePlan.phase = "recovery";
+      activePlan.updated_at = nowIso();
+      decision = {
+        decision_id: generateId("adn"),
+        session_id: sessionId,
+        source: "planner",
+        decision_type: "revise_plan",
+        summary: `Revise ${activePlan.title} after a failed cycle.`,
+        plan_id: activePlan.plan_id,
+        created_at: nowIso()
+      };
+      this.emitEvent(session, "plan.revised", activePlan, traceInput.cycleId);
+      this.emitEvent(session, "plan.status_changed", decision, traceInput.cycleId);
+    } else if (traceInput.selectedAction?.action_type === "respond") {
+      activePlan.phase = "learning";
+      activePlan.status = "completed";
+      activePlan.updated_at = nowIso();
+      decision = {
+        decision_id: generateId("adn"),
+        session_id: sessionId,
+        source: "planner",
+        decision_type: "continue_execution",
+        summary: `Complete ${activePlan.title} after final response.`,
+        plan_id: activePlan.plan_id,
+        created_at: nowIso()
+      };
+      this.emitEvent(session, "plan.status_changed", decision, traceInput.cycleId);
+    } else if (
+      activePlan.current_phase_id &&
+      (traceInput.observation?.status === "success" || traceInput.actionExecution?.status === "succeeded")
+    ) {
+      const currentPhaseIndex = activePlan.phases.findIndex(
+        (phase) => phase.phase_id === activePlan.current_phase_id
+      );
+      const nextPhase = currentPhaseIndex >= 0 ? activePlan.phases[currentPhaseIndex + 1] : undefined;
+      if (nextPhase) {
+        activePlan.phase = "execution";
+        activePlan.current_phase_id = nextPhase.phase_id;
+        activePlan.updated_at = nowIso();
+        decision = {
+          decision_id: generateId("adn"),
+          session_id: sessionId,
+          source: "planner",
+          decision_type: "continue_execution",
+          summary: `Advance ${activePlan.title} to ${nextPhase.title}.`,
+          plan_id: activePlan.plan_id,
+          created_at: nowIso()
+        };
+        this.emitEvent(session, "plan.status_changed", decision, traceInput.cycleId);
+      }
+    }
+
+    nextState.active_plan = activePlan;
+    nextState.plan_history = [
+      ...(nextState.plan_history ?? []).filter((plan) => plan.plan_id !== activePlan.plan_id),
+      activePlan
+    ];
+    nextState.last_decision = decision ?? nextState.last_decision;
+    nextState.updated_at = nowIso();
+    this.replaceAutonomyState(sessionId, nextState);
+    return structuredClone(nextState);
+  }
+
+  private async performAutonomyMaintenance(
+    profile: AgentProfile,
+    sessionId: string,
+    input: UserInput,
+    step: AgentRunResult
+  ): Promise<void> {
+    if (!shouldRunAutonomyMaintenance(profile)) {
+      return;
+    }
+
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+
+    const currentState =
+      this.autonomyStates.get(sessionId) ??
+      createAutonomyState(profile.schema_version, sessionId);
+    let nextState = structuredClone(currentState);
+    const ctx = this.buildAutonomyContext(profile, session, input, step, nextState);
+    let stateChanged = false;
+
+    if (profile.autonomy_config?.monitor_enabled === true) {
+      const healthReport = await this.selfMonitor.inspect(ctx, nextState);
+      nextState.health_report = healthReport;
+      nextState.updated_at = nowIso();
+      stateChanged = true;
+      this.emitEvent(session, "health.report", healthReport, step.cycleId);
+
+      const driftSignals = await this.selfMonitor.detectDrift?.(ctx, nextState);
+      if (driftSignals && driftSignals.length > 0) {
+        nextState.drift_signals = mergeDriftSignals(nextState.drift_signals, driftSignals);
+        nextState.updated_at = nowIso();
+        stateChanged = true;
+        for (const signal of driftSignals) {
+          this.emitEvent(session, "drift.detected", signal, step.cycleId);
+        }
+      }
+
+      const recoveryActions = await this.selfMonitor.recommendRecovery?.(ctx, nextState, healthReport);
+      if (recoveryActions && recoveryActions.length > 0) {
+        nextState.recovery_queue = recoveryActions.map(toRecoveryRecommendation);
+        nextState.updated_at = nowIso();
+        stateChanged = true;
+        for (const action of recoveryActions) {
+          this.emitEvent(session, "recovery.triggered", action, step.cycleId);
+        }
+        const recoveryResult = await this.applyRecoveryActions(profile, session, ctx, nextState, recoveryActions, step.cycleId);
+        nextState = recoveryResult.state;
+        stateChanged = stateChanged || recoveryResult.changed;
+      }
+    }
+
+    if (
+      profile.autonomy_config?.self_goal_enabled === true &&
+      profile.autonomy_config?.alignment?.allow_self_generated_goals !== false &&
+      shouldGenerateSelfGoals(session, this.goals.list(sessionId))
+    ) {
+      const motivation = await this.intrinsicMotivationEngine.compute(ctx, nextState);
+      nextState.intrinsic_motivation = motivation;
+      nextState.updated_at = nowIso();
+      stateChanged = true;
+      this.emitEvent(session, "motivation.computed", motivation, step.cycleId);
+
+      const candidates = await this.selfGoalGenerator.suggestGoals(ctx, nextState, motivation);
+      if (candidates.length > 0) {
+        const filteredGoals = await this.filterSuggestedGoals(ctx, nextState, candidates);
+        nextState.suggested_goals = filteredGoals.updatedGoals;
+        nextState.updated_at = nowIso();
+        stateChanged = true;
+        for (const goal of filteredGoals.updatedGoals) {
+          this.emitEvent(session, "goal.self_generated", goal, step.cycleId);
+        }
+      }
+    }
+
+    if (profile.autonomy_config?.transfer_enabled === true) {
+      const transferResult = await this.transferAdapter.transfer(ctx, nextState);
+      if (transferResult && shouldAdoptTransferResult(nextState.latest_transfer, transferResult)) {
+        nextState.latest_transfer = transferResult;
+        nextState.updated_at = nowIso();
+        stateChanged = true;
+        this.emitEvent(session, "transfer.attempted", transferResult, step.cycleId);
+        if (transferResult.validation_status === "validated") {
+          this.emitEvent(session, "transfer.validated", transferResult, step.cycleId);
+        }
+      }
+    }
+
+    if (profile.autonomy_config?.continual_learning_enabled === true && shouldConsolidateKnowledge(session, nextState, step)) {
+      const snapshot = await this.continualLearner.consolidate(ctx, nextState);
+      if (snapshot) {
+        nextState.latest_knowledge_snapshot = snapshot;
+        nextState.performance_baseline = buildPerformanceBaseline(sessionId, ctx.runtime_state);
+        nextState.curriculum_stage = buildCurriculumStage(nextState, step);
+        nextState.updated_at = nowIso();
+        stateChanged = true;
+        this.emitEvent(session, "consolidation.completed", snapshot, step.cycleId);
+      }
+    }
+
+    if (!stateChanged) {
+      return;
+    }
+
+    this.replaceAutonomyState(sessionId, nextState);
+    this.annotateTraceWithAutonomy(sessionId, step.cycleId, nextState);
+    this.persistSessionState(sessionId);
+  }
+
+  private buildAutonomyContext(
+    profile: AgentProfile,
+    session: AgentSession,
+    input: UserInput,
+    step: AgentRunResult,
+    state: AutonomyState
+  ): ModuleContext {
+    const traceRecords = this.getTraceRecords(session.session_id);
+    const windowSize = profile.autonomy_config?.monitor_window_size ?? 8;
+    const recentTraceRecords = traceRecords.slice(-windowSize);
+    const goals = this.goals.list(session.session_id);
+    const baseContext = buildMemoryContext(
+      profile,
+      session,
+      this.goals.active(session.session_id),
+      input,
+      recentTraceRecords,
+      state
+    );
+    const timeoutRate = measureTimeoutRate(recentTraceRecords);
+    const failureRate = measureFailureRate(recentTraceRecords);
+    const successRate = measureSuccessRate(recentTraceRecords);
+    const suggestedGoals = state.suggested_goals ?? [];
+    const rejectedSelfGoals = suggestedGoals.filter((goal) => goal.status === "rejected").length;
+    const activeAgentGoals = goals.filter((goal) => goal.owner === "agent" && !isTerminalGoalStatus(goal.status)).length;
+    const availableToolNames = this.tools.list().map((tool) => tool.name);
+    const applicableSkills = this.listSkills(session.session_id);
+    const activePlanPhase = state.active_plan?.current_phase_id
+      ? state.active_plan.phases.find((phase) => phase.phase_id === state.active_plan?.current_phase_id)
+      : undefined;
+
+    return {
+      ...baseContext,
+      goals,
+      workspace: step.cycle.workspace,
+      runtime_state: {
+        ...baseContext.runtime_state,
+        trace_records: structuredClone(recentTraceRecords),
+        recent_trace_records: structuredClone(recentTraceRecords),
+        recent_failure_rate: failureRate,
+        recent_success_rate: successRate,
+        recent_timeout_rate: timeoutRate,
+        recent_prediction_error_rate: this.predictionStore.getRecentErrorRate(session.session_id, windowSize),
+        current_session_state: session.state,
+        active_goal_count: this.goals.active(session.session_id).length,
+        active_agent_goal_count: activeAgentGoals,
+        rejected_self_goal_count: rejectedSelfGoals,
+        available_tool_names: availableToolNames,
+        skill_coverage: computeSkillCoverage(goals, applicableSkills),
+        last_observation_status: step.observation?.status ?? null,
+        last_observation_summary: step.observation?.summary ?? null,
+        last_action_type: step.selectedAction?.action_type ?? null,
+        last_output_text: step.outputText ?? null,
+        current_plan_phase_title: activePlanPhase?.title ?? null
+      },
+      memory_config: profile.memory_config
+    };
+  }
+
+  private async applyRecoveryActions(
+    profile: AgentProfile,
+    session: AgentSession,
+    ctx: ModuleContext,
+    state: AutonomyState,
+    actions: import("@neurocore/protocol").RecoveryAction[],
+    cycleId: string
+  ): Promise<{ state: AutonomyState; changed: boolean }> {
+    let nextState = structuredClone(state);
+    let changed = false;
+
+    for (const action of actions) {
+      if (profile.autonomy_config?.alignment?.allow_autonomous_recovery === false && action.action_type !== "request_approval") {
+        this.ensureRecoveryGoal(session, action, "human_reviewer");
+        continue;
+      }
+
+      if (action.action_type === "replan") {
+        const decision = await this.autonomousPlanner?.revisePlan?.(ctx, nextState);
+        if (decision) {
+          if (nextState.active_plan) {
+            nextState.active_plan = {
+              ...nextState.active_plan,
+              phase: "recovery",
+              updated_at: nowIso()
+            };
+            nextState.plan_history = replacePlanInHistory(nextState.plan_history, nextState.active_plan);
+            this.autonomyPlanStore.save(nextState.active_plan);
+            this.emitEvent(session, "plan.revised", nextState.active_plan, cycleId);
+          }
+          nextState.last_decision = decision;
+          nextState.updated_at = nowIso();
+          changed = true;
+          this.emitEvent(session, "plan.status_changed", decision, cycleId);
+          this.emitEvent(
+            session,
+            "recovery.completed",
+            {
+              ...action,
+              status: "completed",
+              completed_at: nowIso()
+            },
+            cycleId
+          );
+          continue;
+        }
+      }
+
+      if (action.action_type === "consolidate_learning" && profile.autonomy_config?.continual_learning_enabled === true) {
+        const snapshot = await this.continualLearner.consolidate(ctx, nextState);
+        if (snapshot) {
+          nextState.latest_knowledge_snapshot = snapshot;
+          nextState.updated_at = nowIso();
+          changed = true;
+          this.emitEvent(session, "consolidation.completed", snapshot, cycleId);
+          this.emitEvent(
+            session,
+            "recovery.completed",
+            {
+              ...action,
+              status: "completed",
+              completed_at: nowIso()
+            },
+            cycleId
+          );
+          continue;
+        }
+      }
+
+      if (action.action_type === "request_approval") {
+        this.ensureRecoveryGoal(session, action, "human_reviewer");
+      } else if (action.action_type === "request_input") {
+        this.ensureRecoveryGoal(session, action, "user");
+      } else {
+        this.ensureRecoveryGoal(session, action, "system");
+      }
+    }
+
+    return { state: nextState, changed };
+  }
+
+  private ensureRecoveryGoal(
+    session: AgentSession,
+    action: import("@neurocore/protocol").RecoveryAction,
+    owner: Goal["owner"]
+  ): void {
+    const existing = this.goals.list(session.session_id).find(
+      (goal) => goal.metadata?.recovery_action_id === action.recovery_action_id
+    );
+    if (existing) {
+      return;
+    }
+    const goal = this.goals.addMany(session.session_id, [
+      {
+        goal_id: generateId("gol"),
+        schema_version: session.schema_version,
+        session_id: session.session_id,
+        title: action.summary,
+        description: action.summary,
+        goal_type: "recovery",
+        status: "pending",
+        priority: owner === "human_reviewer" ? 95 : 85,
+        owner,
+        created_at: nowIso(),
+        updated_at: nowIso(),
+        metadata: {
+          recovery_action_id: action.recovery_action_id,
+          system_generated: true
+        }
+      }
+    ])[0];
+    if (goal) {
+      this.emitGoalCreated(session, goal);
+    }
+  }
+
+  private async filterSuggestedGoals(
+    ctx: ModuleContext,
+    state: AutonomyState,
+    candidates: SuggestedGoal[]
+  ): Promise<{ updatedGoals: SuggestedGoal[] }> {
+    const policyDecisionsByGoalId = new Map<string, import("@neurocore/protocol").PolicyDecision[]>();
+    for (const candidate of candidates) {
+      const decisions = await this.evaluateSelfGoalPolicies(ctx, candidate);
+      policyDecisionsByGoalId.set(candidate.suggested_goal_id, decisions);
+    }
+
+    const goalFilter = new DefaultGoalFilter();
+    const decision = goalFilter.evaluate({
+      candidates,
+      activeGoals: ctx.goals,
+      feasibilityThreshold: ctx.profile.autonomy_config?.goal_feasibility_threshold ?? 0.25,
+      policyDecisionsByGoalId
+    });
+    const maxConcurrentSelfGoals =
+      ctx.profile.autonomy_config?.alignment?.max_concurrent_self_goals ?? 1;
+    let acceptedCount = ctx.goals.filter(
+      (goal) => goal.owner === "agent" && !isTerminalGoalStatus(goal.status)
+    ).length;
+    const updatedGoals: SuggestedGoal[] = [];
+
+    for (const candidate of candidates) {
+      const rejected = decision.rejected.find((item) => item.goal.suggested_goal_id === candidate.suggested_goal_id);
+      const policyDecisions = policyDecisionsByGoalId.get(candidate.suggested_goal_id) ?? [];
+      const needsReview =
+        policyDecisions.some((item) => item.level === "warn") ||
+        (ctx.profile.autonomy_config?.alignment?.high_risk_self_goal_requires_approval === true &&
+          candidate.priority >= 70);
+      let status: SuggestedGoal["status"] = "proposed";
+
+      if (rejected) {
+        status = "rejected";
+      } else if (acceptedCount >= maxConcurrentSelfGoals) {
+        status = "dismissed";
+      } else if (!needsReview) {
+        status = "accepted";
+        acceptedCount += 1;
+        const goal = this.goals.addMany(ctx.session.session_id, [
+          toGoalFromSuggestedGoal(ctx, candidate)
+        ])[0];
+        if (goal) {
+          this.emitGoalCreated(ctx.session, goal);
+        }
+      }
+
+      updatedGoals.push({
+        ...candidate,
+        status
+      });
+    }
+
+    return {
+      updatedGoals: mergeSuggestedGoals(state.suggested_goals, updatedGoals)
+    };
+  }
+
+  private async evaluateSelfGoalPolicies(
+    ctx: ModuleContext,
+    goal: SuggestedGoal
+  ): Promise<import("@neurocore/protocol").PolicyDecision[]> {
+    const settled = await Promise.allSettled(
+      this.policyProviders
+        .filter((policy) => typeof policy.evaluateSelfGoal === "function")
+        .map((policy) =>
+          policy.evaluateSelfGoal!(
+            ctx,
+            toGoalCandidate(goal, ctx.profile.schema_version)
+          )
+        )
+    );
+
+    return settled
+      .filter((result): result is PromiseFulfilledResult<import("@neurocore/protocol").PolicyDecision[]> => result.status === "fulfilled")
+      .flatMap((result) => result.value);
+  }
+
+  private async evaluatePlanPolicies(
+    ctx: ModuleContext,
+    plan: import("@neurocore/protocol").AutonomousPlan
+  ): Promise<import("@neurocore/protocol").PolicyDecision[]> {
+    const settled = await Promise.allSettled(
+      this.policyProviders
+        .filter((policy) => typeof policy.evaluatePlan === "function")
+        .map((policy) => policy.evaluatePlan!(ctx, plan))
+    );
+
+    return settled
+      .filter((result): result is PromiseFulfilledResult<import("@neurocore/protocol").PolicyDecision[]> => result.status === "fulfilled")
+      .flatMap((result) => result.value);
+  }
+
+  private annotateTraceWithAutonomy(
+    sessionId: string,
+    cycleId: string,
+    state: AutonomyState
+  ): void {
+    const records = this.traceRecorder.getStore().list(sessionId);
+    if (records.length === 0) {
+      return;
+    }
+    const index = [...records].reverse().findIndex((record) => record.trace.cycle_id === cycleId);
+    if (index < 0) {
+      return;
+    }
+    const targetIndex = records.length - 1 - index;
+    const nextRecords = structuredClone(records);
+    const target = nextRecords[targetIndex];
+    if (!target) {
+      return;
+    }
+    target.autonomy_state = structuredClone(state);
+    target.autonomy_decision = state.last_decision ? structuredClone(state.last_decision) : undefined;
+    if (target.workspace) {
+      target.workspace = {
+        ...target.workspace,
+        autonomy_state: structuredClone(state)
+      };
+    }
+    this.traceRecorder.getStore().replaceSession(sessionId, nextRecords);
+  }
+
   private recordTrace(input: Parameters<TraceRecorder["record"]>[0]): CycleTrace {
     const session = this.sessions.get(input.sessionId);
     if (session) {
@@ -1353,7 +2076,22 @@ export class AgentRuntime {
         };
       }
     }
-    return this.traceRecorder.record(input);
+    const autonomyState =
+      this.updateAutonomyStateFromTrace(input.sessionId, input) ??
+      input.autonomyState ??
+      this.autonomyStates.get(input.sessionId);
+    const workspace =
+      autonomyState && input.workspace
+        ? {
+            ...input.workspace,
+            autonomy_state: input.workspace.autonomy_state ?? structuredClone(autonomyState)
+          }
+        : input.workspace;
+    return this.traceRecorder.record({
+      ...input,
+      workspace,
+      autonomyState: structuredClone(autonomyState)
+    });
   }
 
   private emitEvent(
@@ -1399,7 +2137,8 @@ export class AgentRuntime {
         session,
         this.goals.active(session.session_id),
         input,
-        this.getTraceRecords(session.session_id)
+        this.getTraceRecords(session.session_id),
+        this.autonomyStates.get(session.session_id)
       );
       const decomposition = await this.reasoner.decomposeGoal(ctx, structuredClone(goal));
 
@@ -1945,6 +2684,7 @@ export class AgentRuntime {
     cycle: ExecutionCycleState,
     selectedAction: CandidateAction
   ): import("@neurocore/protocol").ModuleContext {
+    const autonomyState = this.autonomyStates.get(session.session_id);
     return {
       tenant_id: session.tenant_id,
       session: { ...session, current_cycle_id: cycle.cycleId },
@@ -1956,6 +2696,12 @@ export class AgentRuntime {
         current_input_parts: input.content_parts ?? [],
         current_input_metadata: input.metadata ?? null,
         current_input_structured_response: input.structured_response ?? null,
+        autonomy_state: autonomyState ? structuredClone(autonomyState) : null,
+        autonomy_plan_summary: autonomyState?.active_plan?.summary ?? null,
+        autonomy_current_phase: autonomyState?.active_plan?.phase ?? null,
+        autonomy_health_status: autonomyState?.health_report?.overall_status ?? null,
+        autonomy_transfer_confidence: autonomyState?.latest_transfer?.confidence ?? null,
+        autonomy_curriculum_stage: autonomyState?.curriculum_stage?.name ?? null,
         ...buildConversationRuntimeState(this.getTraceRecords(session.session_id), profile, input.content),
         current_selected_action_id: selectedAction.action_id,
         memory_recall_proposals: cycle.proposals.filter((proposal) => proposal.proposal_type === "memory_recall"),
@@ -2730,7 +3476,8 @@ export class AgentRuntime {
       session,
       this.goals.active(session.session_id),
       input,
-      this.getTraceRecords(session.session_id)
+      this.getTraceRecords(session.session_id),
+      this.autonomyStates.get(session.session_id)
     );
     await Promise.all(this.memoryProviders.map(async (provider) => provider.writeEpisode(ctx, episode)));
     this.emitEvent(session, "memory.written", episode, cycleId);
@@ -3034,7 +3781,8 @@ export class AgentRuntime {
       session,
       this.goals.active(session.session_id),
       input,
-      this.getTraceRecords(session.session_id)
+      this.getTraceRecords(session.session_id),
+      this.autonomyStates.get(session.session_id)
     );
     const skillResult = await executeSkill(provider, ctx, skillId, selectedAction);
     if (!skillResult) return null;
@@ -3274,6 +4022,7 @@ export class AgentRuntime {
     const sessionId = snapshot.session.session_id;
     this.sessions.hydrate(structuredClone(snapshot.session));
     this.goals.hydrate(sessionId, structuredClone(snapshot.goals));
+    this.replaceAutonomyState(sessionId, snapshot.autonomy_state);
     this.hydrateProceduralStateFromPersistedEpisodes(sessionId, snapshot.session.tenant_id);
     this.traceRecorder.getStore().replaceSession(sessionId, structuredClone(snapshot.trace_records));
 
@@ -3359,7 +4108,8 @@ export class AgentRuntime {
         [...this.pendingApprovals.values()]
           .filter((pending) => this.approvals.get(pending.approval_id)?.session_id === sessionId)
           .map(toPendingApprovalSnapshot)
-      )
+      ),
+      autonomy_state: structuredClone(this.autonomyStates.get(sessionId))
     };
 
     try {
@@ -3408,8 +4158,10 @@ export class AgentRuntime {
     this.episodicMemoryProvider.evictSession(sessionId);
     this.semanticMemoryProvider.evictSession(sessionId);
     this.traceRecorder.getStore().deleteSession?.(sessionId);
+    this.autonomyPlanStore.deleteSession(sessionId);
     this.eventBus.deleteSession(sessionId);
     this.eventSequences.delete(sessionId);
+    this.autonomyStates.delete(sessionId);
     this.sessions.deleteSession(sessionId);
 
     debugLog("runtime", "Evicted resident session state", {
@@ -3482,6 +4234,17 @@ export class AgentRuntime {
       state: "healthy",
       recovered_at: nowIso()
     };
+  }
+
+  private replaceAutonomyState(sessionId: string, state: AutonomyState | undefined): void {
+    if (state) {
+      this.autonomyStates.set(sessionId, structuredClone(state));
+      if (state.active_plan) {
+        this.autonomyPlanStore.save(state.active_plan);
+      }
+      return;
+    }
+    this.autonomyStates.delete(sessionId);
   }
 }
 
@@ -3942,7 +4705,8 @@ function buildMemoryContext(
   session: NonNullable<ReturnType<SessionManager["get"]>>,
   goals: ReturnType<GoalManager["active"]>,
   input: UserInput,
-  traceRecords: CycleTraceRecord[] = []
+  traceRecords: CycleTraceRecord[] = [],
+  autonomyState?: AutonomyState
 ) {
   return {
     tenant_id: session.tenant_id,
@@ -3954,6 +4718,12 @@ function buildMemoryContext(
       current_input_parts: input.content_parts ?? [],
       current_input_metadata: input.metadata ?? null,
       current_input_structured_response: input.structured_response ?? null,
+      autonomy_state: autonomyState ? structuredClone(autonomyState) : null,
+      autonomy_plan_summary: autonomyState?.active_plan?.summary ?? null,
+      autonomy_current_phase: autonomyState?.active_plan?.phase ?? null,
+      autonomy_health_status: autonomyState?.health_report?.overall_status ?? null,
+      autonomy_transfer_confidence: autonomyState?.latest_transfer?.confidence ?? null,
+      autonomy_curriculum_stage: autonomyState?.curriculum_stage?.name ?? null,
       ...buildConversationRuntimeState(traceRecords, profile, input.content)
     },
     services: {
@@ -3981,6 +4751,274 @@ function buildConversationRuntimeState(
     conversation_history_truncated: trimmed.truncated,
     conversation_current_input_tokens: new DefaultTokenEstimator().estimate(currentInputContent)
   };
+}
+
+function createAutonomyState(schemaVersion: string, sessionId: string): AutonomyState {
+  return {
+    schema_version: schemaVersion,
+    session_id: sessionId,
+    plan_history: [],
+    suggested_goals: [],
+    drift_signals: [],
+    recovery_queue: [],
+    updated_at: nowIso()
+  };
+}
+
+function shouldRunAutonomyMaintenance(profile: AgentProfile): boolean {
+  const config = profile.autonomy_config;
+  return Boolean(
+    config?.monitor_enabled === true ||
+    config?.self_goal_enabled === true ||
+    config?.transfer_enabled === true ||
+    config?.continual_learning_enabled === true
+  );
+}
+
+function measureFailureRate(traceRecords: CycleTraceRecord[]): number {
+  const terminal = traceRecords.filter((record) => record.observation);
+  if (terminal.length === 0) {
+    return 0;
+  }
+  const failures = terminal.filter((record) => record.observation?.status === "failure").length;
+  return failures / terminal.length;
+}
+
+function measureSuccessRate(traceRecords: CycleTraceRecord[]): number {
+  const terminal = traceRecords.filter((record) => record.observation);
+  if (terminal.length === 0) {
+    return 0;
+  }
+  const successes = terminal.filter((record) => record.observation?.status === "success").length;
+  return successes / terminal.length;
+}
+
+function measureTimeoutRate(traceRecords: CycleTraceRecord[]): number {
+  const executions = traceRecords.filter((record) => record.action_execution);
+  if (executions.length === 0) {
+    return 0;
+  }
+  const timeouts = executions.filter((record) => {
+    const errorRef = record.action_execution?.error_ref;
+    return typeof errorRef === "string" && errorRef.toLowerCase().includes("timeout");
+  }).length;
+  return timeouts / executions.length;
+}
+
+function computeSkillCoverage(goals: Goal[], skills: import("@neurocore/protocol").SkillDefinition[]): number {
+  const activeGoals = goals.filter((goal) => !isTerminalGoalStatus(goal.status));
+  if (activeGoals.length === 0) {
+    return skills.length > 0 ? 1 : 0;
+  }
+  const goalTypes = new Set(activeGoals.map((goal) => goal.goal_type));
+  const coveredGoalTypes = new Set<string>();
+  for (const skill of skills) {
+    const metadata =
+      skill.metadata && typeof skill.metadata === "object"
+        ? (skill.metadata as Record<string, unknown>)
+        : undefined;
+    const patternKey = typeof metadata?.pattern_key === "string" ? metadata.pattern_key : undefined;
+    for (const goalType of goalTypes) {
+      if (patternKey?.includes(goalType) || skill.description?.toLowerCase().includes(goalType)) {
+        coveredGoalTypes.add(goalType);
+      }
+    }
+  }
+  return coveredGoalTypes.size / goalTypes.size;
+}
+
+function isTerminalGoalStatus(status: Goal["status"]): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+function toRecoveryRecommendation(
+  action: import("@neurocore/protocol").RecoveryAction
+): RecoveryRecommendation {
+  return {
+    recommendation_id: action.recovery_action_id,
+    action_type: action.action_type,
+    reason: action.summary,
+    priority: action.action_type === "request_approval" ? 100 : 70
+  };
+}
+
+function shouldGenerateSelfGoals(session: AgentSession, goals: Goal[]): boolean {
+  if (session.state !== "waiting" && session.state !== "hydrated") {
+    return false;
+  }
+  return goals.every(
+    (goal) =>
+      isTerminalGoalStatus(goal.status) ||
+      goal.status === "blocked" ||
+      goal.owner === "system"
+  );
+}
+
+function shouldAdoptTransferResult(
+  current: import("@neurocore/protocol").TransferResult | undefined,
+  next: import("@neurocore/protocol").TransferResult
+): boolean {
+  if (!current) {
+    return true;
+  }
+  return (
+    current.source_domain.domain_id !== next.source_domain.domain_id ||
+    current.target_domain.domain_id !== next.target_domain.domain_id ||
+    current.validation_status !== next.validation_status ||
+    Math.abs(current.confidence - next.confidence) >= 0.05
+  );
+}
+
+function shouldConsolidateKnowledge(
+  session: AgentSession,
+  state: AutonomyState,
+  step: AgentRunResult
+): boolean {
+  if (session.state !== "waiting" && step.sessionState !== "completed") {
+    return false;
+  }
+  if (!state.active_plan) {
+    return true;
+  }
+  if (!state.latest_knowledge_snapshot) {
+    return true;
+  }
+  return Date.parse(state.latest_knowledge_snapshot.created_at) < Date.parse(state.active_plan.updated_at);
+}
+
+function buildPerformanceBaseline(
+  sessionId: string,
+  runtimeState: Record<string, unknown>
+): import("@neurocore/protocol").PerformanceBaseline {
+  const successRate =
+    typeof runtimeState.recent_success_rate === "number" ? runtimeState.recent_success_rate : 0;
+  const failureRate =
+    typeof runtimeState.recent_failure_rate === "number" ? runtimeState.recent_failure_rate : 0;
+  const predictionErrorRate =
+    typeof runtimeState.recent_prediction_error_rate === "number"
+      ? runtimeState.recent_prediction_error_rate
+      : 0;
+  return {
+    baseline_id: generateId("bln"),
+    scope: sessionId,
+    metrics: {
+      success_rate: successRate,
+      failure_rate: failureRate,
+      prediction_error_rate: predictionErrorRate
+    },
+    sample_count:
+      typeof runtimeState.active_goal_count === "number"
+        ? Math.max(1, runtimeState.active_goal_count)
+        : 1,
+    created_at: nowIso()
+  };
+}
+
+function buildCurriculumStage(
+  state: AutonomyState,
+  step: AgentRunResult
+): import("@neurocore/protocol").CurriculumStage {
+  const status =
+    step.sessionState === "completed"
+      ? "completed"
+      : state.health_report?.overall_status === "failed"
+        ? "failed"
+        : "active";
+  return {
+    stage_id: generateId("cur"),
+    name: state.latest_transfer ? "transfer-validation" : "autonomy-stabilization",
+    objective: state.latest_transfer
+      ? "Validate transferred assets in the current domain."
+      : "Stabilize autonomous execution and preserve prior performance.",
+    status
+  };
+}
+
+function mergeDriftSignals(
+  current: import("@neurocore/protocol").DriftSignal[] | undefined,
+  next: import("@neurocore/protocol").DriftSignal[]
+): import("@neurocore/protocol").DriftSignal[] {
+  const merged = [...(current ?? [])];
+  for (const signal of next) {
+    const duplicate = merged.find(
+      (candidate) =>
+        candidate.category === signal.category &&
+        candidate.severity === signal.severity &&
+        candidate.summary === signal.summary
+    );
+    if (!duplicate) {
+      merged.push(signal);
+    }
+  }
+  return merged;
+}
+
+function replacePlanInHistory(
+  history: import("@neurocore/protocol").AutonomousPlan[] | undefined,
+  plan: import("@neurocore/protocol").AutonomousPlan
+): import("@neurocore/protocol").AutonomousPlan[] {
+  return [
+    ...(history ?? []).filter((candidate) => candidate.plan_id !== plan.plan_id),
+    plan
+  ];
+}
+
+function toGoalFromSuggestedGoal(
+  ctx: ModuleContext,
+  suggestedGoal: SuggestedGoal
+): Goal {
+  return {
+    goal_id: generateId("gol"),
+    schema_version: ctx.profile.schema_version,
+    session_id: ctx.session.session_id,
+    title: suggestedGoal.title,
+    description: suggestedGoal.description,
+    goal_type: suggestedGoal.goal_type,
+    status: "pending",
+    priority: suggestedGoal.priority,
+    owner: "agent",
+    created_at: nowIso(),
+    updated_at: nowIso(),
+    metadata: {
+      self_generated: true,
+      suggested_goal_id: suggestedGoal.suggested_goal_id
+    }
+  };
+}
+
+function toGoalCandidate(
+  suggestedGoal: SuggestedGoal,
+  schemaVersion: string
+): Goal {
+  return {
+    goal_id: suggestedGoal.suggested_goal_id,
+    schema_version: schemaVersion,
+    session_id: suggestedGoal.session_id,
+    title: suggestedGoal.title,
+    description: suggestedGoal.description,
+    goal_type: suggestedGoal.goal_type,
+    status: "pending",
+    priority: suggestedGoal.priority,
+    owner: "agent",
+    created_at: suggestedGoal.created_at,
+    updated_at: suggestedGoal.created_at,
+    metadata: {
+      self_generated: true,
+      suggested_goal_id: suggestedGoal.suggested_goal_id
+    }
+  };
+}
+
+function mergeSuggestedGoals(
+  current: SuggestedGoal[] | undefined,
+  next: SuggestedGoal[]
+): SuggestedGoal[] {
+  return [
+    ...(current ?? []).filter(
+      (goal) => !next.some((candidate) => candidate.suggested_goal_id === goal.suggested_goal_id)
+    ),
+    ...next
+  ];
 }
 
 function validateStructuredUserInput(

@@ -1,0 +1,29 @@
+{
+  "name": "@neurocore/autonomy-core",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Autonomy planning and monitoring primitives for NeuroCore",
+  "keywords": ["agent", "autonomy", "planning"],
+  "license": "MIT",
+  "author": "neurocore",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/umuoy1/neurocore.git",
+    "directory": "packages/autonomy-core"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@neurocore/protocol": "^0.1.0"
+  }
+}

@@ -17,6 +17,8 @@
     "baseUrl": ".",
     "paths": {
       "@neurocore/protocol": ["packages/protocol/src/index.ts"],
+      "@neurocore/autonomy-core": ["packages/autonomy-core/src/index.ts"],
+      "@neurocore/motivation-core": ["packages/motivation-core/src/index.ts"],
       "@neurocore/runtime-core": ["packages/runtime-core/src/index.ts"],
       "@neurocore/runtime-server": ["packages/runtime-server/src/index.ts"],
       "@neurocore/sdk-core": ["packages/sdk-core/src/index.ts"],

@@ -168,6 +168,316 @@ export interface ObservabilityConfig {
   event_stream_enabled?: boolean;
 }
 
+export interface AlignmentConstraints {
+  allow_self_generated_goals?: boolean;
+  high_risk_self_goal_requires_approval?: boolean;
+  max_concurrent_self_goals?: number;
+  allow_autonomous_recovery?: boolean;
+  shutdown_responsive?: boolean;
+}
+
+export interface AutonomyConfig {
+  enabled?: boolean;
+  planner_enabled?: boolean;
+  monitor_enabled?: boolean;
+  self_goal_enabled?: boolean;
+  transfer_enabled?: boolean;
+  continual_learning_enabled?: boolean;
+  idle_cycle_threshold?: number;
+  monitor_window_size?: number;
+  drift_error_rate_threshold?: number;
+  drift_failure_rate_threshold?: number;
+  motivation_weights?: {
+    curiosity?: number;
+    competence?: number;
+    autonomy?: number;
+  };
+  goal_value_threshold?: number;
+  goal_feasibility_threshold?: number;
+  alignment?: AlignmentConstraints;
+}
+
+export type AutonomousPlanStatus =
+  | "draft"
+  | "active"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type AutonomousPlanPhase =
+  | "goal_selection"
+  | "planning"
+  | "execution"
+  | "monitoring"
+  | "recovery"
+  | "learning";
+
+export type SuggestedGoalStatus = "proposed" | "accepted" | "rejected" | "dismissed";
+
+export type ModuleHealthStatus = "healthy" | "degraded" | "failed";
+export type DriftSeverity = "low" | "medium" | "high" | "critical";
+export type RecoveryActionType =
+  | "pause_plan"
+  | "resume_plan"
+  | "replan"
+  | "reduce_scope"
+  | "request_input"
+  | "request_approval"
+  | "restart_module"
+  | "consolidate_learning";
+export type RecoveryActionStatus = "planned" | "executing" | "completed" | "failed";
+export type TransferValidationStatus = "pending" | "validated" | "rejected";
+export type CurriculumStageStatus = "planned" | "active" | "completed" | "failed";
+export type AutonomyDecisionType =
+  | "adopt_plan"
+  | "revise_plan"
+  | "pause_execution"
+  | "continue_execution"
+  | "generate_goal"
+  | "trigger_recovery"
+  | "apply_transfer"
+  | "consolidate_learning";
+
+export interface ResourceEstimate {
+  estimated_cycles?: number;
+  estimated_tool_calls?: number;
+  estimated_tokens?: number;
+  estimated_cost?: number;
+  estimated_runtime_ms?: number;
+}
+
+export interface PlanCheckpoint {
+  checkpoint_id: string;
+  summary: string;
+  goal_ids: string[];
+  created_at: Timestamp;
+}
+
+export interface ContingencyBranch {
+  branch_id: string;
+  trigger: string;
+  summary: string;
+  next_goal_ids?: string[];
+  next_action_ids?: string[];
+}
+
+export interface PlanFeedback {
+  feedback_id: string;
+  plan_id: string;
+  outcome: "success" | "failure" | "partial";
+  summary: string;
+  created_at: Timestamp;
+}
+
+export interface AutonomousPlanPhaseSpec {
+  phase_id: string;
+  title: string;
+  summary: string;
+  goal_type: GoalType;
+  priority: number;
+  dependencies?: string[];
+}
+
+export interface AutonomousPlan {
+  plan_id: string;
+  session_id: string;
+  title: string;
+  summary: string;
+  status: AutonomousPlanStatus;
+  phase: AutonomousPlanPhase;
+  phases: AutonomousPlanPhaseSpec[];
+  current_phase_id?: string;
+  next_checkpoint_id?: string;
+  goal_ids: string[];
+  checkpoints: PlanCheckpoint[];
+  contingencies: ContingencyBranch[];
+  resource_estimate?: ResourceEstimate;
+  feedback?: PlanFeedback[];
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface CuriositySignal {
+  score: number;
+  rationale: string;
+}
+
+export interface CompetenceSignal {
+  score: number;
+  rationale: string;
+}
+
+export interface AutonomyDriveSignal {
+  score: number;
+  rationale: string;
+}
+
+export interface ExplorationTarget {
+  target_id: string;
+  target_type: "goal" | "skill" | "memory" | "environment" | "policy";
+  summary: string;
+  score: number;
+}
+
+export interface IntrinsicMotivation {
+  motivation_id: string;
+  session_id: string;
+  curiosity: CuriositySignal;
+  competence: CompetenceSignal;
+  autonomy: AutonomyDriveSignal;
+  composite_drive: number;
+  exploration_targets: ExplorationTarget[];
+  created_at: Timestamp;
+}
+
+export interface SuggestedGoal {
+  suggested_goal_id: string;
+  session_id: string;
+  title: string;
+  description?: string;
+  goal_type: GoalType;
+  priority: number;
+  status: SuggestedGoalStatus;
+  justification: string;
+  created_at: Timestamp;
+}
+
+export interface DomainDescriptor {
+  domain_id: string;
+  label: string;
+  tags: string[];
+  features?: Record<string, JsonValue | undefined>;
+}
+
+export interface DomainSimilarity {
+  source_domain_id: string;
+  target_domain_id: string;
+  score: number;
+  evidence?: string[];
+}
+
+export interface Adaptation {
+  adaptation_id: string;
+  target_id: string;
+  adaptation_type: "parameter" | "policy" | "prompt" | "skill" | "memory";
+  summary: string;
+  applied_at: Timestamp;
+}
+
+export interface TransferResult {
+  transfer_id: string;
+  session_id: string;
+  source_domain: DomainDescriptor;
+  target_domain: DomainDescriptor;
+  similarity: DomainSimilarity;
+  validation_status: TransferValidationStatus;
+  reusable_asset_ids: string[];
+  confidence: number;
+  summary: string;
+  adaptations?: Adaptation[];
+  created_at: Timestamp;
+}
+
+export interface KnowledgeSnapshot {
+  snapshot_id: string;
+  session_id: string;
+  summary: string;
+  skill_count?: number;
+  rule_count?: number;
+  memory_count?: number;
+  created_at: Timestamp;
+}
+
+export interface PerformanceBaseline {
+  baseline_id: string;
+  scope: string;
+  metrics: Record<string, number>;
+  sample_count: number;
+  created_at: Timestamp;
+}
+
+export interface CurriculumStage {
+  stage_id: string;
+  name: string;
+  objective: string;
+  status: CurriculumStageStatus;
+}
+
+export interface ModuleHealth {
+  module_name: string;
+  status: ModuleHealthStatus;
+  summary: string;
+  metrics?: Record<string, number>;
+  updated_at: Timestamp;
+}
+
+export interface HealthReport {
+  report_id: string;
+  session_id: string;
+  overall_status: ModuleHealthStatus;
+  modules: ModuleHealth[];
+  summary: string;
+  created_at: Timestamp;
+}
+
+export interface DriftSignal {
+  drift_id: string;
+  session_id: string;
+  category: "performance" | "distribution" | "behavior" | "resource";
+  severity: DriftSeverity;
+  summary: string;
+  detected_at: Timestamp;
+}
+
+export interface RecoveryRecommendation {
+  recommendation_id: string;
+  action_type: RecoveryActionType;
+  reason: string;
+  priority: number;
+}
+
+export interface RecoveryAction {
+  recovery_action_id: string;
+  session_id: string;
+  action_type: RecoveryActionType;
+  status: RecoveryActionStatus;
+  summary: string;
+  recommendation_id?: string;
+  created_at: Timestamp;
+  completed_at?: Timestamp;
+}
+
+export interface AutonomyDecision {
+  decision_id: string;
+  session_id: string;
+  source: "planner" | "self_monitor" | "motivation" | "learner";
+  decision_type: AutonomyDecisionType;
+  summary: string;
+  plan_id?: string;
+  suggested_goal_id?: string;
+  recovery_action_id?: string;
+  created_at: Timestamp;
+}
+
+export interface AutonomyState {
+  schema_version: string;
+  session_id: string;
+  active_plan?: AutonomousPlan;
+  plan_history?: AutonomousPlan[];
+  intrinsic_motivation?: IntrinsicMotivation;
+  suggested_goals?: SuggestedGoal[];
+  latest_transfer?: TransferResult;
+  latest_knowledge_snapshot?: KnowledgeSnapshot;
+  performance_baseline?: PerformanceBaseline;
+  curriculum_stage?: CurriculumStage;
+  health_report?: HealthReport;
+  drift_signals?: DriftSignal[];
+  recovery_queue?: RecoveryRecommendation[];
+  last_decision?: AutonomyDecision;
+  updated_at: Timestamp;
+}
+
 export type RewardDimensionName =
   | "task_completion"
   | "efficiency"
@@ -312,6 +622,7 @@ export interface AgentProfile {
     max_capacity?: number;
     auto_accept_delegation?: boolean;
   };
+  autonomy_config?: AutonomyConfig;
   metadata?: Record<string, unknown>;
 }
 
@@ -941,6 +1252,7 @@ export interface WorkspaceSnapshot {
   meta_signal_frame_ref?: string;
   meta_assessment_ref?: string;
   self_evaluation_report_ref?: string;
+  autonomy_state?: AutonomyState;
   created_at: Timestamp;
 }
 
@@ -1430,6 +1742,8 @@ export interface CycleTraceRecord {
   calibration_record?: CalibrationRecord;
   applied_reflection_rule?: ReflectionRule;
   created_reflection_rule?: ReflectionRule;
+  autonomy_state?: AutonomyState;
+  autonomy_decision?: AutonomyDecision;
 }
 
 export interface SessionReplay {
@@ -1467,6 +1781,7 @@ export interface SessionCheckpoint {
   procedural_memory?: ProceduralMemorySnapshot;
   traces: CycleTraceRecord[];
   pending_input?: UserInput;
+  autonomy_state?: AutonomyState;
   created_at: Timestamp;
 }
 
@@ -1488,4 +1803,5 @@ export interface RuntimeSessionSnapshot {
   trace_records: CycleTraceRecord[];
   approvals: ApprovalRequest[];
   pending_approvals: PendingApprovalContextSnapshot[];
+  autonomy_state?: AutonomyState;
 }

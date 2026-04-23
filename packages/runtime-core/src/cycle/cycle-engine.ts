@@ -60,6 +60,7 @@ export interface CycleExecutionInput {
   memoryProviders?: MemoryProvider[];
   predictors?: Predictor[];
   skillProviders?: SkillProvider[];
+  autonomyState?: import("@neurocore/protocol").AutonomyState;
   tokenEstimator?: TokenEstimator;
   predictionErrorRate?: number;
   calibrator?: Calibrator;
@@ -128,6 +129,12 @@ export class CycleEngine {
         current_input_metadata: input.input.metadata ?? null,
         current_input_structured_response: input.input.structured_response ?? null,
         current_goal_type: input.goals.find((goal) => goal.status === "active")?.goal_type ?? null,
+        autonomy_state: input.autonomyState ? structuredClone(input.autonomyState) : null,
+        autonomy_plan_summary: input.autonomyState?.active_plan?.summary ?? null,
+        autonomy_current_phase: input.autonomyState?.active_plan?.phase ?? null,
+        autonomy_health_status: input.autonomyState?.health_report?.overall_status ?? null,
+        autonomy_transfer_confidence: input.autonomyState?.latest_transfer?.confidence ?? null,
+        autonomy_curriculum_stage: input.autonomyState?.curriculum_stage?.name ?? null,
         ...buildConversationRuntimeState(input.traceRecords ?? [], input.profile, input.input.content),
       },
       services,

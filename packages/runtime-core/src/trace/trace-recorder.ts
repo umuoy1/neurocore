@@ -1,5 +1,7 @@
 import type {
   ActionExecution,
+  AutonomyDecision,
+  AutonomyState,
   CalibrationRecord,
   CandidateAction,
   CycleTrace,
@@ -45,6 +47,8 @@ export interface RecordTraceInput {
   calibrationRecord?: CalibrationRecord;
   appliedReflectionRule?: ReflectionRule;
   createdReflectionRule?: ReflectionRule;
+  autonomyState?: AutonomyState;
+  autonomyDecision?: AutonomyDecision;
   startedAt: string;
   endedAt?: string;
 }
@@ -94,7 +98,9 @@ export class TraceRecorder {
       self_evaluation_report: input.selfEvaluationReport,
       calibration_record: input.calibrationRecord,
       applied_reflection_rule: input.appliedReflectionRule,
-      created_reflection_rule: input.createdReflectionRule
+      created_reflection_rule: input.createdReflectionRule,
+      autonomy_state: input.autonomyState,
+      autonomy_decision: input.autonomyDecision
     };
 
     this.traceStore.append(record);

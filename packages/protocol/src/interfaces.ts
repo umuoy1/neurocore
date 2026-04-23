@@ -3,14 +3,21 @@ import type {
   AgentProfile,
   AgentSession,
   AskUserPromptSchema,
+  AutonomousPlan,
+  AutonomyDecision,
+  AutonomyState,
   BudgetAssessment,
   CandidateAction,
   SessionCheckpoint,
+  DriftSignal,
   Episode,
   FastMetaAssessment,
   Goal,
+  HealthReport,
+  IntrinsicMotivation,
   JsonSchema,
   JsonValue,
+  KnowledgeSnapshot,
   CycleTrace,
   CycleTraceRecord,
   MemoryConfig,
@@ -40,8 +47,11 @@ import type {
   Prediction,
   PredictionError,
   Proposal,
+  RecoveryAction,
   RuntimeSessionSnapshot,
+  SuggestedGoal,
   ToolExecutionPolicy,
+  TransferResult,
   VerifierMode,
   VerifierResult,
   WorkspaceSnapshot
@@ -95,6 +105,8 @@ export interface PolicyProvider {
   name: string;
   evaluateInput?(ctx: ModuleContext, input: import("./types.js").UserInput | import("./types.js").SystemInput): Promise<PolicyDecision[]>;
   evaluateAction(ctx: ModuleContext, action: CandidateAction): Promise<PolicyDecision[]>;
+  evaluateSelfGoal?(ctx: ModuleContext, goal: Goal): Promise<PolicyDecision[]>;
+  evaluatePlan?(ctx: ModuleContext, plan: AutonomousPlan): Promise<PolicyDecision[]>;
   evaluateOutput?(ctx: ModuleContext, output: {
     action: CandidateAction;
     text: string;
@@ -180,6 +192,68 @@ export interface ReflectionStore {
   save(rule: ReflectionRule): void;
   list(sessionId?: string): ReflectionRule[];
   findByTaskBucket(taskBucket: string, riskLevel?: string): ReflectionRule[];
+  deleteSession(sessionId: string): void;
+  close?(): void;
+}
+
+export interface AutonomousPlanner {
+  name: string;
+  generatePlan(ctx: ModuleContext, state: AutonomyState): Promise<AutonomousPlan | null>;
+  revisePlan?(ctx: ModuleContext, state: AutonomyState): Promise<AutonomyDecision | null>;
+}
+
+export interface IntrinsicMotivationEngine {
+  name: string;
+  compute(ctx: ModuleContext, state: AutonomyState): Promise<IntrinsicMotivation>;
+}
+
+export interface SelfGoalGenerator {
+  name: string;
+  suggestGoals(
+    ctx: ModuleContext,
+    state: AutonomyState,
+    motivation: IntrinsicMotivation
+  ): Promise<SuggestedGoal[]>;
+}
+
+export interface TransferAdapter {
+  name: string;
+  transfer(ctx: ModuleContext, state: AutonomyState): Promise<TransferResult | null>;
+}
+
+export interface AutonomyContinualLearner {
+  name: string;
+  consolidate(ctx: ModuleContext, state: AutonomyState): Promise<KnowledgeSnapshot | null>;
+}
+
+export interface SelfMonitor {
+  name: string;
+  inspect(ctx: ModuleContext, state: AutonomyState): Promise<HealthReport>;
+  detectDrift?(ctx: ModuleContext, state: AutonomyState): Promise<DriftSignal[]>;
+  recommendRecovery?(
+    ctx: ModuleContext,
+    state: AutonomyState,
+    healthReport: HealthReport
+  ): Promise<RecoveryAction[]>;
+}
+
+export interface AutonomyStateStore {
+  get(sessionId: string): AutonomyState | undefined;
+  save(state: AutonomyState): void;
+  deleteSession(sessionId: string): void;
+  close?(): void;
+}
+
+export interface AutonomyPlanStore {
+  save(plan: AutonomousPlan): void;
+  list(sessionId: string): AutonomousPlan[];
+  deleteSession(sessionId: string): void;
+  close?(): void;
+}
+
+export interface AutonomyHealthStore {
+  append(report: HealthReport): void;
+  list(sessionId: string): HealthReport[];
   deleteSession(sessionId: string): void;
   close?(): void;
 }
