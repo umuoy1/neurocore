@@ -371,15 +371,18 @@ interface ResolvedConversation {
 1. 先按 `(platform, chat_id)` 查 `conversation_routes`
 2. 若未命中，创建 session
 3. 若命中但 session 已终态：
+   - 从旧 session trace 生成 `conversation_handoff`
+   - 将 `conversation_handoff` 注入新 session 的 `initial_input.metadata`
    - 新建 session
    - 更新映射
 4. 若命中且 session `waiting / escalated / hydrated / suspended`：
    - 优先 `connectSession(sessionId)`
 5. 若命中但长时间无活动：
    - 先 `checkpoint()`
+   - 从旧 session trace 生成 `conversation_handoff`
    - 再新建 session
 
-第一版不做太复杂的 session merge。
+第一版不做复杂 session merge，但必须保证同一 chat 的短指代上下文不会因为 runtime session `completed` 而丢失。
 
 ### 6.3 审批卡片回调
 
@@ -453,6 +456,7 @@ Heartbeat/Cron
 - 新 session 创建
 - 老 session reconnect
 - 终态 session 重建
+- 终态 session 重建时携带同一 chat 的 `conversation_handoff`
 - 无共享 state store 时的失败路径不作为支持场景
 
 ### PR-3：`web_search` / `web_browser`

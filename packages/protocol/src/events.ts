@@ -12,17 +12,22 @@ import type {
   HealthReport,
   IntrinsicMotivation,
   KnowledgeSnapshot,
+  MemoryGovernanceEvent,
+  MemoryRecallBundle,
+  MemoryRetrievalPlan,
   Observation,
   ExplorationEvent,
   PolicyUpdateEvent,
   RecoveryAction,
   RewardSignal,
+  SemanticCard,
   Prediction,
   PredictionError,
   SuggestedGoal,
   SkillPruneEvent,
   SkillEvaluation,
   SkillTransferEvent,
+  ProceduralSkillSpec,
   TransferResult,
   RuntimeOutput,
   RuntimeStatus,
@@ -54,6 +59,14 @@ export type NeuroCoreEventType =
   | "prediction.recorded"
   | "prediction_error.recorded"
   | "memory.written"
+  | "memory.retrieval_planned"
+  | "memory.retrieved"
+  | "memory.episode_activated"
+  | "memory.semantic_card_created"
+  | "memory.skill_spec_created"
+  | "memory.object_marked_suspect"
+  | "memory.object_tombstoned"
+  | "memory.rollback_applied"
   | "reward.computed"
   | "policy.updated"
   | "exploration.triggered"
@@ -125,6 +138,14 @@ export interface NeuroCoreEventPayloadMap {
   "prediction.recorded": Prediction;
   "prediction_error.recorded": PredictionError;
   "memory.written": Episode;
+  "memory.retrieval_planned": MemoryRetrievalPlan;
+  "memory.retrieved": MemoryRecallBundle;
+  "memory.episode_activated": Episode;
+  "memory.semantic_card_created": SemanticCard;
+  "memory.skill_spec_created": ProceduralSkillSpec;
+  "memory.object_marked_suspect": MemoryGovernanceEvent;
+  "memory.object_tombstoned": MemoryGovernanceEvent;
+  "memory.rollback_applied": MemoryGovernanceEvent;
   "reward.computed": RewardSignal;
   "policy.updated": PolicyUpdateEvent;
   "exploration.triggered": ExplorationEvent;

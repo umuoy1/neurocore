@@ -16,6 +16,8 @@
 > - 2026-04-23 再补充：按代码与测试回归，`M8 / 世界模型与设备接入` 当前阶段也已完全收口；当前已补齐 `ActiveInferenceEvaluator`、`SensorFusionStrategy`、`ActuatorOrchestrator`，并接入 `SimulationBasedPredictor`、CycleEngine 的 Perceive 阶段与 runtime 的 `device.orchestrate` 执行路径。
 > - 2026-04-23 再补充：按代码与测试回归，`M9 / 多 Agent 分布式调度` 当前阶段也已完成；当前已补 registry lifecycle 事件、`TaskDelegator.getStatus()`、goal/shared-state conflict 记录、coordination strategy registry、child-process/remote lifecycle mode 与 graceful terminate/save-state。更远期的分布式 Bus 与多实例后端不再计入当前阶段缺口。
 > - 2026-04-24 补充：`M12 / 通用自主体能力` 当前阶段已实现完成。当前交付包含 `Phase 0 ~ Phase 6`：协议冻结、自治状态面、planner、self-monitor、intrinsic motivation、自生成目标、transfer/continual、六模块自治增强、alignment gate、autonomy trace/audit、focused regression 与 autonomy benchmark summary。具体状态以 [`docs/README.md`](../README.md) 为准。
+> - 2026-04-24 再补充：`docs/05_2026-04-01_memory-evolution/07_next-generation-memory-system-implementation-plan.md` 当前阶段也已按 Phase 0 ~ 6 收口完成。当前交付包含：正式 `Episode` 真相层字段与 SQL-first 持久化、`Memory Gate + Recall Bundle`、正式 `SemanticCard / ProceduralSkillSpec`、episode→card/spec 的治理传播、objective/causal memory benchmarks，以及 Recall Bundle 中的 `parametric_unit_refs` 汇聚。具体状态以 [`docs/README.md`](../README.md) 为准。
+> - 2026-04-25 补充：个人助理 `PA-M1` Web Chat 连续性已补齐终态 runtime session 重开时的 `conversation_handoff`；同一 chat 的最近用户/助手消息会注入新 session 初始输入 metadata，避免短指代上下文因 session `completed` 丢失。PA-M1 本地 Web Chat 连续性完成度约 92%，剩余仍是飞书真实平台联调与更大范围端到端稳定性验证。
 
 ## 交付总结
 

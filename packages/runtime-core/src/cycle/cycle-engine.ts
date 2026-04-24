@@ -8,11 +8,14 @@ import type {
   Goal,
   MemoryDigest,
   MemoryProvider,
+  MemoryWarning,
   MetaAssessment,
   MetaDecision,
   MetaDecisionV2,
   MetaSignalFrame,
   ModuleContext,
+  MemoryRecallBundle,
+  MemoryRetrievalPlan,
   Observation,
   PolicyProvider,
   Prediction,
@@ -37,6 +40,9 @@ import type { TaskDelegator, AgentRegistry } from "@neurocore/multi-agent";
 import { GradedContextCompressor } from "../context/graded-compressor.js";
 import { DefaultTokenEstimator } from "../context/token-estimator.js";
 import { DefaultControlAllocator } from "../meta/control-allocator.js";
+import { DefaultMemoryGate } from "../memory/default-memory-gate.js";
+import { inferLayer } from "../memory/memory-gate.js";
+import { createMemoryRecallBundle } from "../memory/recall-bundle.js";
 import { DeepEvaluator } from "../meta/deep-evaluator.js";
 import { FastMonitor } from "../meta/fast-monitor.js";
 import { toControlModeFromDecisionV2 } from "../meta/meta-decision.js";
@@ -79,6 +85,8 @@ export interface CycleExecutionResult {
   cycleId: string;
   workspace: WorkspaceSnapshot;
   proposals: Proposal[];
+  memoryRetrievalPlan?: MemoryRetrievalPlan;
+  memoryRecallBundle?: MemoryRecallBundle;
   actions: CandidateAction[];
   predictions: Prediction[];
   metaSignalFrame?: MetaSignalFrame;
@@ -93,6 +101,7 @@ export interface CycleExecutionResult {
 
 export class CycleEngine {
   private readonly workspaceCoordinator = new WorkspaceCoordinator();
+  private readonly memoryGate = new DefaultMemoryGate();
   private readonly metaSignalBus = new MetaSignalBus();
   private readonly fastMonitor = new FastMonitor();
   private readonly deepEvaluator = new DeepEvaluator();
@@ -248,6 +257,8 @@ export class CycleEngine {
       runtime_state: {
         ...baseContext.runtime_state,
         memory_recall_proposals: memoryState.proposals,
+        memory_retrieval_plan: memoryState.plan,
+        memory_recall_bundle: memoryState.bundle,
         skill_match_proposals: skillState.proposals
       }
     };
@@ -335,6 +346,8 @@ export class CycleEngine {
       candidateActions: actions,
       budgetState: input.session.budget_state,
       memoryDigest: memoryState.digest,
+      memoryRetrievalPlan: memoryState.plan,
+      memoryRecallBundle: memoryState.bundle,
       skillDigest: skillState.digest,
       policyDecisions: allPolicies,
       worldStateDigest
@@ -507,6 +520,8 @@ export class CycleEngine {
         self_evaluation_report_ref: selfEvaluationReport.report_id
       },
       proposals,
+      memoryRetrievalPlan: memoryState.plan,
+      memoryRecallBundle: memoryState.bundle,
       actions,
       predictions,
       metaSignalFrame,
@@ -531,9 +546,14 @@ export class CycleEngine {
     ctx: ModuleContext,
     providers: MemoryProvider[],
     timeoutMs?: number
-  ): Promise<{ proposals: Proposal[]; digest: MemoryDigest[] }> {
+  ): Promise<{ plan: MemoryRetrievalPlan; bundle: MemoryRecallBundle; proposals: Proposal[]; digest: MemoryDigest[] }> {
+    const plan = await this.memoryGate.plan({ ctx, providers });
+    const selectedProviders = providers.filter((provider) => {
+      const layer = provider.layer ?? inferLayer(provider.name);
+      return plan.requested_layers.includes(layer);
+    });
     const settled = await Promise.allSettled(
-      providers.map(async (provider) => {
+      selectedProviders.map(async (provider) => {
         const [proposals, digest] = await withTimeout(
           Promise.all([
             provider.retrieve(ctx),
@@ -571,14 +591,74 @@ export class CycleEngine {
       }))
     });
 
-    return {
-      proposals: results.flatMap((result) =>
-        result.proposals.filter((proposal) => proposal.proposal_type === "memory_recall")
-      ),
-      digest: results
-        .flatMap((result) => result.digest)
-        .sort((left, right) => right.relevance - left.relevance)
-    };
+    const proposals = results.flatMap((result) =>
+      result.proposals.filter((proposal) => proposal.proposal_type === "memory_recall")
+    );
+    const digest = results
+      .flatMap((result) => result.digest)
+      .sort((left, right) => right.relevance - left.relevance);
+    const episodicEpisodes = proposals
+      .flatMap((proposal) => Array.isArray(proposal.payload.episodes) ? proposal.payload.episodes : [])
+      .filter((episode): episode is import("@neurocore/protocol").Episode =>
+        Boolean(episode && typeof episode === "object" && typeof (episode as { episode_id?: unknown }).episode_id === "string")
+      );
+    const semanticCards = proposals
+      .flatMap((proposal) => Array.isArray(proposal.payload.semantic_cards) ? proposal.payload.semantic_cards : [])
+      .filter((card): card is import("@neurocore/protocol").SemanticCard =>
+        Boolean(card && typeof card === "object" && typeof (card as { card_id?: unknown }).card_id === "string")
+      );
+    const skillSpecs = selectedProviders
+      .flatMap((provider) => {
+        const listSkillSpecs =
+          "listSkillSpecs" in provider && typeof provider.listSkillSpecs === "function"
+            ? provider.listSkillSpecs.bind(provider)
+            : undefined;
+        return listSkillSpecs ? listSkillSpecs(ctx.tenant_id) : [];
+      })
+      .filter((spec): spec is import("@neurocore/protocol").ProceduralSkillSpec =>
+        Boolean(spec && typeof spec === "object" && typeof (spec as { spec_id?: unknown }).spec_id === "string")
+      );
+    const warnings: MemoryWarning[] = [
+      ...(selectedProviders.length !== providers.length
+        ? [{
+            warning_id: generateId("mwr"),
+            kind: "provider_degraded" as const,
+            severity: "info" as const,
+            message: "Memory retrieval skipped one or more disabled layers."
+          }]
+        : []),
+      ...semanticCards
+        .filter((card) => card.lifecycle_state?.status === "suspect" || card.lifecycle_state?.status === "tombstoned")
+        .map((card) => ({
+          warning_id: generateId("mwr"),
+          kind: card.lifecycle_state?.status === "tombstoned" ? "tombstoned_object" as const : "suspect_object" as const,
+          severity: card.lifecycle_state?.status === "tombstoned" ? "block" as const : "warn" as const,
+          message: `Semantic card ${card.card_id} is ${card.lifecycle_state?.status}.`,
+          layer: "semantic" as const,
+          object_id: card.card_id
+        })),
+      ...skillSpecs
+        .filter((spec) => spec.lifecycle_state?.status === "suspect" || spec.lifecycle_state?.status === "tombstoned")
+        .map((spec) => ({
+          warning_id: generateId("mwr"),
+          kind: spec.lifecycle_state?.status === "tombstoned" ? "tombstoned_object" as const : "suspect_object" as const,
+          severity: spec.lifecycle_state?.status === "tombstoned" ? "block" as const : "warn" as const,
+          message: `Skill spec ${spec.spec_id} is ${spec.lifecycle_state?.status}.`,
+          layer: "procedural" as const,
+          object_id: spec.spec_id
+        }))
+    ];
+    const bundle = createMemoryRecallBundle({
+      plan,
+      digests: digest,
+      proposals,
+      episodicEpisodes,
+      semanticCards,
+      skillSpecs,
+      warnings: warnings.length > 0 ? warnings : undefined
+    });
+
+    return { plan, bundle, proposals, digest };
   }
 
   private async collectPredictions(

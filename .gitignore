@@ -5,6 +5,8 @@ coverage
 .DS_Store
 .neurocore/*.local.json
 .neurocore/**/*.sqlite
+.neurocore/**/*.sqlite-shm
+.neurocore/**/*.sqlite-wal
 .neurocore/**/*.db
 .neurocore/.personal-assistant/
 .log

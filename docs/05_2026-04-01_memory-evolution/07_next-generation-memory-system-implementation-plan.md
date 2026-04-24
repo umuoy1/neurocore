@@ -3,6 +3,11 @@
 > 日期：2026-04-24
 > 上位规格：[`06_next-generation-memory-system-design.md`](./06_next-generation-memory-system-design.md)
 > 目标：把正式架构规格压缩成后续可直接写代码的实施单。本文档之后，记忆系统不再新增设计文档，后续工作全部转入代码实现与回归验证。
+>
+> 2026-04-24 实施回写：
+> - Phase 0 ~ Phase 6 当前阶段已完成。
+> - 当前代码已补齐：正式 `Episode` 真相层、`Memory Gate + Recall Bundle`、`SemanticCard / ProceduralSkillSpec` 正式对象、episode→card/spec 的 `suspect / tombstone / rollback` 治理传播、`memory-objective-benchmark / memory-causal-regression` 两条确定性评测，以及 Recall Bundle 对 `parametric_unit_refs` 的汇聚。
+> - 本文档后续只维护“已完成 / 非目标 / 后续增强”边界，不再作为待施工清单。
 
 ---
 

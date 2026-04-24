@@ -7,6 +7,8 @@ import type {
   CycleTrace,
   CycleTraceRecord,
   FastMetaAssessment,
+  MemoryRecallBundle,
+  MemoryRetrievalPlan,
   MetaAssessment,
   MetaDecisionV2,
   MetaSignalFrame,
@@ -30,6 +32,8 @@ export interface RecordTraceInput {
   cycleId: string;
   input: UserInput;
   proposals: Proposal[];
+  memoryRetrievalPlan?: MemoryRetrievalPlan;
+  memoryRecallBundle?: MemoryRecallBundle;
   candidateActions: CandidateAction[];
   predictions: Prediction[];
   policyDecisions: PolicyDecision[];
@@ -83,6 +87,8 @@ export class TraceRecorder {
       trace,
       inputs: [input.input],
       proposals: input.proposals,
+      memory_retrieval_plan: input.memoryRetrievalPlan,
+      memory_recall_bundle: input.memoryRecallBundle,
       candidate_actions: input.candidateActions,
       predictions: input.predictions,
       policy_decisions: input.policyDecisions,

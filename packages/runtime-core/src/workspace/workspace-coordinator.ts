@@ -7,6 +7,8 @@ import type {
   CompetitionLog,
   Goal,
   MemoryDigest,
+  MemoryRecallBundle,
+  MemoryRetrievalPlan,
   PolicyDecision,
   Proposal,
   ProposalSource,
@@ -26,6 +28,8 @@ export interface BuildWorkspaceInput {
   candidateActions: CandidateAction[];
   budgetState: BudgetState;
   memoryDigest?: MemoryDigest[];
+  memoryRetrievalPlan?: MemoryRetrievalPlan;
+  memoryRecallBundle?: MemoryRecallBundle;
   skillDigest?: SkillDigest[];
   policyDecisions?: PolicyDecision[];
   worldStateDigest?: WorldStateDigest;
@@ -86,6 +90,8 @@ export class WorkspaceCoordinator {
       })),
       context_summary: input.contextSummary,
       memory_digest: input.memoryDigest ?? [],
+      memory_retrieval_plan: input.memoryRetrievalPlan,
+      memory_recall_bundle: input.memoryRecallBundle,
       skill_digest: input.skillDigest ?? [],
       world_state_digest: input.worldStateDigest,
       candidate_actions: input.candidateActions,

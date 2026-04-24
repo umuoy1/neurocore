@@ -56,6 +56,22 @@ export interface SessionRoute {
   last_active_at: string;
 }
 
+export interface ConversationHandoffMessage {
+  role: "user" | "assistant";
+  content: string;
+  created_at?: string;
+  cycle_id?: string;
+  source_id?: string;
+}
+
+export interface ConversationHandoff {
+  previous_session_id: string;
+  reason: "terminal" | "idle";
+  summary: string;
+  recent_messages: ConversationHandoffMessage[];
+  created_at: string;
+}
+
 export interface PlatformUserLink {
   platform: IMPlatform;
   sender_id: string;

@@ -125,7 +125,11 @@ export class IMGateway {
       if (shouldForwardProgress(message.platform)) {
         await this.options.dispatcher.sendToChat(message.platform, message.chat_id, {
           type: "status",
-          text: resolved.is_new ? "Started a new assistant session." : "Reusing the existing assistant session.",
+          text: resolved.is_new
+            ? resolved.handoff
+              ? "Started a new assistant session with previous chat context."
+              : "Started a new assistant session."
+            : "Reusing the existing assistant session.",
           phase: "session",
           state: "started",
           session_id: resolved.session_id

@@ -76,6 +76,35 @@ test("personal assistant web chat reconnects the same chat to the same waiting s
   }
 });
 
+test("personal assistant web chat carries recent chat context across completed runtime sessions", { concurrency: false }, async (t) => {
+  const fixture = await createFixtureOrSkip(t, {
+    reasoner: createHandoffReasoner()
+  });
+
+  if (!fixture) {
+    return;
+  }
+
+  try {
+    const client = await connectWebSocket(fixture.port, "chat-handoff", "user-handoff");
+
+    client.socket.send("ChatGPT released the latest 5.5 model today. Find the latest information.");
+    const firstReply = await client.nextMessage();
+    assert.equal(firstReply.type, "message");
+    assert.match(firstReply.content.text, /ChatGPT 5\.5/);
+
+    client.socket.send("This model was released less than one hour ago.");
+    const secondReply = await client.nextMessage();
+    assert.equal(secondReply.type, "message");
+    assert.match(secondReply.content.text, /You mean ChatGPT 5\.5/);
+
+    client.socket.close();
+    await client.closed;
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("personal assistant web chat streams runtime status and incremental reply updates", { concurrency: false }, async (t) => {
   const fixture = await createFixtureOrSkip(t, {
     reasoner: createRespondReasoner(() => "This is a deliberately long assistant reply used to verify incremental frontend updates over the web chat stream.")
@@ -378,6 +407,54 @@ function createAskUserReasoner() {
           action_type: "ask_user",
           title: "Ask a follow-up",
           description: "What should I do next?",
+          side_effect_level: "none"
+        }
+      ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
+    }
+  };
+}
+
+function createHandoffReasoner() {
+  return {
+    name: "handoff-reasoner",
+    async plan(ctx) {
+      return [
+        {
+          proposal_id: ctx.services.generateId("prp"),
+          schema_version: ctx.profile.schema_version,
+          session_id: ctx.session.session_id,
+          cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+          module_name: "handoff-reasoner",
+          proposal_type: "plan",
+          salience_score: 0.8,
+          confidence: 0.9,
+          risk: 0,
+          payload: { summary: "Respond with continuity." }
+        }
+      ];
+    },
+    async respond(ctx) {
+      const input = typeof ctx.runtime_state.current_input_content === "string"
+        ? ctx.runtime_state.current_input_content
+        : "";
+      const metadata = ctx.runtime_state.current_input_metadata &&
+        typeof ctx.runtime_state.current_input_metadata === "object"
+        ? ctx.runtime_state.current_input_metadata
+        : {};
+      const handoffText = JSON.stringify(metadata.conversation_handoff ?? {});
+      const hasPreviousModel = handoffText.includes("ChatGPT") && handoffText.includes("5.5");
+
+      return [
+        {
+          action_id: ctx.services.generateId("act"),
+          action_type: "respond",
+          title: "Respond",
+          description: input.includes("less than one hour") && hasPreviousModel
+            ? "You mean ChatGPT 5.5. I will continue using that model context."
+            : "I will look up the latest information about ChatGPT 5.5.",
           side_effect_level: "none"
         }
       ];

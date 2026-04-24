@@ -24,6 +24,8 @@ import type {
   IntrinsicMotivationEngine,
   ModuleContext,
   MemoryProvider,
+  MemoryGovernanceEvent,
+  MemoryLifecycleState,
   MetaController,
   NeuroCoreEvent,
   NeuroCoreEventType,
@@ -234,6 +236,8 @@ interface PendingApprovalContext {
 interface ExecutionCycleState {
   cycleId: string;
   proposals: Proposal[];
+  memoryRetrievalPlan?: import("@neurocore/protocol").MemoryRetrievalPlan;
+  memoryRecallBundle?: import("@neurocore/protocol").MemoryRecallBundle;
   actions: CandidateAction[];
   predictions: Prediction[];
   workspace: WorkspaceSnapshot;
@@ -506,6 +510,15 @@ export class AgentRuntime {
       selectAction(result.actions, result.decision)
     );
     this.emitCycleStarted(session, result.cycleId, startedAt);
+    if (result.memoryRetrievalPlan) {
+      this.emitEvent(session, "memory.retrieval_planned", result.memoryRetrievalPlan, result.cycleId);
+    }
+    if (result.memoryRecallBundle) {
+      this.emitEvent(session, "memory.retrieved", result.memoryRecallBundle, result.cycleId);
+      for (const episode of result.memoryRecallBundle.episodic_episodes ?? []) {
+        this.emitEvent(session, "memory.episode_activated", episode, result.cycleId);
+      }
+    }
     for (const proposal of result.proposals) {
       this.emitEvent(session, "proposal.submitted", proposal, result.cycleId);
       if (proposal.proposal_type === "skill_match" && typeof proposal.payload.skill_id === "string") {
@@ -795,7 +808,15 @@ export class AgentRuntime {
     this.requireSession(sessionId);
     const session = this.sessions.get(sessionId);
     return session
-      ? this.semanticMemoryProvider.list(session.tenant_id, sessionId)
+      ? this.semanticMemoryProvider.list(session.tenant_id)
+      : [];
+  }
+
+  public listSemanticCards(sessionId: string) {
+    this.requireSession(sessionId);
+    const session = this.sessions.get(sessionId);
+    return session
+      ? structuredClone(this.semanticMemoryProvider.listCards(session.tenant_id))
       : [];
   }
 
@@ -804,6 +825,14 @@ export class AgentRuntime {
     const session = this.sessions.get(sessionId);
     return session
       ? structuredClone(this.proceduralMemoryProvider.listSkills(session.tenant_id))
+      : [];
+  }
+
+  public listSkillSpecs(sessionId: string) {
+    this.requireSession(sessionId);
+    const session = this.sessions.get(sessionId);
+    return session
+      ? structuredClone(this.proceduralMemoryProvider.listSkillSpecs(session.tenant_id))
       : [];
   }
 
@@ -892,6 +921,28 @@ export class AgentRuntime {
     return structuredClone(this.episodicMemoryProvider.list(sessionId));
   }
 
+  public markEpisodeSuspect(sessionId: string, episodeId: string, reason?: string): MemoryGovernanceEvent[] {
+    return this.applyMemoryGovernance(sessionId, episodeId, {
+      status: "suspect",
+      reason
+    });
+  }
+
+  public tombstoneEpisode(sessionId: string, episodeId: string, reason?: string): MemoryGovernanceEvent[] {
+    return this.applyMemoryGovernance(sessionId, episodeId, {
+      status: "tombstoned",
+      reason
+    });
+  }
+
+  public rollbackEpisode(sessionId: string, episodeId: string, reason?: string): MemoryGovernanceEvent[] {
+    return this.applyMemoryGovernance(sessionId, episodeId, {
+      status: "rolled_back",
+      reason,
+      rollback_of: episodeId
+    });
+  }
+
   public listEvents(sessionId: string): NeuroCoreEvent[] {
     this.requireSession(sessionId);
     return this.eventBus.list(sessionId);
@@ -905,6 +956,77 @@ export class AgentRuntime {
   public replaySession(sessionId: string): SessionReplay {
     this.requireSession(sessionId);
     return this.replayRunner.replaySession(sessionId);
+  }
+
+  private applyMemoryGovernance(
+    sessionId: string,
+    episodeId: string,
+    lifecycleStateInput: Omit<MemoryLifecycleState, "marked_at" | "source_object_ids"> & {
+      source_object_ids?: string[];
+    }
+  ): MemoryGovernanceEvent[] {
+    const session = this.requireSession(sessionId);
+    const episode = this.episodicMemoryProvider.list(sessionId).find((item) => item.episode_id === episodeId);
+    if (!episode) {
+      throw new Error(`Episode ${episodeId} not found in session ${sessionId}.`);
+    }
+
+    const lifecycleState: MemoryLifecycleState = {
+      ...structuredClone(lifecycleStateInput),
+      marked_at: nowIso(),
+      source_object_ids: dedupeStrings([
+        episodeId,
+        ...(lifecycleStateInput.source_object_ids ?? [])
+      ])
+    };
+    const markedAt = lifecycleState.marked_at ?? nowIso();
+
+    this.episodicMemoryProvider.markLifecycle(sessionId, session.tenant_id, episodeId, lifecycleState);
+    const cards = this.semanticMemoryProvider.markCardsByEpisodeIds(session.tenant_id, [episodeId], lifecycleState);
+    const specs = this.proceduralMemoryProvider.markSkillSpecsByEpisodeIds(session.tenant_id, [episodeId], lifecycleState);
+
+    const events: MemoryGovernanceEvent[] = [
+      {
+        event_id: generateId("mge"),
+        object_id: episodeId,
+        object_type: "episode",
+        lifecycle_state: structuredClone(lifecycleState),
+        related_object_ids: dedupeStrings([
+          ...cards.map((card) => card.card_id),
+          ...specs.map((spec) => spec.spec_id)
+        ]),
+        created_at: markedAt
+      },
+      ...cards.map((card) => ({
+        event_id: generateId("mge"),
+        object_id: card.card_id,
+        object_type: "semantic_card" as const,
+        lifecycle_state: structuredClone(lifecycleState),
+        related_object_ids: [episodeId],
+        created_at: markedAt
+      })),
+      ...specs.map((spec) => ({
+        event_id: generateId("mge"),
+        object_id: spec.spec_id,
+        object_type: "skill_spec" as const,
+        lifecycle_state: structuredClone(lifecycleState),
+        related_object_ids: [episodeId],
+        created_at: markedAt
+      }))
+    ];
+
+    const eventType =
+      lifecycleState.status === "suspect"
+        ? "memory.object_marked_suspect"
+        : lifecycleState.status === "tombstoned"
+          ? "memory.object_tombstoned"
+          : "memory.rollback_applied";
+
+    for (const event of events) {
+      this.emitEvent(session, eventType, event);
+    }
+    this.persistSessionState(sessionId);
+    return structuredClone(events);
   }
 
   public createCheckpoint(sessionId: string): SessionCheckpoint {
@@ -3447,16 +3569,41 @@ export class AgentRuntime {
     valence?: Episode["valence"],
     lessons?: string[]
   ): Promise<Episode> {
+    const latestEpisode = this.episodicMemoryProvider.getLatest(session.session_id);
+    const traceRecord = this.getTraceRecords(session.session_id)
+      .slice()
+      .reverse()
+      .find((record) => record.trace.cycle_id === cycleId);
+    const activePlanId = this.autonomyStates.get(session.session_id)?.active_plan?.plan_id;
     const episode: Episode = {
       episode_id: `epi_${observation.observation_id}`,
       schema_version: profile.schema_version,
       session_id: session.session_id,
       trigger_summary: input.content,
       goal_refs: this.goals.active(session.session_id).map((goal) => goal.goal_id),
+      plan_refs: activePlanId ? [activePlanId] : undefined,
       context_digest: input.content,
       selected_strategy: action.title,
       action_refs: [action.action_id],
       observation_refs: [observation.observation_id],
+      evidence_refs: buildEpisodeEvidenceRefs(input, observation, traceRecord),
+      artifact_refs: buildEpisodeArtifactRefs(cycleId, traceRecord, activePlanId),
+      temporal_refs: latestEpisode
+        ? [{
+            relation: "previous",
+            episode_id: latestEpisode.episode_id
+          }]
+        : undefined,
+      causal_links: buildEpisodeCausalLinks(input, action, observation, traceRecord),
+      activation_trace: {
+        activation_count: 0,
+        citation_count: 0,
+        activation_sources: []
+      },
+      lifecycle_state: {
+        status: "active",
+        marked_at: observation.created_at
+      },
       outcome,
       outcome_summary: observation.summary,
       valence,
@@ -3481,11 +3628,22 @@ export class AgentRuntime {
     );
     await Promise.all(this.memoryProviders.map(async (provider) => provider.writeEpisode(ctx, episode)));
     this.emitEvent(session, "memory.written", episode, cycleId);
+    for (const card of this.semanticMemoryProvider.listCards(session.tenant_id, session.session_id)) {
+      if (card.source_episode_ids.includes(episode.episode_id)) {
+        this.emitEvent(session, "memory.semantic_card_created", card, cycleId);
+      }
+    }
 
     const promoted = this.proceduralMemoryProvider.getLastPromotedSkill();
     if (promoted) {
       episode.promoted_to_skill = true;
       this.emitEvent(session, "skill.promoted", promoted, cycleId);
+      const skillSpec = this.proceduralMemoryProvider
+        .listSkillSpecs(session.tenant_id)
+        .find((spec) => spec.skill_id === promoted.skill_id);
+      if (skillSpec) {
+        this.emitEvent(session, "memory.skill_spec_created", skillSpec, cycleId);
+      }
       this.proceduralMemoryProvider.clearLastPromotedSkill();
     }
     return episode;
@@ -4246,6 +4404,102 @@ export class AgentRuntime {
     }
     this.autonomyStates.delete(sessionId);
   }
+}
+
+function buildEpisodeEvidenceRefs(
+  input: UserInput,
+  observation: Observation,
+  traceRecord?: CycleTraceRecord
+): Episode["evidence_refs"] {
+  const refs: NonNullable<Episode["evidence_refs"]> = [
+    {
+      ref_id: input.input_id,
+      ref_type: "input",
+      summary: input.content
+    },
+    {
+      ref_id: observation.observation_id,
+      ref_type: "observation",
+      summary: observation.summary,
+      source_id: observation.source_action_id
+    }
+  ];
+  if (traceRecord) {
+    refs.push({
+      ref_id: traceRecord.trace.trace_id,
+      ref_type: "trace",
+      summary: traceRecord.trace.selected_action_ref
+    });
+  }
+  return refs;
+}
+
+function buildEpisodeArtifactRefs(
+  cycleId: string,
+  traceRecord: CycleTraceRecord | undefined,
+  activePlanId: string | undefined
+): Episode["artifact_refs"] {
+  const refs: NonNullable<Episode["artifact_refs"]> = [];
+  if (traceRecord) {
+    refs.push({
+      artifact_id: traceRecord.trace.trace_id,
+      artifact_type: "trace",
+      summary: `cycle:${cycleId}`,
+      ref: traceRecord.trace.trace_id
+    });
+    if (traceRecord.workspace) {
+      refs.push({
+        artifact_id: traceRecord.workspace.workspace_id,
+        artifact_type: "workspace",
+        summary: traceRecord.workspace.context_summary,
+        ref: traceRecord.workspace.workspace_id
+      });
+    }
+  }
+  if (activePlanId) {
+    refs.push({
+      artifact_id: activePlanId,
+      artifact_type: "plan",
+      ref: activePlanId
+    });
+  }
+  return refs.length > 0 ? refs : undefined;
+}
+
+function buildEpisodeCausalLinks(
+  input: UserInput,
+  action: CandidateAction,
+  observation: Observation,
+  traceRecord?: CycleTraceRecord
+): Episode["causal_links"] {
+  const links: NonNullable<Episode["causal_links"]> = [
+    {
+      link_id: `${action.action_id}_caused_${observation.observation_id}`,
+      source_ref: input.input_id,
+      target_ref: action.action_id,
+      relation: "enabled",
+      summary: action.title
+    },
+    {
+      link_id: `${action.action_id}_observed_${observation.observation_id}`,
+      source_ref: action.action_id,
+      target_ref: observation.observation_id,
+      relation: "caused",
+      summary: observation.summary
+    }
+  ];
+  if (traceRecord?.prediction_errors?.length) {
+    for (const predictionError of traceRecord.prediction_errors) {
+      links.push({
+        link_id: `${predictionError.prediction_error_id}_corrected`,
+        source_ref: predictionError.prediction_id,
+        target_ref: observation.observation_id,
+        relation: "corrected",
+        summary: predictionError.error_type
+      });
+    }
+  }
+  return links;
 }
 
 function deriveSqlitePersistenceFromStateStore(
@@ -5377,6 +5631,8 @@ function toAgentCycleState(cycle: ExecutionCycleState): Awaited<ReturnType<Cycle
   return {
     cycleId: cycle.cycleId,
     proposals: structuredClone(cycle.proposals),
+    memoryRetrievalPlan: structuredClone(cycle.memoryRetrievalPlan),
+    memoryRecallBundle: structuredClone(cycle.memoryRecallBundle),
     actions: structuredClone(cycle.actions),
     predictions: structuredClone(cycle.predictions),
     workspace: structuredClone(cycle.workspace),
@@ -5392,13 +5648,22 @@ function toAgentCycleState(cycle: ExecutionCycleState): Awaited<ReturnType<Cycle
 }
 
 function toMetaTraceFields(
-  cycle:
-    | ExecutionCycleState
-    | Pick<
+      cycle:
+        | ExecutionCycleState
+        | Pick<
         Awaited<ReturnType<CycleEngine["run"]>>,
-        "metaSignalFrame" | "fastMetaAssessment" | "metaAssessment" | "selfEvaluationReport" | "metaDecisionV2" | "appliedReflectionRule"
+        | "memoryRetrievalPlan"
+        | "memoryRecallBundle"
+        | "metaSignalFrame"
+        | "fastMetaAssessment"
+        | "metaAssessment"
+        | "selfEvaluationReport"
+        | "metaDecisionV2"
+        | "appliedReflectionRule"
       >
 ): {
+  memoryRetrievalPlan?: import("@neurocore/protocol").MemoryRetrievalPlan;
+  memoryRecallBundle?: import("@neurocore/protocol").MemoryRecallBundle;
   metaSignalFrame?: import("@neurocore/protocol").MetaSignalFrame;
   fastMetaAssessment?: import("@neurocore/protocol").FastMetaAssessment;
   metaAssessment?: import("@neurocore/protocol").MetaAssessment;
@@ -5407,6 +5672,8 @@ function toMetaTraceFields(
   appliedReflectionRule?: ReflectionRule;
 } {
   return {
+    memoryRetrievalPlan: structuredClone(cycle.memoryRetrievalPlan),
+    memoryRecallBundle: structuredClone(cycle.memoryRecallBundle),
     metaSignalFrame: structuredClone(cycle.metaSignalFrame),
     fastMetaAssessment: structuredClone(cycle.fastMetaAssessment),
     metaAssessment: structuredClone(cycle.metaAssessment),
@@ -5513,4 +5780,8 @@ function assertNoLegacyRuntimeSnapshotPayload(snapshot: RuntimeSessionSnapshot):
       `Session ${snapshot.session.session_id} uses a legacy runtime snapshot payload. Run migrateSqliteRuntimeStateToSqlFirst(...) before loading this session.`
     );
   }
+}
+
+function dedupeStrings(values: string[]): string[] {
+  return [...new Set(values.filter((value) => value.length > 0))];
 }

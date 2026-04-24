@@ -1,9 +1,11 @@
 import type {
   Episode,
+  MemoryLifecycleState,
   MemoryDigest,
   MemoryProvider,
   ModuleContext,
   Proposal,
+  SemanticCard,
   SemanticMemoryContribution,
   SemanticMemorySnapshot
 } from "@neurocore/protocol";
@@ -19,6 +21,7 @@ export interface SemanticMemoryRecord {
   pattern_key: string;
   valence: "positive" | "negative";
   last_updated_at: string;
+  lifecycle_state?: MemoryLifecycleState;
 }
 
 export interface SemanticMemoryPersistenceStore {
@@ -27,12 +30,14 @@ export interface SemanticMemoryPersistenceStore {
   restoreSnapshot(sessionId: string, tenantId: string, snapshot?: SemanticMemorySnapshot): void;
   buildSnapshot(sessionId: string): SemanticMemorySnapshot;
   deleteSession(sessionId: string): void;
+  markCardsByEpisodeIds(tenantId: string, episodeIds: string[], lifecycleState: MemoryLifecycleState): SemanticCard[];
   list(tenantId: string, excludeSessionId?: string): SemanticMemoryRecord[];
 }
 
 class SemanticMemoryStore {
   private readonly contributionsBySession = new Map<string, SemanticMemoryContribution[]>();
   private readonly tenantBySession = new Map<string, string>();
+  private readonly lifecycleByPattern = new Map<string, MemoryLifecycleState>();
 
   public appendEpisode(sessionId: string, tenantId: string, episode: Episode, includeNegative = false): void {
     if (!shouldStoreSemanticEpisode(episode, includeNegative)) {
@@ -67,17 +72,38 @@ class SemanticMemoryStore {
       structuredClone(snapshot?.contributions ?? [])
     );
     this.tenantBySession.set(sessionId, tenantId);
+    for (const card of snapshot?.cards ?? []) {
+      if (card.lifecycle_state) {
+        this.lifecycleByPattern.set(
+          cardGovernanceKey(card.tenant_id, card.pattern_key),
+          structuredClone(card.lifecycle_state)
+        );
+      }
+    }
   }
 
   public buildSnapshot(sessionId: string): SemanticMemorySnapshot {
     return {
-      contributions: structuredClone(this.contributionsBySession.get(sessionId) ?? [])
+      contributions: structuredClone(this.contributionsBySession.get(sessionId) ?? []),
+      cards: this.list(this.tenantBySession.get(sessionId) ?? "", sessionId).map(toSemanticCard)
     };
   }
 
   public deleteSession(sessionId: string): void {
     this.contributionsBySession.delete(sessionId);
     this.tenantBySession.delete(sessionId);
+  }
+
+  public markCardsByEpisodeIds(tenantId: string, episodeIds: string[], lifecycleState: MemoryLifecycleState): SemanticCard[] {
+    const touched = this.list(tenantId)
+      .filter((record) => record.source_episode_ids.some((episodeId) => episodeIds.includes(episodeId)));
+    for (const record of touched) {
+      this.lifecycleByPattern.set(cardGovernanceKey(tenantId, record.pattern_key), structuredClone(lifecycleState));
+    }
+    return touched.map((record) => ({
+      ...toSemanticCard(record),
+      lifecycle_state: structuredClone(lifecycleState)
+    }));
   }
 
   public list(tenantId: string, excludeSessionId?: string): SemanticMemoryRecord[] {
@@ -103,7 +129,8 @@ class SemanticMemoryStore {
             session_ids: [sessionId],
             pattern_key: contribution.pattern_key,
             valence: deriveContributionValence(contribution.pattern_key),
-            last_updated_at: contribution.last_updated_at
+            last_updated_at: contribution.last_updated_at,
+            lifecycle_state: this.lifecycleByPattern.get(cardGovernanceKey(tenantId, contribution.pattern_key))
           });
           continue;
         }
@@ -125,6 +152,9 @@ class SemanticMemoryStore {
         if (existing.valence === "negative") {
           existing.relevance = Math.min(0.9, 0.56 + existing.occurrence_count * 0.06);
         }
+        existing.lifecycle_state =
+          this.lifecycleByPattern.get(cardGovernanceKey(tenantId, contribution.pattern_key)) ??
+          existing.lifecycle_state;
         groups.set(contribution.pattern_key, existing);
       }
     }
@@ -174,6 +204,7 @@ class SemanticMemoryStore {
 
 export class SemanticMemoryProvider implements MemoryProvider {
   public readonly name = "semantic-memory-provider";
+  public readonly layer = "semantic" as const;
 
   public constructor(
     private readonly store: SemanticMemoryStore | SemanticMemoryPersistenceStore = new SemanticMemoryStore()
@@ -197,6 +228,14 @@ export class SemanticMemoryProvider implements MemoryProvider {
 
   public list(tenantId: string, excludeSessionId?: string): SemanticMemoryRecord[] {
     return structuredClone(this.store.list(tenantId, excludeSessionId));
+  }
+
+  public listCards(tenantId: string, excludeSessionId?: string): SemanticCard[] {
+    return this.list(tenantId, excludeSessionId).map(toSemanticCard);
+  }
+
+  public markCardsByEpisodeIds(tenantId: string, episodeIds: string[], lifecycleState: MemoryLifecycleState): SemanticCard[] {
+    return this.store.markCardsByEpisodeIds(tenantId, episodeIds, lifecycleState);
   }
 
   public evictSession(sessionId: string): void {
@@ -257,7 +296,8 @@ export class SemanticMemoryProvider implements MemoryProvider {
             occurrence_count: record.occurrence_count,
             source_episode_ids: record.source_episode_ids,
             session_ids: record.session_ids
-          }))
+          })),
+          semantic_cards: records.map(toSemanticCard)
         },
         explanation: `Recalled ${records.length} consolidated semantic memories from repeated episodes.`
       }
@@ -412,6 +452,43 @@ function semanticMemoryId(patternKey: string): string {
   return patternKey.startsWith("positive:")
     ? `sem_${patternKey.slice("positive:".length)}`
     : `sem_${patternKey}`;
+}
+
+function toSemanticCard(record: SemanticMemoryRecord): SemanticCard {
+  return {
+    card_id: record.memory_id,
+    schema_version: "1.0.0",
+    tenant_id: record.tenant_id,
+    pattern_key: record.pattern_key,
+    summary: record.summary,
+    valence: record.valence,
+    source_episode_ids: [...record.source_episode_ids],
+    counter_example_episode_ids: record.valence === "negative" ? [...record.source_episode_ids] : [],
+    freshness: Math.max(0, 1 - ageInDays(record.last_updated_at) / 30),
+    decay_policy: {
+      mode: "hybrid",
+      max_idle_ms: 1000 * 60 * 60 * 24 * 30
+    },
+    lifecycle_state: record.lifecycle_state ?? {
+      status: "active",
+      marked_at: record.last_updated_at
+    },
+    metadata: {
+      occurrence_count: record.occurrence_count,
+      session_ids: record.session_ids
+    },
+    created_at: record.last_updated_at,
+    updated_at: record.last_updated_at
+  };
+}
+
+function ageInDays(value: string): number {
+  const diff = Date.now() - Date.parse(value);
+  return Number.isNaN(diff) ? 0 : Math.max(0, diff / (1000 * 60 * 60 * 24));
+}
+
+function cardGovernanceKey(tenantId: string, patternKey: string): string {
+  return `${tenantId}:${patternKey}`;
 }
 
 function computeTokenOverlap(query: string, target: string): number {

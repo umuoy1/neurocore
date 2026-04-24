@@ -61,6 +61,7 @@ export class WorkingMemoryStore {
 
 export class WorkingMemoryProvider implements MemoryProvider {
   public readonly name = "working-memory-provider";
+  public readonly layer = "working" as const;
 
   private readonly store: WorkingMemoryStore;
   private readonly persistenceStore?: WorkingMemoryPersistenceStore;

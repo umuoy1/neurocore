@@ -3,6 +3,8 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type {
   Episode,
+  MemoryLifecycleState,
+  SemanticCard,
   SemanticMemoryContribution,
   SemanticMemorySnapshot
 } from "@neurocore/protocol";
@@ -22,6 +24,7 @@ export interface SqliteSemanticMemoryRecord {
   pattern_key: string;
   valence: "positive" | "negative";
   last_updated_at: string;
+  lifecycle_state?: MemoryLifecycleState;
 }
 
 export class SqliteSemanticMemoryStore {
@@ -54,6 +57,13 @@ export class SqliteSemanticMemoryStore {
         ON semantic_patterns(tenant_id, occurrence_count DESC, last_updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_semantic_session_tenant
         ON semantic_session_contributions(session_id, tenant_id);
+      CREATE TABLE IF NOT EXISTS semantic_card_governance (
+        tenant_id TEXT NOT NULL,
+        pattern_key TEXT NOT NULL,
+        lifecycle_state_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (tenant_id, pattern_key)
+      );
     `);
   }
 
@@ -117,11 +127,36 @@ export class SqliteSemanticMemoryStore {
 
   public restoreSnapshot(sessionId: string, tenantId: string, snapshot?: SemanticMemorySnapshot): void {
     this.replaceSession(sessionId, tenantId, structuredClone(snapshot?.contributions ?? []));
+    for (const card of snapshot?.cards ?? []) {
+      if (!card.lifecycle_state) {
+        continue;
+      }
+      this.db
+        .prepare(`
+          INSERT INTO semantic_card_governance (
+            tenant_id,
+            pattern_key,
+            lifecycle_state_json,
+            updated_at
+          )
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(tenant_id, pattern_key) DO UPDATE SET
+            lifecycle_state_json = excluded.lifecycle_state_json,
+            updated_at = excluded.updated_at
+        `)
+        .run(
+          card.tenant_id,
+          card.pattern_key,
+          JSON.stringify(card.lifecycle_state),
+          card.lifecycle_state.marked_at ?? card.updated_at
+        );
+    }
   }
 
   public buildSnapshot(sessionId: string): SemanticMemorySnapshot {
     return {
-      contributions: this.listSessionContributions(sessionId)
+      contributions: this.listSessionContributions(sessionId),
+      cards: this.listSessionCards(sessionId)
     };
   }
 
@@ -142,6 +177,37 @@ export class SqliteSemanticMemoryStore {
     if (tenantRow) {
       this.rebuildTenantPatterns(tenantRow.tenant_id);
     }
+  }
+
+  public markCardsByEpisodeIds(
+    tenantId: string,
+    episodeIds: string[],
+    lifecycleState: MemoryLifecycleState
+  ): SemanticCard[] {
+    const touched = this.list(tenantId)
+      .filter((record) => record.source_episode_ids.some((episodeId) => episodeIds.includes(episodeId)));
+    for (const record of touched) {
+      this.db
+        .prepare(`
+          INSERT INTO semantic_card_governance (
+            tenant_id,
+            pattern_key,
+            lifecycle_state_json,
+            updated_at
+          )
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(tenant_id, pattern_key) DO UPDATE SET
+            lifecycle_state_json = excluded.lifecycle_state_json,
+            updated_at = excluded.updated_at
+        `)
+        .run(
+          tenantId,
+          record.pattern_key,
+          JSON.stringify(lifecycleState),
+          lifecycleState.marked_at ?? new Date().toISOString()
+        );
+    }
+    return touched.map((record) => toSemanticCard(record, lifecycleState));
   }
 
   public list(tenantId: string, excludeSessionId?: string): SqliteSemanticMemoryRecord[] {
@@ -191,7 +257,8 @@ export class SqliteSemanticMemoryStore {
           session_ids: [...sessionIds],
           pattern_key: row.pattern_key,
           valence: deriveContributionValence(row.pattern_key),
-          last_updated_at: row.last_updated_at
+          last_updated_at: row.last_updated_at,
+          lifecycle_state: this.readLifecycleState(tenantId, row.pattern_key)
         };
       })
       .filter((record) => record.occurrence_count >= 2);
@@ -199,6 +266,22 @@ export class SqliteSemanticMemoryStore {
 
   public close(): void {
     this.db.close();
+  }
+
+  private listSessionCards(sessionId: string): SemanticCard[] {
+    const tenantRow = this.db
+      .prepare(`
+        SELECT tenant_id
+        FROM semantic_session_contributions
+        WHERE session_id = ?
+        LIMIT 1
+      `)
+      .get(sessionId) as { tenant_id: string } | undefined;
+    if (!tenantRow) {
+      return [];
+    }
+    const records = this.list(tenantRow.tenant_id).filter((record) => record.session_ids.includes(sessionId));
+    return records.map((record) => toSemanticCard(record));
   }
 
   private listSessionContributions(sessionId: string): SemanticMemoryContribution[] {
@@ -330,6 +413,56 @@ export class SqliteSemanticMemoryStore {
         );
     }
   }
+
+  private readLifecycleState(tenantId: string, patternKey: string): MemoryLifecycleState | undefined {
+    const row = this.db
+      .prepare(`
+        SELECT lifecycle_state_json
+        FROM semantic_card_governance
+        WHERE tenant_id = ? AND pattern_key = ?
+        LIMIT 1
+      `)
+      .get(tenantId, patternKey) as { lifecycle_state_json: string } | undefined;
+    if (!row) {
+      return undefined;
+    }
+    const parsed = JSON.parse(row.lifecycle_state_json) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return undefined;
+    }
+    return parsed as MemoryLifecycleState;
+  }
+}
+
+function toSemanticCard(
+  record: SqliteSemanticMemoryRecord,
+  lifecycleState?: MemoryLifecycleState
+): SemanticCard {
+  return {
+    card_id: record.memory_id,
+    schema_version: "1.0.0",
+    tenant_id: record.tenant_id,
+    pattern_key: record.pattern_key,
+    summary: record.summary,
+    valence: record.valence,
+    source_episode_ids: [...record.source_episode_ids],
+    counter_example_episode_ids: record.valence === "negative" ? [...record.source_episode_ids] : [],
+    freshness: Math.max(0, 1 - ageInDays(record.last_updated_at) / 30),
+    decay_policy: {
+      mode: "hybrid",
+      max_idle_ms: 1000 * 60 * 60 * 24 * 30
+    },
+    lifecycle_state: structuredClone(lifecycleState ?? record.lifecycle_state ?? {
+      status: "active",
+      marked_at: record.last_updated_at
+    }),
+    metadata: {
+      occurrence_count: record.occurrence_count,
+      session_ids: record.session_ids
+    },
+    created_at: record.last_updated_at,
+    updated_at: record.last_updated_at
+  };
 }
 
 function isSemanticContributionArray(
@@ -452,4 +585,9 @@ function parseStringArray(value: string): string[] {
     return [];
   }
   return parsed.filter((item): item is string => typeof item === "string");
+}
+
+function ageInDays(value: string): number {
+  const diff = Date.now() - Date.parse(value);
+  return Number.isNaN(diff) ? 0 : Math.max(0, diff / (1000 * 60 * 60 * 24));
 }

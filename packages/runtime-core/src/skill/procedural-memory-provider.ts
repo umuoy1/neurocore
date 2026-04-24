@@ -8,6 +8,7 @@ import type {
   MemoryProvider,
   ModuleContext,
   ProceduralMemorySnapshot,
+  ProceduralSkillSpec,
   Proposal,
   SkillDefinition,
   SkillEvaluator,
@@ -33,6 +34,7 @@ interface TenantEpisodeGroup {
 
 export class ProceduralMemoryProvider implements MemoryProvider, SkillProvider {
   public readonly name = "procedural-memory-provider";
+  public readonly layer = "procedural" as const;
 
   private readonly store: SkillStore;
   private readonly promotionThreshold: number;
@@ -327,7 +329,10 @@ export class ProceduralMemoryProvider implements MemoryProvider, SkillProvider {
       );
     });
 
-    return { skills };
+    return {
+      skills,
+      skill_specs: skills.map((skill) => this.toSkillSpec(tenantId, skill))
+    };
   }
 
   public restoreSnapshot(tenantId: string, snapshot?: ProceduralMemorySnapshot): void {
@@ -350,6 +355,34 @@ export class ProceduralMemoryProvider implements MemoryProvider, SkillProvider {
 
   public listSkills(tenantId: string): SkillDefinition[] {
     return this.store.list(tenantId);
+  }
+
+  public listSkillSpecs(tenantId: string): ProceduralSkillSpec[] {
+    return this.listSkills(tenantId).map((skill) => this.toSkillSpec(tenantId, skill));
+  }
+
+  public markSkillSpecsByEpisodeIds(
+    tenantId: string,
+    episodeIds: string[],
+    lifecycleState: import("@neurocore/protocol").MemoryLifecycleState
+  ): ProceduralSkillSpec[] {
+    const touched = this.listSkills(tenantId).filter((skill) =>
+      this.readSkillSourceEpisodeIds(skill).some((episodeId) => episodeIds.includes(episodeId))
+    );
+    for (const skill of touched) {
+      const nextMetadata = {
+        ...(skill.metadata ?? {}),
+        memory_lifecycle_state: lifecycleState
+      };
+      this.store.save({
+        ...structuredClone(skill),
+        metadata: nextMetadata
+      });
+    }
+    return touched.map((skill) => ({
+      ...this.toSkillSpec(tenantId, skill),
+      lifecycle_state: structuredClone(lifecycleState)
+    }));
   }
 
   public evaluateSkills(
@@ -624,6 +657,50 @@ export class ProceduralMemoryProvider implements MemoryProvider, SkillProvider {
     return this.store.list(tenantId).filter((skill) => {
       return this.readSkillMetadata(skill).patternKey === patternKey;
     });
+  }
+
+  private toSkillSpec(tenantId: string, skill: SkillDefinition): ProceduralSkillSpec {
+    const metadata =
+      skill.metadata && typeof skill.metadata === "object"
+        ? (skill.metadata as Record<string, unknown>)
+        : undefined;
+    const lifecycleState =
+      metadata?.memory_lifecycle_state &&
+      typeof metadata.memory_lifecycle_state === "object" &&
+      !Array.isArray(metadata.memory_lifecycle_state)
+        ? structuredClone(metadata.memory_lifecycle_state as import("@neurocore/protocol").MemoryLifecycleState)
+        : undefined;
+    return {
+      spec_id: `spec_${skill.skill_id}`,
+      schema_version: skill.schema_version,
+      tenant_id: tenantId,
+      skill_id: skill.skill_id,
+      name: skill.name,
+      version: skill.version,
+      summary: skill.description,
+      trigger_conditions: structuredClone(skill.trigger_conditions),
+      execution_template: structuredClone(skill.execution_template),
+      source_episode_ids: this.readSkillSourceEpisodeIds(skill),
+      applicable_domains: skill.applicable_domains ? [...skill.applicable_domains] : undefined,
+      risk_level: skill.risk_level,
+      lifecycle_state: lifecycleState ?? {
+        status:
+          skill.status === "deprecated"
+            ? "suspect"
+            : skill.status === "pruned"
+              ? "tombstoned"
+              : "active",
+        marked_at: nowIso()
+      },
+      parametric_unit_refs: Array.isArray(metadata?.parametric_unit_refs)
+        ? structuredClone(metadata.parametric_unit_refs as import("@neurocore/protocol").ParametricUnitRef[])
+        : undefined,
+      metadata: skill.metadata && typeof skill.metadata === "object"
+        ? structuredClone(skill.metadata as Record<string, import("@neurocore/protocol").JsonValue | undefined>)
+        : undefined,
+      created_at: nowIso(),
+      updated_at: nowIso()
+    };
   }
 
   private readSkillMetadata(skill: SkillDefinition): { tenantId?: string; patternKey?: string } {

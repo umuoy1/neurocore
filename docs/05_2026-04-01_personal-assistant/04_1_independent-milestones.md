@@ -152,6 +152,8 @@ PA-M3 主动运营闭环
 
 ### PA-M1：对话入口 MVP
 
+> 2026-04-25 校准：PA-M1 本地 Web Chat 连续性完成度提升到约 92%。当前已补齐终态 runtime session 重开时的 `conversation_handoff`，同一 chat 的最近用户/助手消息会进入新 session 初始输入 metadata。
+
 **产品目标**：
 建立一个真正可用的个人助理入口，而不是“能跑 demo 的 runtime example”。
 
@@ -160,7 +162,7 @@ PA-M3 主动运营闭环
 - 在飞书向助理发消息并收到回复
 - 在 Web Chat 本地调试同一能力
 - 助理可以调用搜索 / 浏览器工具回答实时问题
-- 基本 session 连续性成立，支持 `/new`、`/reset`
+- 基本 chat thread 连续性成立，runtime session 完成后重开也能携带最近对话上下文，支持 `/new`、`/reset`
 
 **核心范围**：
 
@@ -184,7 +186,7 @@ PA-M3 主动运营闭环
 
 - 飞书与 Web Chat 两个入口都可稳定收发消息
 - 至少 1 条实时搜索问答链路可端到端跑通
-- 新建 / 重置 / 超时重开 session 行为明确
+- 新建 / 重置 / 超时重开 session 行为明确，终态 session 重开不丢同一 chat 的短指代上下文
 - 失败时能在 trace 中定位到入口、工具和响应链路
 
 **建议对应工作包**：

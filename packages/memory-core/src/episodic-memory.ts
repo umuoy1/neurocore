@@ -1,5 +1,7 @@
 import type {
+  ActivationTrace,
   Episode,
+  MemoryLifecycleState,
   MemoryDigest,
   MemoryProvider,
   ModuleContext,
@@ -10,6 +12,23 @@ export interface EpisodicMemoryPersistenceStore {
   write(sessionId: string, tenantId: string, episode: Episode): void;
   list(sessionId: string): Episode[];
   listByTenant(tenantId: string, excludeSessionId?: string): Episode[];
+  getLatest(sessionId: string): Episode | undefined;
+  markActivated(
+    sessionId: string,
+    tenantId: string,
+    episodeIds: string[],
+    input: {
+      cycleId?: string;
+      scope: ActivationTrace["last_scope"];
+      activatedAt: string;
+    }
+  ): void;
+  markLifecycle(
+    sessionId: string,
+    tenantId: string,
+    episodeId: string,
+    lifecycleState: MemoryLifecycleState
+  ): void;
   replace(sessionId: string, tenantId: string, episodes: Episode[]): void;
   deleteSession(sessionId: string): void;
 }
@@ -29,6 +48,11 @@ export class EpisodicMemoryStore {
     return this.episodes.get(sessionId) ?? [];
   }
 
+  public getLatest(sessionId: string): Episode | undefined {
+    const episodes = this.list(sessionId);
+    return episodes.length > 0 ? episodes[episodes.length - 1] : undefined;
+  }
+
   public listByTenant(tenantId: string, excludeSessionId?: string): Episode[] {
     const relatedSessions = [...this.sessionTenants.entries()]
       .filter(([sessionId, currentTenantId]) => currentTenantId === tenantId && sessionId !== excludeSessionId)
@@ -44,6 +68,44 @@ export class EpisodicMemoryStore {
     this.sessionTenants.set(sessionId, tenantId);
   }
 
+  public markActivated(
+    sessionId: string,
+    _tenantId: string,
+    episodeIds: string[],
+    input: {
+      cycleId?: string;
+      scope: ActivationTrace["last_scope"];
+      activatedAt: string;
+    }
+  ): void {
+    const episodes = this.list(sessionId).map((episode) =>
+      episodeIds.includes(episode.episode_id)
+        ? {
+            ...episode,
+            activation_trace: nextActivationTrace(episode.activation_trace, sessionId, input)
+          }
+        : episode
+    );
+    this.episodes.set(sessionId, episodes);
+  }
+
+  public markLifecycle(
+    sessionId: string,
+    _tenantId: string,
+    episodeId: string,
+    lifecycleState: MemoryLifecycleState
+  ): void {
+    const episodes = this.list(sessionId).map((episode) =>
+      episode.episode_id === episodeId
+        ? {
+            ...episode,
+            lifecycle_state: structuredClone(lifecycleState)
+          }
+        : episode
+    );
+    this.episodes.set(sessionId, episodes);
+  }
+
   public deleteSession(sessionId: string): void {
     this.episodes.delete(sessionId);
     this.sessionTenants.delete(sessionId);
@@ -52,6 +114,7 @@ export class EpisodicMemoryStore {
 
 export class EpisodicMemoryProvider implements MemoryProvider {
   public readonly name = "episodic-memory-provider";
+  public readonly layer = "episodic" as const;
 
   public constructor(
     private readonly store = new EpisodicMemoryStore(),
@@ -63,6 +126,18 @@ export class EpisodicMemoryProvider implements MemoryProvider {
       return this.persistenceStore.list(sessionId);
     }
     return this.store.list(sessionId);
+  }
+
+  public getLatest(sessionId: string): Episode | undefined {
+    if (this.persistenceStore) {
+      return this.persistenceStore.getLatest(sessionId);
+    }
+    return this.store.getLatest(sessionId);
+  }
+
+  public markLifecycle(sessionId: string, tenantId: string, episodeId: string, lifecycleState: MemoryLifecycleState): void {
+    this.store.markLifecycle(sessionId, tenantId, episodeId, lifecycleState);
+    this.persistenceStore?.markLifecycle(sessionId, tenantId, episodeId, lifecycleState);
   }
 
   public replace(sessionId: string, tenantId: string, episodes: Episode[]): void {
@@ -86,6 +161,7 @@ export class EpisodicMemoryProvider implements MemoryProvider {
 
     const digestK = ctx.memory_config?.retrieval_top_k ?? 3;
     const recentSessionEpisodes = this.list(ctx.session.session_id)
+      .filter((episode) => shouldRecallEpisode(episode))
       .slice()
       .sort((left, right) => compareEpisodeByRelevance(left, right, ctx))
       .slice(0, digestK)
@@ -97,6 +173,7 @@ export class EpisodicMemoryProvider implements MemoryProvider {
       }));
     const crossDigestK = Math.max(1, Math.ceil(digestK * 0.66));
     const relatedEpisodes = this.listByTenant(ctx.tenant_id, ctx.session.session_id)
+      .filter((episode) => shouldRecallEpisode(episode))
       .sort((left, right) => compareEpisodeByRelevance(left, right, ctx))
       .slice(0, crossDigestK)
       .map((episode) => ({
@@ -118,13 +195,29 @@ export class EpisodicMemoryProvider implements MemoryProvider {
     const topK = ctx.memory_config?.retrieval_top_k ?? 5;
     const proposals: Proposal[] = [];
     const recentEpisodes = this.list(ctx.session.session_id)
+      .filter((episode) => shouldRecallEpisode(episode))
       .slice()
       .sort((left, right) => compareEpisodeByRelevance(left, right, ctx))
       .slice(0, topK);
     const relatedEpisodes = this.listByTenant(ctx.tenant_id, ctx.session.session_id)
+      .filter((episode) => shouldRecallEpisode(episode))
       .filter((episode) => episode.outcome === "success" || episode.outcome === "partial")
       .sort((left, right) => compareEpisodeByRelevance(left, right, ctx))
       .slice(0, Math.max(1, Math.ceil(topK * 0.6)));
+
+    const activatedIds = [...recentEpisodes, ...relatedEpisodes].map((episode) => episode.episode_id);
+    if (activatedIds.length > 0) {
+      this.store.markActivated(ctx.session.session_id, ctx.tenant_id, activatedIds, {
+        cycleId,
+        scope: relatedEpisodes.length > 0 ? "tenant" : "session",
+        activatedAt: ctx.services.now()
+      });
+      this.persistenceStore?.markActivated(ctx.session.session_id, ctx.tenant_id, activatedIds, {
+        cycleId,
+        scope: relatedEpisodes.length > 0 ? "tenant" : "session",
+        activatedAt: ctx.services.now()
+      });
+    }
 
     if (recentEpisodes.length > 0) {
       proposals.push({
@@ -264,8 +357,42 @@ function scoreEpisode(episode: Episode, ctx: ModuleContext): number {
   } else if (episode.outcome === "partial") {
     score += 0.02;
   }
+  if (episode.lifecycle_state?.status === "suspect") {
+    score -= 0.2;
+  }
+  if (episode.activation_trace?.activation_count) {
+    score += Math.min(0.08, episode.activation_trace.activation_count * 0.01);
+  }
 
   return score;
+}
+
+function nextActivationTrace(
+  current: ActivationTrace | undefined,
+  sessionId: string,
+  input: {
+    cycleId?: string;
+    scope: ActivationTrace["last_scope"];
+    activatedAt: string;
+  }
+): ActivationTrace {
+  return {
+    activation_count: (current?.activation_count ?? 0) + 1,
+    citation_count: (current?.citation_count ?? 0) + 1,
+    last_activated_at: input.activatedAt,
+    last_session_id: sessionId,
+    last_cycle_id: input.cycleId,
+    last_scope: input.scope,
+    activation_sources: dedupeStrings([...(current?.activation_sources ?? []), input.scope ?? "session"])
+  };
+}
+
+function shouldRecallEpisode(episode: Episode): boolean {
+  return episode.lifecycle_state?.status !== "tombstoned";
+}
+
+function dedupeStrings(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function computeTokenOverlap(query: string, target: string): number {

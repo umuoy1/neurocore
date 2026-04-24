@@ -684,6 +684,122 @@ export interface MemoryDigest {
   relevance: number;
 }
 
+export type MemoryLayer = "working" | "episodic" | "semantic" | "procedural";
+export type MemoryRetrievalStage = "summary" | "experience" | "evidence" | "parametric";
+export type MemoryActivationScope = "digest" | "session" | "tenant" | "bundle" | "governance";
+export type MemoryGovernanceStatus = "active" | "suspect" | "tombstoned" | "rolled_back";
+
+export interface EvidenceRef {
+  ref_id: string;
+  ref_type: "observation" | "trace" | "input" | "output" | "external";
+  summary?: string;
+  source_id?: string;
+}
+
+export interface ArtifactRef {
+  artifact_id: string;
+  artifact_type: "trace" | "plan" | "workspace" | "tool_result" | "report" | "checkpoint";
+  summary?: string;
+  ref?: string;
+}
+
+export interface TemporalRef {
+  relation: "previous" | "next" | "same_goal" | "same_plan" | "followup";
+  episode_id: string;
+}
+
+export interface CausalLink {
+  link_id: string;
+  source_ref: string;
+  target_ref: string;
+  relation: "enabled" | "blocked" | "caused" | "corrected" | "validated";
+  summary?: string;
+}
+
+export interface ActivationTrace {
+  activation_count: number;
+  last_activated_at?: Timestamp;
+  last_session_id?: string;
+  last_cycle_id?: string;
+  last_scope?: MemoryActivationScope;
+  citation_count?: number;
+  activation_sources?: string[];
+}
+
+export interface MemoryLifecycleState {
+  status: MemoryGovernanceStatus;
+  reason?: string;
+  source_object_ids?: string[];
+  marked_at?: Timestamp;
+  rollback_of?: string;
+}
+
+export interface DecayPolicy {
+  mode: "none" | "time" | "usage" | "hybrid";
+  ttl_ms?: number;
+  max_idle_ms?: number;
+  grace_activations?: number;
+}
+
+export interface ParametricUnitRef {
+  unit_id: string;
+  unit_type: "soft_prompt" | "lora_adapter";
+  target_type: "semantic_card" | "skill_spec";
+  status: "active" | "disabled" | "suspect";
+  metadata?: Record<string, JsonValue | undefined>;
+}
+
+export interface MemoryWarning {
+  warning_id: string;
+  kind:
+    | "budget_exhausted"
+    | "provider_degraded"
+    | "suspect_object"
+    | "tombstoned_object"
+    | "missing_evidence"
+    | "parametric_disabled";
+  severity: "info" | "warn" | "block";
+  message: string;
+  layer?: MemoryLayer;
+  object_id?: string;
+}
+
+export interface MemoryRetrievalPlan {
+  plan_id: string;
+  session_id: string;
+  cycle_id: string;
+  requested_layers: MemoryLayer[];
+  stage_order: MemoryRetrievalStage[];
+  top_k_by_layer?: Partial<Record<MemoryLayer, number>>;
+  evidence_budget?: number;
+  rationale?: string;
+  created_at: Timestamp;
+}
+
+export interface MemoryRecallBundle {
+  bundle_id: string;
+  session_id: string;
+  cycle_id: string;
+  plan_id: string;
+  digests: MemoryDigest[];
+  proposals: Proposal[];
+  episodic_episodes?: Episode[];
+  semantic_cards?: SemanticCard[];
+  skill_specs?: ProceduralSkillSpec[];
+  warnings?: MemoryWarning[];
+  parametric_unit_refs?: ParametricUnitRef[];
+  created_at: Timestamp;
+}
+
+export interface MemoryGovernanceEvent {
+  event_id: string;
+  object_id: string;
+  object_type: "episode" | "semantic_card" | "skill_spec" | "parametric_unit";
+  lifecycle_state: MemoryLifecycleState;
+  related_object_ids?: string[];
+  created_at: Timestamp;
+}
+
 export interface WorkingMemoryRecord {
   memory_id: string;
   summary: string;
@@ -1237,6 +1353,8 @@ export interface WorkspaceSnapshot {
   active_goals: GoalDigest[];
   context_summary: string;
   memory_digest: MemoryDigest[];
+  memory_retrieval_plan?: MemoryRetrievalPlan;
+  memory_recall_bundle?: MemoryRecallBundle;
   skill_digest: SkillDigest[];
   world_state_digest?: WorldStateDigest;
   candidate_actions: CandidateAction[];
@@ -1388,10 +1506,17 @@ export interface Episode {
   session_id: string;
   trigger_summary: string;
   goal_refs: string[];
+  plan_refs?: string[];
   context_digest: string;
   selected_strategy: string;
   action_refs: string[];
   observation_refs: string[];
+  evidence_refs?: EvidenceRef[];
+  artifact_refs?: ArtifactRef[];
+  temporal_refs?: TemporalRef[];
+  causal_links?: CausalLink[];
+  activation_trace?: ActivationTrace;
+  lifecycle_state?: MemoryLifecycleState;
   outcome: "success" | "partial" | "failure";
   outcome_summary: string;
   valence?: "positive" | "neutral" | "negative";
@@ -1440,6 +1565,44 @@ export interface SkillDefinition {
   fallback_policy?: FallbackPolicy;
   evaluation_metrics?: string[];
   metadata?: Record<string, unknown>;
+}
+
+export interface SemanticCard {
+  card_id: string;
+  schema_version: string;
+  tenant_id: string;
+  pattern_key: string;
+  summary: string;
+  valence: "positive" | "negative";
+  source_episode_ids: string[];
+  counter_example_episode_ids?: string[];
+  freshness: number;
+  decay_policy?: DecayPolicy;
+  lifecycle_state?: MemoryLifecycleState;
+  parametric_unit_refs?: ParametricUnitRef[];
+  metadata?: Record<string, JsonValue | undefined>;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface ProceduralSkillSpec {
+  spec_id: string;
+  schema_version: string;
+  tenant_id: string;
+  skill_id: string;
+  name: string;
+  version: string;
+  summary?: string;
+  trigger_conditions: TriggerCondition[];
+  execution_template: SkillExecutionTemplate;
+  source_episode_ids: string[];
+  applicable_domains?: string[];
+  risk_level?: SkillDefinition["risk_level"];
+  lifecycle_state?: MemoryLifecycleState;
+  parametric_unit_refs?: ParametricUnitRef[];
+  metadata?: Record<string, JsonValue | undefined>;
+  created_at: Timestamp;
+  updated_at: Timestamp;
 }
 
 export interface RewardDimension {
@@ -1726,6 +1889,8 @@ export interface CycleTraceRecord {
   trace: CycleTrace;
   inputs: UserInput[];
   proposals: Proposal[];
+  memory_retrieval_plan?: MemoryRetrievalPlan;
+  memory_recall_bundle?: MemoryRecallBundle;
   candidate_actions: CandidateAction[];
   predictions: Prediction[];
   policy_decisions: PolicyDecision[];
@@ -1755,6 +1920,7 @@ export interface SessionReplay {
 
 export interface ProceduralMemorySnapshot {
   skills: SkillDefinition[];
+  skill_specs?: ProceduralSkillSpec[];
 }
 
 export interface SemanticMemoryContribution {
@@ -1768,6 +1934,7 @@ export interface SemanticMemoryContribution {
 
 export interface SemanticMemorySnapshot {
   contributions: SemanticMemoryContribution[];
+  cards?: SemanticCard[];
 }
 
 export interface SessionCheckpoint {

@@ -22,6 +22,9 @@ import type {
   CycleTraceRecord,
   MemoryConfig,
   MemoryDigest,
+  MemoryLayer,
+  MemoryRecallBundle,
+  MemoryRetrievalPlan,
   CalibrationBucketStats,
   CalibrationRecord,
   MetaAssessment,
@@ -83,10 +86,25 @@ export interface Reasoner {
 
 export interface MemoryProvider {
   name: string;
+  layer?: MemoryLayer;
   retrieve(ctx: ModuleContext): Promise<Proposal[]>;
   getDigest?(ctx: ModuleContext): Promise<MemoryDigest[]>;
   writeEpisode(ctx: ModuleContext, episode: Episode): Promise<void>;
   consolidate?(tenant_id: string): Promise<void>;
+}
+
+export interface MemoryGate {
+  name: string;
+  plan(input: {
+    ctx: ModuleContext;
+    providers: MemoryProvider[];
+  }): Promise<MemoryRetrievalPlan>;
+  buildBundle?(input: {
+    ctx: ModuleContext;
+    plan: MemoryRetrievalPlan;
+    digests: MemoryDigest[];
+    proposals: Proposal[];
+  }): Promise<MemoryRecallBundle>;
 }
 
 export interface Predictor {
