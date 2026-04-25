@@ -9,7 +9,7 @@
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │ ← Back to Session    Memory: sess_abc123                            │
-│ [Working] [Episodic] [Semantic] [Procedural]                        │
+│ [Observability] [Working] [Episodic] [Semantic] [Procedural]         │
 │ [Search...]                                  [Type filter ▼]        │
 ├──────────────────────────────────────────────────────────────────────┤
 │                                                                      │
@@ -30,7 +30,25 @@
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-## 四层视图
+## 视图
+
+### Observability
+
+记忆检索可观测性视图，展示最近一次 cycle 的 `MemoryRetrievalPlan`、`MemoryRecallBundle` 和治理 warning。
+
+每个 session 的 `GET /v1/sessions/:id/memory` 现在返回：
+- `retrieval_plans[]`
+- `recall_bundles[]`
+- `latest_retrieval_plan`
+- `latest_recall_bundle`
+- `memory_warnings[]`
+
+页面显示：
+- requested layers
+- stage order
+- evidence budget
+- recall bundle 中 digests / proposals / episodes / cards / skills / warnings 数量
+- governance warnings 的 severity / kind / message / object_id
 
 ### Working Memory
 
@@ -41,7 +59,7 @@
 - `relevance`（数值 + 水平进度条）
 - `memory_id`（可复制）
 
-数据源：`GET /v1/sessions/:id` → `working_memory[]`
+数据源：`GET /v1/sessions/:id/memory` → `working_memory[]`
 
 ### Episodic Memory
 
@@ -95,7 +113,7 @@
 
 ## 交互
 
-- **Tab 切换**：Working / Episodic / Semantic / Procedural
+- **Tab 切换**：Observability / Working / Episodic / Semantic / Procedural
 - **搜索**：全文本搜索 summary 字段
 - **筛选**：按 memory_type / outcome (episodic) / kind (procedural)
 - **排序**：按 relevance / created_at / occurrence_count
@@ -107,6 +125,10 @@
 MemoryInspectorPage
   ├── MemoryLayerTabs
   ├── MemorySearchBar
+  ├── MemoryObservabilityView
+  │    ├── RetrievalPlanCard
+  │    ├── RecallBundleCard
+  │    └── WarningPanel
   ├── WorkingMemoryView
   │    └── MemoryEntryCard (relevance bar)
   ├── EpisodicTimeline
@@ -121,7 +143,8 @@ MemoryInspectorPage
 
 | Layer | API | 实时更新 |
 |---|---|---|
-| Working | `GET /v1/sessions/:id` → `working_memory[]` | WS `session:{id}` → `memory.written` 事件 |
+| Observability | `GET /v1/sessions/:id/memory` → `retrieval_plans[] / recall_bundles[] / memory_warnings[]` | WS `session:{id}` → `memory.retrieval_planned / memory.retrieved` 事件 |
+| Working | `GET /v1/sessions/:id/memory` → `working_memory[]` | WS `session:{id}` → `memory.written` 事件 |
 | Episodic | `GET /v1/sessions/:id/episodes` | WS `session:{id}` → `memory.written` 事件 |
 | Semantic | `GET /v1/sessions/:id/memory/semantic` (新增) | — |
 | Procedural | `GET /v1/sessions/:id/skills` (新增) | WS `session:{id}` → `skill.promoted` 事件 |

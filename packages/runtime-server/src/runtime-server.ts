@@ -747,7 +747,8 @@ export class NeuroRuntimeServer {
         this.ensureSessionAccess(authContext, record, "viewer");
         writeJson(response, 200, {
           session_id: sessionId,
-          working_memory: record.handle.getWorkingMemory()
+          working_memory: record.handle.getWorkingMemory(),
+          ...this.serializeMemoryObservability(record)
         });
         return;
       }
@@ -1443,6 +1444,25 @@ export class NeuroRuntimeServer {
       working_memory_count: record.handle.getWorkingMemory().length,
       goals_count: record.handle.getGoals().length,
       created_at: record.handle.getEvents().find((event) => event.event_type === "session.created")?.timestamp ?? null
+    };
+  }
+
+  private serializeMemoryObservability(record: ManagedSession): Record<string, unknown> {
+    const traces = record.handle.getTraceRecords();
+    const retrievalPlans = traces
+      .map((trace) => trace.memory_retrieval_plan)
+      .filter((plan) => plan !== undefined);
+    const recallBundles = traces
+      .map((trace) => trace.memory_recall_bundle)
+      .filter((bundle) => bundle !== undefined);
+    const warnings = recallBundles.flatMap((bundle) => bundle.warnings ?? []);
+
+    return {
+      retrieval_plans: retrievalPlans,
+      recall_bundles: recallBundles,
+      latest_retrieval_plan: retrievalPlans.at(-1) ?? null,
+      latest_recall_bundle: recallBundles.at(-1) ?? null,
+      memory_warnings: warnings
     };
   }
 

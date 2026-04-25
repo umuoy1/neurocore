@@ -2,9 +2,17 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router";
 import { useMemoryStore } from "../stores/memory.store";
 import { useSessionsStore } from "../stores/sessions.store";
-import type { Episode, SemanticMemoryRecord, SkillDefinition, WorkingMemoryRecord } from "../api/types";
+import type {
+  Episode,
+  MemoryRecallBundle,
+  MemoryRetrievalPlan,
+  MemoryWarning,
+  SemanticMemoryRecord,
+  SkillDefinition,
+  WorkingMemoryRecord
+} from "../api/types";
 
-type Layer = "working" | "episodic" | "semantic" | "procedural";
+type Layer = "observability" | "working" | "episodic" | "semantic" | "procedural";
 
 export function MemoryInspectorPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -17,6 +25,11 @@ export function MemoryInspectorPage() {
     episodes,
     semanticMemory,
     skills,
+    retrievalPlans,
+    recallBundles,
+    latestRetrievalPlan,
+    latestRecallBundle,
+    memoryWarnings,
     fetchWorkingMemory,
     fetchEpisodes,
     fetchSemanticMemory,
@@ -32,6 +45,7 @@ export function MemoryInspectorPage() {
 
   useEffect(() => {
     if (!sessionId) return;
+    if (activeLayer === "observability") fetchWorkingMemory(sessionId);
     if (activeLayer === "working") fetchWorkingMemory(sessionId);
     if (activeLayer === "episodic") fetchEpisodes(sessionId);
     if (activeLayer === "semantic") fetchSemanticMemory(sessionId);
@@ -39,6 +53,7 @@ export function MemoryInspectorPage() {
   }, [activeLayer, sessionId]);
 
   const layers: { key: Layer; label: string }[] = [
+    { key: "observability", label: "Observability" },
     { key: "working", label: "Working" },
     { key: "episodic", label: "Episodic" },
     { key: "semantic", label: "Semantic" },
@@ -87,6 +102,14 @@ export function MemoryInspectorPage() {
           className="bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-300 placeholder:text-zinc-600 flex-1 max-w-xs"
         />
       </div>
+
+      {activeLayer === "observability" && (
+        <div className="grid gap-3 lg:grid-cols-2">
+          <RetrievalPlanCard plan={latestRetrievalPlan} planCount={retrievalPlans.length} />
+          <RecallBundleCard bundle={latestRecallBundle} bundleCount={recallBundles.length} />
+          <WarningPanel warnings={memoryWarnings} />
+        </div>
+      )}
 
       {activeLayer === "working" && (
         <div className="space-y-2">
@@ -140,6 +163,93 @@ export function MemoryInspectorPage() {
             <div className="text-zinc-600 text-xs py-8 text-center">No procedural skills</div>
           ) : filteredSkills.map((skill) => (
             <SkillCard key={skill.skill_id} skill={skill} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RetrievalPlanCard({ plan, planCount }: { plan: MemoryRetrievalPlan | null; planCount: number }) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-xs font-medium uppercase tracking-wider text-zinc-400">Retrieval Plan</div>
+        <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">{planCount} cycles</span>
+      </div>
+      {!plan ? (
+        <div className="text-xs text-zinc-600">No retrieval plan recorded.</div>
+      ) : (
+        <div className="space-y-2">
+          <div className="font-mono text-[11px] text-zinc-500">{plan.plan_id}</div>
+          <div className="flex flex-wrap gap-1">
+            {plan.requested_layers.map((layer) => (
+              <span key={layer} className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-300">{layer}</span>
+            ))}
+          </div>
+          <div className="text-[11px] text-zinc-400">stage: {plan.stage_order.join(" -> ")}</div>
+          <div className="text-[11px] text-zinc-500">evidence budget: {plan.evidence_budget ?? "n/a"}</div>
+          {plan.rationale && <div className="text-[11px] text-zinc-500">{plan.rationale}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RecallBundleCard({ bundle, bundleCount }: { bundle: MemoryRecallBundle | null; bundleCount: number }) {
+  const counts = bundle ? [
+    ["digests", bundle.digests.length],
+    ["proposals", bundle.proposals.length],
+    ["episodes", bundle.episodic_episodes?.length ?? 0],
+    ["cards", bundle.semantic_cards?.length ?? 0],
+    ["skills", bundle.skill_specs?.length ?? 0],
+    ["warnings", bundle.warnings?.length ?? 0]
+  ] : [];
+
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-xs font-medium uppercase tracking-wider text-zinc-400">Recall Bundle</div>
+        <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">{bundleCount} bundles</span>
+      </div>
+      {!bundle ? (
+        <div className="text-xs text-zinc-600">No recall bundle recorded.</div>
+      ) : (
+        <div className="space-y-2">
+          <div className="font-mono text-[11px] text-zinc-500">{bundle.bundle_id}</div>
+          <div className="grid grid-cols-3 gap-2">
+            {counts.map(([label, value]) => (
+              <div key={label} className="rounded border border-zinc-800 bg-zinc-950 p-2">
+                <div className="text-sm text-zinc-200">{value}</div>
+                <div className="text-[10px] uppercase tracking-wider text-zinc-600">{label}</div>
+              </div>
+            ))}
+          </div>
+          <div className="text-[11px] text-zinc-500">plan: {bundle.plan_id}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WarningPanel({ warnings }: { warnings: MemoryWarning[] }) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 lg:col-span-2">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-xs font-medium uppercase tracking-wider text-zinc-400">Governance Warnings</div>
+        <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">{warnings.length} warnings</span>
+      </div>
+      {warnings.length === 0 ? (
+        <div className="text-xs text-zinc-600">No memory warnings.</div>
+      ) : (
+        <div className="space-y-1">
+          {warnings.map((warning) => (
+            <div key={warning.warning_id} className="flex items-center gap-2 rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5">
+              <span className={`rounded px-1.5 py-0.5 text-[10px] ${warning.severity === "block" ? "bg-red-500/10 text-red-400" : warning.severity === "warn" ? "bg-amber-500/10 text-amber-400" : "bg-zinc-800 text-zinc-400"}`}>{warning.severity}</span>
+              <span className="text-[11px] text-zinc-300">{warning.kind}</span>
+              <span className="flex-1 truncate text-[11px] text-zinc-500">{warning.message}</span>
+              {warning.object_id && <span className="font-mono text-[10px] text-zinc-600">{warning.object_id}</span>}
+            </div>
           ))}
         </div>
       )}

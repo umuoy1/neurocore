@@ -290,6 +290,12 @@ test("M11: session detail endpoints expose memory, goals, world state, devices, 
 
     assert.equal(memory.status, 200);
     assert.ok(Array.isArray(memory.body.working_memory));
+    assert.ok(Array.isArray(memory.body.retrieval_plans));
+    assert.ok(Array.isArray(memory.body.recall_bundles));
+    assert.ok(Array.isArray(memory.body.memory_warnings));
+    if (memory.body.latest_retrieval_plan) {
+      assert.equal(memory.body.latest_retrieval_plan.stage_order.includes("parametric"), false);
+    }
     assert.equal(goals.status, 200);
     assert.ok(Array.isArray(goals.body.goals));
     assert.equal(semantic.status, 200);

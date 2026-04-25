@@ -1,13 +1,26 @@
 import { create } from "zustand";
 import { apiFetch } from "../api/client";
-import type { Episode, SemanticMemoryRecord, SkillDefinition, WorkingMemoryRecord } from "../api/types";
+import type {
+  Episode,
+  MemoryRecallBundle,
+  MemoryRetrievalPlan,
+  MemoryWarning,
+  SemanticMemoryRecord,
+  SkillDefinition,
+  WorkingMemoryRecord
+} from "../api/types";
 
 interface MemoryState {
-  activeLayer: "working" | "episodic" | "semantic" | "procedural";
+  activeLayer: "observability" | "working" | "episodic" | "semantic" | "procedural";
   workingMemory: WorkingMemoryRecord[];
   episodes: Episode[];
   semanticMemory: SemanticMemoryRecord[];
   skills: SkillDefinition[];
+  retrievalPlans: MemoryRetrievalPlan[];
+  recallBundles: MemoryRecallBundle[];
+  latestRetrievalPlan: MemoryRetrievalPlan | null;
+  latestRecallBundle: MemoryRecallBundle | null;
+  memoryWarnings: MemoryWarning[];
   searchQuery: string;
   setActiveLayer: (layer: MemoryState["activeLayer"]) => void;
   setSearchQuery: (q: string) => void;
@@ -23,6 +36,11 @@ export const useMemoryStore = create<MemoryState>((set) => ({
   episodes: [],
   semanticMemory: [],
   skills: [],
+  retrievalPlans: [],
+  recallBundles: [],
+  latestRetrievalPlan: null,
+  latestRecallBundle: null,
+  memoryWarnings: [],
   searchQuery: "",
 
   setActiveLayer: (layer) => set({ activeLayer: layer }),
@@ -30,9 +48,32 @@ export const useMemoryStore = create<MemoryState>((set) => ({
 
   fetchWorkingMemory: async (sessionId) => {
     try {
-      const res = await apiFetch<{ working_memory: WorkingMemoryRecord[] }>(`/v1/sessions/${sessionId}/memory`);
-      set({ workingMemory: res.working_memory ?? [] });
-    } catch { set({ workingMemory: [] }); }
+      const res = await apiFetch<{
+        working_memory: WorkingMemoryRecord[];
+        retrieval_plans?: MemoryRetrievalPlan[];
+        recall_bundles?: MemoryRecallBundle[];
+        latest_retrieval_plan?: MemoryRetrievalPlan | null;
+        latest_recall_bundle?: MemoryRecallBundle | null;
+        memory_warnings?: MemoryWarning[];
+      }>(`/v1/sessions/${sessionId}/memory`);
+      set({
+        workingMemory: res.working_memory ?? [],
+        retrievalPlans: res.retrieval_plans ?? [],
+        recallBundles: res.recall_bundles ?? [],
+        latestRetrievalPlan: res.latest_retrieval_plan ?? null,
+        latestRecallBundle: res.latest_recall_bundle ?? null,
+        memoryWarnings: res.memory_warnings ?? []
+      });
+    } catch {
+      set({
+        workingMemory: [],
+        retrievalPlans: [],
+        recallBundles: [],
+        latestRetrievalPlan: null,
+        latestRecallBundle: null,
+        memoryWarnings: []
+      });
+    }
   },
 
   fetchEpisodes: async (sessionId) => {
