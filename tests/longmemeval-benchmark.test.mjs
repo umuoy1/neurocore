@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -111,6 +112,54 @@ test("LongMemEval full bundle loader accepts official cleaned bundle layout", ()
     );
   } finally {
     rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("LongMemEval prepare tool shards official bundle into loadable full-bundle slices", () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "neurocore-longmemeval-prepare-source-"));
+  const outputDir = mkdtempSync(join(tmpdir(), "neurocore-longmemeval-prepare-output-"));
+  try {
+    cpSync(SAMPLE_FIXTURE, join(stateDir, "longmemeval_oracle.json"));
+    cpSync(SAMPLE_FIXTURE, join(stateDir, "longmemeval_s_cleaned.json"));
+    cpSync(SAMPLE_FIXTURE, join(stateDir, "longmemeval_m_cleaned.json"));
+
+    execFileSync(
+      "python3",
+      [
+        resolve(__dirname, "..", "tools", "longmemeval-prepare-bundle.py"),
+        "--dataset",
+        stateDir,
+        "--output-dir",
+        outputDir,
+        "--shard-size",
+        "1",
+        "--clean"
+      ],
+      { stdio: "pipe" }
+    );
+
+    const manifest = JSON.parse(readFileSync(join(outputDir, "manifest.json"), "utf8"));
+    assert.equal(manifest.shards.length, 3);
+    assert.equal(manifest.variants.length, 3);
+    assert.deepEqual(manifest.shards[0].case_count_by_variant, {
+      longmemeval_m: 1,
+      longmemeval_oracle: 1,
+      longmemeval_s_cleaned: 1
+    });
+
+    const shardBundle = loadLongMemEvalDatasetBundle(join(outputDir, "shard-00000"), {
+      requireFullBundle: true
+    });
+    assert.deepEqual(
+      shardBundle.map((entry) => entry.variant),
+      ["longmemeval_oracle", "longmemeval_s_cleaned", "longmemeval_m"]
+    );
+    assert.equal(shardBundle[0].instances.length, 1);
+    assert.equal(shardBundle[1].instances.length, 1);
+    assert.equal(shardBundle[2].instances.length, 1);
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+    rmSync(outputDir, { recursive: true, force: true });
   }
 });
 

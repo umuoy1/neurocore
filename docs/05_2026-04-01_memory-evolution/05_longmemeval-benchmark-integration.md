@@ -38,6 +38,7 @@ LongMemEval 正好覆盖：
 - `session / turn` 两种 granularity
 - in-memory 与 SQLite-backed 两种 retrieval 路径
 - full-bundle smoke 脚本与标准化报告落盘
+- 大文件 full-bundle 分片预处理与稳定 runner，避免 `longmemeval_m_cleaned.json` 级别的大 JSON 触发 JS 单字符串上限
 - official retrieval / QA evaluator wrapper script
 - 仓库内 sample fixture 与 deterministic test
 
@@ -85,6 +86,8 @@ LongMemEval 正好覆盖：
 - benchmark test：`tests/longmemeval-benchmark.test.mjs`
 - demo script：`examples/demo-longmemeval-benchmark.mjs`
 - full-run script：`examples/demo-longmemeval-full-benchmark.mjs`
+- stable full-run script：`examples/demo-longmemeval-stable-benchmark.mjs`
+- full dataset prepare tool：`tools/longmemeval-prepare-bundle.py`
 - official retrieval wrapper：`examples/demo-longmemeval-official-retrieval.mjs`
 - official QA wrapper：`examples/demo-longmemeval-official-qa-eval.mjs`
 - hypothesis generation：`examples/demo-longmemeval-generate-hypotheses.mjs`
@@ -103,7 +106,27 @@ npm run benchmark:longmemeval
 npm run benchmark:longmemeval:full
 ```
 
-它会读取 `LONGMEMEVAL_DATASET_DIR`，要求目录中存在完整 official bundle，并默认输出到 `.neurocore/benchmarks/longmemeval/<timestamp>/`。
+它会读取 `LONGMEMEVAL_DATASET_DIR` 或默认 `data/`，要求目录中存在完整 official bundle，并先把大 JSON 分片到 `.neurocore/benchmarks/longmemeval-stable/<timestamp>/prepared/`，再逐 shard 执行 session/turn matrix，最终写出 `stable-run.json`。
+
+稳定 runner 也可直接调用：
+
+```bash
+npm run benchmark:longmemeval:stable -- \
+  --dataset data \
+  --shard-size 50 \
+  --granularity both \
+  --top-k 10
+```
+
+小样本冒烟：
+
+```bash
+npm run benchmark:longmemeval:stable -- \
+  --dataset data \
+  --max-cases-per-variant 2 \
+  --shard-size 1 \
+  --limit-shards 1
+```
 
 默认会直接使用仓库内 vendored official evaluator；如果本地已经 clone 了官方 `LongMemEval` 仓库，也可以通过 `LONGMEMEVAL_REPO_DIR` 或 `--repo` 显式切过去：
 
@@ -126,6 +149,19 @@ npm run benchmark:longmemeval:official:qa -- \
 - `apiUrl`
 - `bearerToken`
 - `model`
+- `extraBody`
+
+对默认输出 `reasoning_content` 的模型，建议在 `.neurocore/llm.local.json` 写入：
+
+```json
+{
+  "extraBody": {
+    "enable_thinking": false
+  }
+}
+```
+
+也可以用 `OPENAI_EXTRA_BODY_JSON='{"enable_thinking":false}'` 覆盖。
 
 也可以显式指定：
 
@@ -231,6 +267,7 @@ LongMemEval 的原始目标是“长时交互记忆的 assistant benchmark”，
 - official retrieval wrapper 能直接调用官方 `print_retrieval_metrics.py`
 - official QA wrapper 能直接调用官方 `evaluate_qa.py / print_qa_metrics.py`
 - official `jsonl` 导出格式与 LongMemEval README 要求一致
+- stable full runner 能对官方 cleaned full bundle 做分片、manifest、shard 级 matrix 和 combined summary 落盘
 - 2026-04-25 补充：`runMemorySystemBenchmark()` 已把 LongMemEval retrieval、memory objective benchmark、memory causal regression 汇聚为统一 artifact；`examples/demo-memory-system-benchmark.mjs` 可作为本地 full memory benchmark 入口。
 - 2026-04-25 补充：`validateSqlFirstRuntimeState()` 已提供 SQL-first runtime state 兼容性验证，能检查 legacy fat snapshot payload、SQL 记忆表、checkpoint 表与迁移状态。
 
@@ -240,7 +277,7 @@ LongMemEval 的原始目标是“长时交互记忆的 assistant benchmark”，
 
 下一步优先级：
 
-1. 在本地提供官方 full dataset 后，执行一轮真实全量 benchmark，并固化基线结果
+1. 使用 stable full runner 执行一轮真实全量 benchmark，并固化基线结果
 2. 加一层 answerer adapter，把 retrieval 结果喂给 reader model，生成 hypothesis
 3. 对接官方 QA evaluator，形成 retrieval + QA 的双报告
 4. 对比当前 sparse retrieval 与未来 dense retrieval/embedding backend 的增益

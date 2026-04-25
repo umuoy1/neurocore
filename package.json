@@ -30,6 +30,7 @@
     "benchmark:meta:compare": "npm run build && node examples/demo-meta-benchmark-compare.mjs",
     "benchmark:meta:online": "npm run build && node examples/demo-meta-online-eval.mjs",
     "benchmark:longmemeval:full": "npm run build && node examples/demo-longmemeval-full-benchmark.mjs",
+    "benchmark:longmemeval:stable": "npm run build && node examples/demo-longmemeval-stable-benchmark.mjs",
     "benchmark:longmemeval:generate": "npm run build && node examples/demo-longmemeval-generate-hypotheses.mjs",
     "benchmark:longmemeval:official:retrieval": "npm run build && node examples/demo-longmemeval-official-retrieval.mjs",
     "benchmark:longmemeval:official:qa": "npm run build && node examples/demo-longmemeval-official-qa-eval.mjs",

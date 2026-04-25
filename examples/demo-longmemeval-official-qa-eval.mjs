@@ -32,7 +32,7 @@ const resolvedHypothesisFile = resolve(process.cwd(), hypothesisFile);
 const resolvedReferenceFile = resolve(process.cwd(), referenceFile);
 const modelConfig = await loadModelConfig(modelConfigPath);
 const metricModel = args.model ?? modelConfig?.model ?? "gpt-4o";
-const resultFile = `${resolvedHypothesisFile}.eval-results-${metricModel}`;
+const resultFile = `${resolvedHypothesisFile}.eval-results-${sanitizeFilenamePart(metricModel)}`;
 const childEnv = {
   ...process.env
 };
@@ -42,6 +42,9 @@ if (!childEnv.OPENAI_API_KEY && modelConfig?.bearerToken) {
 }
 if (!childEnv.OPENAI_BASE_URL && modelConfig?.apiUrl) {
   childEnv.OPENAI_BASE_URL = modelConfig.apiUrl;
+}
+if (!childEnv.OPENAI_EXTRA_BODY_JSON && modelConfig?.extraBody) {
+  childEnv.OPENAI_EXTRA_BODY_JSON = JSON.stringify(modelConfig.extraBody);
 }
 
 const evaluateOutput = execFileSync(
@@ -106,6 +109,11 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
+    if (current === "--model-config" && next) {
+      parsed.modelConfig = next;
+      index += 1;
+      continue;
+    }
     if (current === "--output-dir" && next) {
       parsed.outputDir = next;
       index += 1;
@@ -122,4 +130,8 @@ async function loadModelConfig(filename) {
   } catch {
     return null;
   }
+}
+
+function sanitizeFilenamePart(value) {
+  return value.replace(/[\\/:]/g, "_");
 }

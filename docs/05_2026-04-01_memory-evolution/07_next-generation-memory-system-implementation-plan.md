@@ -18,6 +18,10 @@
 > - 新增 `validateSqlFirstRuntimeState()`，可检查 SQLite runtime state 是否仍含 legacy fat memory/checkpoint payload，并验证 SQL-first 表与迁移状态。
 > - 个人助理显式记忆交互已落地：`/remember`、`/forget`、`/correct`、`/memories` 写入 `personal_memories` SQLite 表，并注入 `input.metadata.personal_memory`。
 > - Console Memory Inspector 已新增 Observability 视图；runtime-server memory endpoint 已返回 retrieval plan、recall bundle 与 memory warnings。
+>
+> 2026-04-26 P1/P2 评测回写：
+> - LongMemEval full dataset 稳定测试框架已补齐：`tools/longmemeval-prepare-bundle.py` 将 official bundle 分片并输出 hash/manifest，`examples/demo-longmemeval-stable-benchmark.mjs` 可逐 shard 跑 matrix 并写 combined summary。
+> - OpenAI-compatible config 新增 `extraBody`，LongMemEval hypothesis generation 与 official QA wrapper 可透传 `enable_thinking=false`，避免 reasoning-only 模型在短输出预算下返回空 `content`。
 
 ---
 
@@ -377,6 +381,8 @@
 - benchmark 结果可写入 artifact
 - memory system benchmark 可一次性汇聚 retrieval / objective / causal 三条报告
 - SQL-first validator 可验证 legacy migration 后 runtime snapshot 已瘦身
+- official full dataset 可通过 stable runner 分片跑数，避免大 JSON 触发 JS 单字符串上限
+- QA/generation 路径可透传 provider-specific extra body
 
 ### Phase 6：参数增益层
 

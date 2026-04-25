@@ -9,6 +9,7 @@ export interface OpenAICompatibleConfig {
   bearerToken: string;
   timeoutMs?: number;
   headers?: Record<string, string>;
+  extraBody?: Record<string, unknown>;
 }
 
 export const DEFAULT_MODEL_CONFIG_PATH = ".neurocore/llm.local.json";
@@ -42,7 +43,8 @@ export async function loadOpenAICompatibleConfig(
     apiUrl: parsed.apiUrl,
     bearerToken: parsed.bearerToken,
     timeoutMs: parsed.timeoutMs,
-    headers: parsed.headers
+    headers: parsed.headers,
+    extraBody: isPlainRecord(parsed.extraBody) ? parsed.extraBody : undefined
   };
 
   debugLog("config", "Model config loaded", {
@@ -51,8 +53,13 @@ export async function loadOpenAICompatibleConfig(
     apiUrl: config.apiUrl,
     bearerTokenMasked: maskSecret(config.bearerToken),
     timeoutMs: config.timeoutMs ?? 60000,
-    headerKeys: Object.keys(config.headers ?? {})
+    headerKeys: Object.keys(config.headers ?? {}),
+    extraBodyKeys: Object.keys(config.extraBody ?? {})
   });
 
   return config;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }

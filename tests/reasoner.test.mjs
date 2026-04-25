@@ -192,6 +192,9 @@ test("loadOpenAICompatibleConfig only loads connection settings", async () => {
       apiUrl: "https://example.com/v1",
       bearerToken: "test-token",
       timeoutMs: 1234,
+      extraBody: {
+        enable_thinking: false
+      },
       temperature: 0.1,
       max_tokens: 2048
     }),
@@ -203,6 +206,7 @@ test("loadOpenAICompatibleConfig only loads connection settings", async () => {
   assert.equal(config.apiUrl, "https://example.com/v1");
   assert.equal(config.bearerToken, "test-token");
   assert.equal(config.timeoutMs, 1234);
+  assert.deepEqual(config.extraBody, { enable_thinking: false });
   assert.equal("temperature" in config, false);
   assert.equal("max_tokens" in config, false);
 });
@@ -346,6 +350,79 @@ test("respond still supports legacy maxOutputTokens", async () => {
     });
 
     assert.equal(requestBodies[0].max_tokens, 1234);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("respond forwards provider extra body without overriding core payload", async () => {
+  const reasoner = new OpenAICompatibleReasoner({
+    provider: "openai-compatible",
+    model: "test-model",
+    apiUrl: "https://example.com/v1",
+    bearerToken: "test-token",
+    extraBody: {
+      enable_thinking: false,
+      model: "ignored-model"
+    }
+  });
+
+  const requestBodies = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    requestBodies.push(JSON.parse(String(init?.body ?? "{}")));
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      async json() {
+        return {
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: JSON.stringify({
+                  actions: [
+                    {
+                      action_type: "ask_user",
+                      title: "Reply",
+                      description: "Done."
+                    }
+                  ]
+                })
+              }
+            }
+          ]
+        };
+      }
+    };
+  };
+
+  try {
+    await reasoner.respond({
+      tenant_id: "local",
+      session: {
+        session_id: "ses_test",
+        current_cycle_id: "cyc_test"
+      },
+      profile: {
+        schema_version: "0.1.0",
+        role: "Test runtime",
+        tool_refs: [],
+        metadata: {}
+      },
+      goals: [],
+      runtime_state: {
+        current_input_content: "Reply."
+      },
+      services: {
+        now: () => new Date().toISOString(),
+        generateId: (prefix) => `${prefix}_test`
+      }
+    });
+
+    assert.equal(requestBodies[0].enable_thinking, false);
+    assert.equal(requestBodies[0].model, "test-model");
   } finally {
     globalThis.fetch = originalFetch;
   }

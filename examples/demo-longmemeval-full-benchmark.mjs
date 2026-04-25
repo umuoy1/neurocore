@@ -18,20 +18,15 @@ const topK = args.topK ?? "10";
 execFileSync(
   process.execPath,
   [
-    resolve(process.cwd(), "examples", "demo-longmemeval-benchmark.mjs"),
+    resolve(process.cwd(), "examples", "demo-longmemeval-stable-benchmark.mjs"),
     "--dataset",
     dataset,
-    "--granularity",
-    "both",
     "--top-k",
     topK,
-    "--require-full-bundle",
-    "--sqlite-dir",
-    join(outputDir, "sqlite"),
-    "--output",
-    join(outputDir, "longmemeval-matrix.json"),
     "--output-dir",
-    outputDir
+    outputDir,
+    "--granularity",
+    "both"
   ],
   {
     stdio: "inherit"

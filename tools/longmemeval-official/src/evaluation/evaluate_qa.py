@@ -96,7 +96,8 @@ if __name__ == '__main__':
     hyp_file = sys.argv[2]
     ref_file = sys.argv[3]
     verbose = True
-    result_file = hyp_file + '.eval-results-{}'.format(metric_model_short)
+    result_model_name = metric_model_short.replace('/', '_').replace('\\', '_').replace(':', '_')
+    result_file = hyp_file + '.eval-results-{}'.format(result_model_name)
 
     if metric_model_short in model_zoo:
         metric_model, metric_model_source = model_zoo[metric_model_short]
@@ -115,6 +116,8 @@ if __name__ == '__main__':
         api_key=openai_api_key,
         base_url=openai_api_base,
     )
+    openai_extra_body_raw = os.getenv('OPENAI_EXTRA_BODY_JSON')
+    openai_extra_body = json.loads(openai_extra_body_raw) if openai_extra_body_raw else None
 
     try:
         hypotheses = [json.loads(line) for line in open(hyp_file).readlines()]
@@ -150,6 +153,8 @@ if __name__ == '__main__':
                 'temperature': 0,
                 'max_tokens': 10
             }
+            if openai_extra_body:
+                kwargs['extra_body'] = openai_extra_body
             completion = chat_completions_with_backoff(metric_client, **kwargs)
             eval_response = completion.choices[0].message.content.strip()
             label = 'yes' in eval_response.lower()

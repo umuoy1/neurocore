@@ -20,6 +20,7 @@
 > - 2026-04-25 补充：个人助理 `PA-M1` Web Chat 连续性已补齐终态 runtime session 重开时的 `conversation_handoff`；同一 chat 的最近用户/助手消息会注入新 session 初始输入 metadata，避免短指代上下文因 session `completed` 丢失。PA-M1 本地 Web Chat 连续性完成度约 92%，剩余仍是飞书真实平台联调与更大范围端到端稳定性验证。
 > - 2026-04-25 记忆系统 P1 补充：`runMemorySystemBenchmark()` 与 `examples/demo-memory-system-benchmark.mjs` 已把 LongMemEval retrieval、objective benchmark、causal regression 汇聚为统一 artifact；`validateSqlFirstRuntimeState()` 已补齐 SQLite SQL-first runtime state 兼容验证。
 > - 2026-04-25 个人助理记忆补充：`examples/personal-assistant` 已新增 `PersonalMemoryStore` 与 SQLite 实现，支持 `/remember`、`/forget`、`/correct`、`/memories`，并把 active user memories 注入普通消息的 `input.metadata.personal_memory`。
+> - 2026-04-26 记忆评测补充：LongMemEval full dataset 路径新增 stable runner。当前已补 `tools/longmemeval-prepare-bundle.py` 和 `examples/demo-longmemeval-stable-benchmark.mjs`，可把 2GB+ official JSON 分片成可被现有 JS loader 稳定消费的 full-bundle shard，并输出 manifest、shard matrix 与 combined summary；OpenAI-compatible 配置也支持 `extraBody` 以关闭 reasoning-only 模型的 thinking 输出。
 > - 2026-04-25 Console 记忆可观测性补充：`GET /v1/sessions/:id/memory` 已返回 retrieval plans、recall bundles、latest plan/bundle 与 memory warnings；Console Memory Inspector 已新增 Observability 视图。
 
 ## 交付总结

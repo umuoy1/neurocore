@@ -24,6 +24,7 @@ const limit = args.limit ? Number.parseInt(args.limit, 10) : undefined;
 const startIndex = args.startIndex ? Number.parseInt(args.startIndex, 10) : 0;
 const granularities = normalizeGranularities(args.granularity);
 const config = await loadOpenAICompatibleConfig(modelConfigPath);
+const extraBody = mergeExtraBody(config.extraBody, process.env.OPENAI_EXTRA_BODY_JSON);
 const datasets = loadLongMemEvalDatasetBundle(datasetTarget, {
   requireFullBundle: args.requireFullBundle === true
 });
@@ -101,6 +102,7 @@ async function generateHypothesis(config, instance, hits) {
     ? `${config.apiUrl}chat/completions`
     : `${config.apiUrl}/chat/completions`;
   const requestPayload = {
+    ...extraBody,
     model: config.model,
     temperature: 0,
     max_tokens: 256,
@@ -244,4 +246,23 @@ function normalizeGranularities(value) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function mergeExtraBody(configExtraBody, envExtraBody) {
+  const parsedEnv = parseJsonObject(envExtraBody);
+  return {
+    ...(configExtraBody ?? {}),
+    ...(parsedEnv ?? {})
+  };
+}
+
+function parseJsonObject(raw) {
+  if (!raw) {
+    return undefined;
+  }
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("OPENAI_EXTRA_BODY_JSON must be a JSON object.");
+  }
+  return parsed;
 }

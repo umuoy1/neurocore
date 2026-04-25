@@ -271,6 +271,7 @@ export class OpenAICompatibleReasoner implements Reasoner {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const url = resolveChatCompletionsUrl(this.config.apiUrl);
     const requestPayload = {
+      ...this.config.extraBody,
       model: this.config.model,
       temperature: this.options.temperature ?? DEFAULT_TEMPERATURE,
       stream: true,
@@ -349,6 +350,7 @@ export class OpenAICompatibleReasoner implements Reasoner {
     const startedAt = Date.now();
     const temperature = this.options.temperature ?? DEFAULT_TEMPERATURE;
     const requestPayload = {
+      ...this.config.extraBody,
       model: this.config.model,
       temperature,
       max_tokens: maxOutputTokens,
