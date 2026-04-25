@@ -25,6 +25,7 @@
     "demo:replay": "npm run build && node examples/demo-replay.mjs",
     "demo:eval": "npm run build && node examples/demo-eval.mjs",
     "benchmark:longmemeval": "npm run build && node examples/demo-longmemeval-benchmark.mjs",
+    "benchmark:memory": "npm run build && node examples/demo-memory-system-benchmark.mjs",
     "benchmark:meta": "npm run build && node examples/demo-meta-benchmark.mjs",
     "benchmark:meta:compare": "npm run build && node examples/demo-meta-benchmark-compare.mjs",
     "benchmark:meta:online": "npm run build && node examples/demo-meta-online-eval.mjs",

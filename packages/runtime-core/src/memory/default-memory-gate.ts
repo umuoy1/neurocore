@@ -24,9 +24,6 @@ export class DefaultMemoryGate extends BaseMemoryGate {
       return input.ctx.profile.memory_config.procedural_memory_enabled !== false;
     });
     const stageOrder: MemoryRetrievalPlan["stage_order"] = ["summary", "experience", "evidence"];
-    if (requestedLayers.includes("semantic") || requestedLayers.includes("procedural")) {
-      stageOrder.push("parametric");
-    }
 
     return {
       plan_id: generateId("mrp"),

@@ -30,10 +30,6 @@ export function createMemoryRecallBundle(input: {
     semantic_cards: input.semanticCards,
     skill_specs: input.skillSpecs,
     warnings: input.warnings,
-    parametric_unit_refs: [
-      ...(input.semanticCards?.flatMap((card) => card.parametric_unit_refs ?? []) ?? []),
-      ...(input.skillSpecs?.flatMap((spec) => spec.parametric_unit_refs ?? []) ?? [])
-    ],
     created_at: nowIso()
   };
 }

@@ -3,6 +3,8 @@
 > 版本：1.0
 > 日期：2026-04-24
 > 状态：正式架构规格
+>
+> 2026-04-25 路线校准：当前实现不再推进微调、soft prompt 或 LoRA 参数层。`ParametricUnit` / `parametric_unit_refs` 只保留为历史兼容元数据，运行时不激活、不训练、不汇聚到 `RecallBundle`，后续主线全部集中在 SQL-first 记忆、治理、评测和个人助理记忆交互。
 
 ---
 
@@ -19,7 +21,7 @@
 3. 记忆必须区分事实真相、行为倾向、程序技能三种不同语义。
 4. 记忆必须可删除、可回滚、可审计、可观测。
 5. 记忆读取必须预算化，不能每轮无条件全量召回。
-6. 记忆系统必须先形成完整工程闭环，再考虑更激进的参数化扩展。
+6. 记忆系统必须先形成完整工程闭环；参数化扩展不进入当前路线。
 
 ---
 
@@ -32,13 +34,13 @@
 2. **核心系统采用四层主链。**
    Working / Episodic / Semantic / Procedural 是正式主链。
 3. **瞬时适应不是核心层。**
-   `micro-LoRA`、在线反向传播、短时参数偏移属于未来增强，不进入当前正式架构。
+   `micro-LoRA`、在线反向传播、短时参数偏移不进入当前正式架构。
 4. **参数记忆不是正式真相源。**
-   `Soft Prompt`、`LoRA Adapter` 只作为可选增益层存在，不承担平台治理语义。
+   `Soft Prompt`、`LoRA Adapter` 当前只保留为历史兼容概念，不承担平台治理语义，也不进入运行时激活路径。
 5. **检索必须先 Gate，再渐进展开。**
    记忆读取是预算化激活，不是每轮固定多路 provider 全开。
-6. **巩固必须先符号化，再参数化。**
-   先生成可读、可治理的 semantic card / skill spec，再决定是否训练参数增益层。
+6. **巩固必须符号化。**
+   当前只生成可读、可治理的 semantic card / skill spec，不训练参数增益层。
 7. **训练必须后台化，推理优先。**
    任何巩固或训练都不能阻塞认知主路径。
 
@@ -52,6 +54,7 @@
 - 把所有记忆直接 merge 进基座权重
 - 以 `Soft Prompt / LoRA` 取代 SQL 记忆库
 - 在线 `micro-LoRA` 训练作为默认路径
+- 在当前路线中训练、加载或激活 `Soft Prompt / LoRA`
 - KV Cache 持久化作为工作记忆主实现
 - token 级 `kNN-LM` 插值作为基础推理路径
 - 依赖 Redis、Kafka、图数据库或分布式锁作为前置条件
@@ -101,7 +104,7 @@
 | Memory Gate | 每轮决定是否检索、检索哪层、预算多少的规划器 |
 | Recall Bundle | 一次检索返回的标准化结果包 |
 | Consolidation | 从 episode 聚合为 semantic/procedural 抽象的过程 |
-| Parametric Unit | 绑定到 card/spec 的可选参数增益层，如 soft prompt 或 LoRA |
+| Parametric Unit | 历史兼容元数据，当前不训练、不加载、不进入 recall 主链 |
 
 ---
 
@@ -115,7 +118,7 @@
 |---|---|---|
 | Runtime State Plane | 当前认知连续性与恢复 | 当前运行真相 |
 | Durable Memory Plane | 长期事实、抽象和技能 | 长期真相 |
-| Parametric Extension Plane | 参数化增益层 | 非真相源 |
+| Parametric Extension Plane | 历史兼容边界 | 非运行主链 |
 
 ### 6.2 四层主链
 
@@ -126,12 +129,12 @@
 | Semantic | semantic cards | 稳定行为倾向 | 长期真相 |
 | Procedural | skill specs | 自动化技能 | 长期真相 |
 
-### 6.3 可选增益层
+### 6.3 参数层兼容边界
 
-| 增益层 | 绑定对象 | 用途 | 是否必需 |
+| 历史字段 | 绑定对象 | 当前行为 | 是否必需 |
 |---|---|---|---|
-| Soft Prompt | Semantic Card | 降低延迟、增加行为偏置 | 否 |
-| LoRA Adapter | Skill Spec | 提升程序性模式生成偏置 | 否 |
+| Soft Prompt | Semantic Card | 只保留兼容元数据，不激活 | 否 |
+| LoRA Adapter | Skill Spec | 只保留兼容元数据，不激活 | 否 |
 
 ---
 
@@ -158,7 +161,7 @@
 - semantic cards
 - procedural skill specs
 - evidence / artifacts
-- 可选 parametric unit 元数据
+- 历史兼容 parametric unit 元数据
 
 ### 7.3 fat snapshot 的地位
 
@@ -312,7 +315,7 @@ Episodic Memory 必须以 SQL 规范化表为核心存储。
 
 ### 9.6 真相原则
 
-如果 semantic/procedural/parametric 结果与 episode 真相冲突，以 episode 及其证据为准。
+如果 semantic/procedural 结果与 episode 真相冲突，以 episode 及其证据为准；历史兼容 parametric 元数据不得参与真相判断。
 
 ### 9.7 特殊保留规则
 
@@ -364,7 +367,7 @@ SemanticMemoryCard
   freshness
   activation_score
   decay_policy
-  optional_parametric_ref
+  historical_parametric_ref
 ```
 
 ### 10.3 为什么必须先有 Card
@@ -377,9 +380,9 @@ Semantic Memory 必须先以 card 形式存在，因为 card：
 - 可被 Meta 和 Console 消费
 - 可在无参数增益层时独立工作
 
-### 10.4 可选参数增益层
+### 10.4 参数元数据兼容边界
 
-在 card 稳定后，可绑定：
+当前不为 card 训练或激活参数增益层。历史对象中如存在以下元数据，只作为审计兼容字段：
 
 ```text
 SemanticParametricUnit
@@ -390,6 +393,8 @@ SemanticParametricUnit
   train_recipe
   source_card_id
 ```
+
+该对象不得影响 `Memory Gate`、`Recall Bundle` 或推理路径。
 
 该层是优化项，不是必需项。
 
@@ -444,9 +449,9 @@ Skill Spec 是平台级正式对象，因为它：
 - 可迁移
 - 可进入 Console
 
-### 11.4 可选参数增益层
+### 11.4 参数元数据兼容边界
 
-在 skill spec 稳定后，可绑定：
+当前不为 skill spec 训练或激活参数增益层。历史对象中如存在以下元数据，只作为审计兼容字段：
 
 ```text
 ProceduralAdapterUnit
@@ -460,7 +465,7 @@ ProceduralAdapterUnit
   source_skill_id
 ```
 
-LoRA adapter 只负责增强默认策略偏置和多步程序性模式，不替代 skill spec。
+LoRA adapter 不进入当前运行路径，也不替代 skill spec。
 
 ### 11.5 程序记忆的正式闭环
 
@@ -521,8 +526,8 @@ MemoryRetrievalPlan
    - top-k episode digests
 3. 证据层
    - evidence / artifacts
-4. 参数层
-   - soft prompt / LoRA
+4. 历史兼容元数据
+   - 不进入检索展开和推理激活
 
 只有上一层不足以支持当前任务时，才进入下一层。
 
@@ -535,7 +540,7 @@ MemoryRecallBundle
   evidence_items
   skill_items
   semantic_items
-  parametric_activations
+  historical_parametric_metadata
   confidence
   staleness_flags
 ```
@@ -610,9 +615,9 @@ MemoryRecallBundle
 1. episode 群组形成
 2. 先生成 semantic card 或 skill spec
 3. 在线评估 card/spec 是否带来真实增益
-4. 达到阈值后再训练 soft prompt 或 LoRA
+4. 保持 card/spec 为主链对象，不训练 soft prompt 或 LoRA
 
-任何参数化训练都不得绕过 card/spec 直接发生。
+当前路线不发生参数化训练。
 
 ### 14.4 相变方向判定
 
@@ -653,16 +658,16 @@ MemoryRecallBundle
 - 在线训练仅限轻量更新
 - 参数训练失败不影响事实真相层
 
-### 15.3 参数化扩展的进入条件
+### 15.3 参数化扩展状态
 
-只有在以下条件成立时，才允许启用 parametric extension：
+当前路线不启用 parametric extension。只有未来重新立项且以下条件全部成立时，才允许重新评估：
 
 - retrieval discipline 已稳定
 - SQL truth layer 已稳定
 - delete / rollback / suspect 传播已稳定
 - evaluation 能证明参数层带来明确增益
 
-如果上述条件不满足，系统应只运行符号化主链。
+当前系统只运行符号化主链。
 
 ---
 
@@ -685,7 +690,7 @@ MemoryRecallBundle
 1. 标记所有派生 semantic/procedural 对象受影响
 2. 将其状态改为 `suspect`
 3. 下次加载前强制重新验证
-4. 必要时停用 parametric unit 或重训
+4. 历史兼容 parametric unit 元数据不得进入激活路径
 
 ### 16.3 不能省略的治理语义
 
@@ -749,7 +754,7 @@ Console 必须可直接展示：
 - semantic cards
 - skill specs
 - suspect / tombstone / archived 状态
-- parametric provenance
+- 历史兼容 parametric provenance 元数据
 
 否则系统不可运营。
 
@@ -834,12 +839,12 @@ LongMemEval 是 retrieval 基准主线。
 - skill spec 成为正式对象
 - 与 RL / Console / Governance 接线
 
-### Phase D：可选参数增益层
+### Phase D：取消参数增益层
 
 目标：
 
-- soft prompt / LoRA 绑定到正式对象
-- provenance、suspect、停用、重训链路打通
+- soft prompt / LoRA 不进入当前实现路线
+- 历史兼容字段不得影响 `Memory Gate`、`Recall Bundle` 或推理路径
 
 ### Phase E：未来实验项
 
@@ -861,6 +866,6 @@ NeuroCore 下一代记忆系统的正式架构，不是“更大的 RAG”，也
 - 用 Semantic Card 和 Skill Spec 承担正式抽象层
 - 用 Memory Gate 和 Progressive Disclosure 控制成本
 - 用 Workspace / Meta / RL / Autonomy 形成完整闭环
-- 在此基础上，才允许引入可选参数增益层
+- 参数层只保留为历史兼容和未来重新立项边界
 
 这是一条可落地、可治理、可回滚、可评测的记忆架构主线。

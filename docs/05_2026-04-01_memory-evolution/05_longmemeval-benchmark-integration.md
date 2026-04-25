@@ -231,6 +231,8 @@ LongMemEval 的原始目标是“长时交互记忆的 assistant benchmark”，
 - official retrieval wrapper 能直接调用官方 `print_retrieval_metrics.py`
 - official QA wrapper 能直接调用官方 `evaluate_qa.py / print_qa_metrics.py`
 - official `jsonl` 导出格式与 LongMemEval README 要求一致
+- 2026-04-25 补充：`runMemorySystemBenchmark()` 已把 LongMemEval retrieval、memory objective benchmark、memory causal regression 汇聚为统一 artifact；`examples/demo-memory-system-benchmark.mjs` 可作为本地 full memory benchmark 入口。
+- 2026-04-25 补充：`validateSqlFirstRuntimeState()` 已提供 SQL-first runtime state 兼容性验证，能检查 legacy fat snapshot payload、SQL 记忆表、checkpoint 表与迁移状态。
 
 ---
 

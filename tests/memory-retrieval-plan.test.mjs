@@ -92,7 +92,7 @@ test("CycleEngine generates a staged memory retrieval plan", async () => {
 
   assert.ok(result.memoryRetrievalPlan);
   assert.deepEqual(result.memoryRetrievalPlan.requested_layers, ["semantic"]);
-  assert.deepEqual(result.memoryRetrievalPlan.stage_order, ["summary", "experience", "evidence", "parametric"]);
+  assert.deepEqual(result.memoryRetrievalPlan.stage_order, ["summary", "experience", "evidence"]);
   assert.equal(result.memoryRecallBundle.plan_id, result.memoryRetrievalPlan.plan_id);
   assert.equal(result.memoryRecallBundle.digests.length, 1);
 });

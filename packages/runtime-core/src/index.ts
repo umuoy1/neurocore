@@ -49,6 +49,7 @@ export * from "./persistence/sqlite-memory-persistence.js";
 export * from "./persistence/sqlite-runtime-state-store.js";
 export * from "./persistence/sqlite-runtime-state-migration.js";
 export * from "./persistence/sqlite-runtime-snapshot-cleanup.js";
+export * from "./persistence/sqlite-sql-first-validator.js";
 export * from "./prediction/in-memory-prediction-store.js";
 export * from "./prediction/prediction-error-computer.js";
 export * from "./prediction/rule-based-predictor.js";

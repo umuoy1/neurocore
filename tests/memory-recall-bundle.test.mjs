@@ -35,7 +35,7 @@ function makeProfile() {
   };
 }
 
-test("MemoryRecallBundle carries semantic cards, skill specs, warnings, and parametric refs", async () => {
+test("MemoryRecallBundle carries semantic cards, skill specs, and warnings without activating parametric refs", async () => {
   const cycleEngine = new CycleEngine();
   const reasoner = {
     name: "memory-bundle-reasoner",
@@ -149,7 +149,7 @@ test("MemoryRecallBundle carries semantic cards, skill specs, warnings, and para
 
   assert.equal(result.memoryRecallBundle.semantic_cards?.length, 1);
   assert.equal(result.memoryRecallBundle.skill_specs?.length, 1);
-  assert.equal(result.memoryRecallBundle.parametric_unit_refs?.length, 2);
+  assert.equal(result.memoryRecallBundle.parametric_unit_refs, undefined);
   assert.ok(result.memoryRecallBundle.warnings?.some((warning) => warning.kind === "suspect_object"));
   assert.ok(result.memoryRecallBundle.warnings?.some((warning) => warning.kind === "tombstoned_object"));
 });

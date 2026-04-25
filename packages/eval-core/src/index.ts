@@ -4,6 +4,7 @@ export * from "./remote-eval-client.js";
 export * from "./types.js";
 export * from "./eval-comparator.js";
 export * from "./longmemeval.js";
+export * from "./memory-system-benchmark.js";
 export * from "./memory-objective-benchmark.js";
 export * from "./memory-causal-regression.js";
 export * from "./meta-benchmark.js";
