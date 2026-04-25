@@ -10,3 +10,5 @@ export * from "./im-gateway/conversation/sqlite-session-mapping-store.js";
 export * from "./im-gateway/conversation/sqlite-platform-user-link-store.js";
 export * from "./im-gateway/approval/sqlite-approval-binding-store.js";
 export * from "./im-gateway/runtime/assistant-runtime-factory.js";
+export * from "./memory/personal-memory-store.js";
+export * from "./memory/sqlite-personal-memory-store.js";

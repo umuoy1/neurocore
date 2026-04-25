@@ -11,6 +11,7 @@ import { SqliteSessionMappingStore } from "../im-gateway/conversation/sqlite-ses
 import { IMGateway } from "../im-gateway/gateway.js";
 import { NotificationDispatcher } from "../im-gateway/notification/notification-dispatcher.js";
 import { AssistantRuntimeFactory } from "../im-gateway/runtime/assistant-runtime-factory.js";
+import { SqlitePersonalMemoryStore } from "../memory/sqlite-personal-memory-store.js";
 import { createWebBrowserTool } from "../connectors/browser/web-browser.js";
 import { createCalendarReadTool } from "../connectors/calendar/calendar-read.js";
 import { createCalendarWriteTool } from "../connectors/calendar/calendar-write.js";
@@ -97,6 +98,9 @@ export async function startPersonalAssistantApp(
   const mappingStore = new SqliteSessionMappingStore({ filename: config.db_path });
   const userLinkStore = new SqlitePlatformUserLinkStore({ filename: config.db_path });
   const approvalBindingStore = new SqliteApprovalBindingStore({ filename: config.db_path });
+  const memoryStore = new SqlitePersonalMemoryStore({ filename: config.db_path });
+  const resolveUserId = (message: { platform: "feishu" | "web"; sender_id: string }) =>
+    userLinkStore.resolveCanonicalUserId(message.platform, message.sender_id) ?? message.sender_id;
   const router = new ConversationRouter({
     builder,
     tenantId: config.tenant_id,
@@ -112,7 +116,9 @@ export async function startPersonalAssistantApp(
   });
   const commandHandler = new CommandHandler({
     router,
-    dispatcher
+    dispatcher,
+    memoryStore,
+    resolveUserId
   });
 
   const gateway = new IMGateway({
@@ -120,7 +126,9 @@ export async function startPersonalAssistantApp(
     router,
     dispatcher,
     approvalBindingStore,
-    commandHandler
+    commandHandler,
+    memoryStore,
+    resolveUserId
   });
   gatewayRef = gateway;
 
@@ -173,6 +181,7 @@ export async function startPersonalAssistantApp(
     async close() {
       await proactive?.stop();
       await gateway.stop();
+      memoryStore.close();
     }
   };
 }

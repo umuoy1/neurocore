@@ -211,9 +211,11 @@ Harness 是模型以外的全部基础设施：工具、记忆、中间件、验
 
 **描述**：跨 session、跨平台、跨时间的个人知识管理。
 
+> 2026-04-25 状态：FR-PA-06.1 的显式用户偏好记忆已进入本地产品主链。当前支持 `/remember`、`/forget`、`/correct` 和 `/memories`，使用 `personal_memories` SQLite 表保存 active/tombstoned 状态，并在普通消息中把 active memories 注入 `input.metadata.personal_memory`。文档知识库、语义搜索、衰减和隐私标签仍是后续项。
+
 | ID | 需求 | 优先级 |
 |---|---|---|
-| FR-PA-06.1 | 用户偏好记忆（"我喜欢简洁格式" → 永久记住） | P0 |
+| FR-PA-06.1 | 用户偏好记忆（"我喜欢简洁格式" → 永久记住） | P0，当前已完成显式命令闭环 |
 | FR-PA-06.2 | 对话记忆（跨 session 检索相关历史对话） | P0 |
 | FR-PA-06.3 | 文档知识库（用户上传的 PDF/文档纳入知识库） | P1 |
 | FR-PA-06.4 | 语义搜索（自然语言查询知识库） | P0 |

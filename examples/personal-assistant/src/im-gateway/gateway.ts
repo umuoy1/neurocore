@@ -6,6 +6,7 @@ import type { IMAdapter } from "./adapter/im-adapter.js";
 import type { CommandHandler } from "./command/command-handler.js";
 import type { ConversationRouter } from "./conversation/conversation-router.js";
 import type { NotificationDispatcher } from "./notification/notification-dispatcher.js";
+import type { PersonalMemoryRecord, PersonalMemoryStore } from "../memory/personal-memory-store.js";
 import type { IMAdapterConfig, IMPlatform, MessageContent, PushNotificationOptions, UnifiedMessage } from "./types.js";
 
 interface RegisteredAdapter {
@@ -30,6 +31,8 @@ export interface IMGatewayOptions {
   dispatcher: NotificationDispatcher;
   approvalBindingStore: ApprovalBindingStore;
   commandHandler?: CommandHandler;
+  memoryStore?: PersonalMemoryStore;
+  resolveUserId?: (message: UnifiedMessage) => string;
 }
 
 export class IMGateway {
@@ -108,12 +111,21 @@ export class IMGateway {
       return;
     }
 
+    const userId = this.resolveUserId(message);
+    const personalMemories = this.options.memoryStore?.listActive(userId, 12) ?? [];
     const input = createUserInput(prompt, {
       platform: message.platform,
       chat_id: message.chat_id,
       sender_id: message.sender_id,
       message_id: message.message_id,
-      reply_to: message.reply_to
+      reply_to: message.reply_to,
+      canonical_user_id: userId,
+      personal_memory: personalMemories.length > 0
+        ? {
+            user_id: userId,
+            memories: personalMemories.map(toMemoryMetadata)
+          }
+        : undefined
     });
 
     const resolved = this.options.router.resolveOrCreate(message, input);
@@ -232,6 +244,10 @@ export class IMGateway {
     return true;
   }
 
+  private resolveUserId(message: UnifiedMessage): string {
+    return this.options.resolveUserId?.(message) ?? message.sender_id;
+  }
+
   private attachProgressStream(
     message: UnifiedMessage,
     sessionId: string,
@@ -325,6 +341,15 @@ export class IMGateway {
       } catch {}
     }
   }
+}
+
+function toMemoryMetadata(memory: PersonalMemoryRecord): Record<string, unknown> {
+  return {
+    memory_id: memory.memory_id,
+    content: memory.content,
+    updated_at: memory.updated_at,
+    correction_of: memory.correction_of
+  };
 }
 
 function shouldForwardProgress(platform: IMPlatform): boolean {

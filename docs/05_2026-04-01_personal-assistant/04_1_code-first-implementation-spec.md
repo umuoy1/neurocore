@@ -84,6 +84,7 @@ PA-M1 对话入口 MVP
   - `conversation_routes`
   - `approval_bindings`
   - `platform_user_links`
+  - `personal_memories`
   - `notification_outbox`
 - `proactive-engine` 自己维护：
   - `schedules`
@@ -172,8 +173,12 @@ examples/personal-assistant/
   - `platform_message_id -> { session_id, approval_id }`
 - `command-handler.ts`
   - `/new`, `/reset`, `/status`, `/history`
+  - `/remember`, `/forget`, `/correct`, `/memories`
 - `assistant-runtime-factory.ts`
   - 创建带共享 `SqliteRuntimeStateStore` 的 `AgentBuilder`
+- `memory/sqlite-personal-memory-store.ts`
+  - 维护用户显式偏好记忆的 active / tombstoned / correction 状态
+  - 在普通消息进入 runtime 前注入 `input.metadata.personal_memory`
 
 ### 4.3 `examples/personal-assistant/src/connectors`
 

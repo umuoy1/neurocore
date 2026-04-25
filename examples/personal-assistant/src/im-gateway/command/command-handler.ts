@@ -1,4 +1,6 @@
 import type { AgentSession } from "@neurocore/protocol";
+import type { PersonalMemoryStore } from "../../memory/personal-memory-store.js";
+import { memorySourceFromMessage } from "../../memory/personal-memory-store.js";
 import type { ConversationRouter } from "../conversation/conversation-router.js";
 import type { NotificationDispatcher } from "../notification/notification-dispatcher.js";
 import type { UnifiedMessage } from "../types.js";
@@ -6,6 +8,8 @@ import type { UnifiedMessage } from "../types.js";
 export interface CommandHandlerOptions {
   router: ConversationRouter;
   dispatcher: NotificationDispatcher;
+  memoryStore?: PersonalMemoryStore;
+  resolveUserId?: (message: UnifiedMessage) => string;
 }
 
 export class CommandHandler {
@@ -17,7 +21,9 @@ export class CommandHandler {
       return false;
     }
 
-    const command = text.trim().split(/\s+/, 1)[0];
+    const trimmed = text.trim();
+    const command = trimmed.split(/\s+/, 1)[0];
+    const args = trimmed.slice(command.length).trim();
     switch (command) {
       case "/new":
         this.options.router.clearRoute(message);
@@ -63,6 +69,19 @@ export class CommandHandler {
         await this.reply(message, `Recent session routes:\n${summary}`);
         return true;
       }
+      case "/remember":
+        await this.remember(message, args);
+        return true;
+      case "/memory":
+      case "/memories":
+        await this.listMemories(message);
+        return true;
+      case "/forget":
+        await this.forget(message, args);
+        return true;
+      case "/correct":
+        await this.correct(message, args);
+        return true;
       case "/skills":
         await this.reply(message, "Skill inspection is not wired into the example app yet.");
         return true;
@@ -78,6 +97,102 @@ export class CommandHandler {
       text
     });
   }
+
+  private async remember(message: UnifiedMessage, content: string): Promise<void> {
+    if (!this.options.memoryStore) {
+      await this.reply(message, "Personal memory is not configured.");
+      return;
+    }
+    if (content.trim().length === 0) {
+      await this.reply(message, "Usage: /remember <fact or preference>");
+      return;
+    }
+
+    const memory = this.options.memoryStore.remember({
+      user_id: this.resolveUserId(message),
+      content,
+      source: memorySourceFromMessage(message),
+      created_at: message.timestamp
+    });
+    await this.reply(message, `Remembered ${memory.memory_id}: ${memory.content}`);
+  }
+
+  private async listMemories(message: UnifiedMessage): Promise<void> {
+    if (!this.options.memoryStore) {
+      await this.reply(message, "Personal memory is not configured.");
+      return;
+    }
+
+    const memories = this.options.memoryStore.listActive(this.resolveUserId(message));
+    if (memories.length === 0) {
+      await this.reply(message, "No active personal memories.");
+      return;
+    }
+
+    await this.reply(
+      message,
+      memories
+        .map((memory) => `${memory.memory_id}: ${memory.content}`)
+        .join("\n")
+    );
+  }
+
+  private async forget(message: UnifiedMessage, target: string): Promise<void> {
+    if (!this.options.memoryStore) {
+      await this.reply(message, "Personal memory is not configured.");
+      return;
+    }
+    if (target.trim().length === 0) {
+      await this.reply(message, "Usage: /forget <memory_id | text | all>");
+      return;
+    }
+
+    const forgotten = this.options.memoryStore.forget(
+      this.resolveUserId(message),
+      target,
+      message.timestamp
+    );
+    if (forgotten.length === 0) {
+      await this.reply(message, "No matching active memories found.");
+      return;
+    }
+
+    await this.reply(
+      message,
+      `Forgot ${forgotten.length} memor${forgotten.length === 1 ? "y" : "ies"}:\n${forgotten
+        .map((memory) => `${memory.memory_id}: ${memory.content}`)
+        .join("\n")}`
+    );
+  }
+
+  private async correct(message: UnifiedMessage, args: string): Promise<void> {
+    if (!this.options.memoryStore) {
+      await this.reply(message, "Personal memory is not configured.");
+      return;
+    }
+
+    const parsed = parseCorrection(args);
+    if (!parsed) {
+      await this.reply(message, "Usage: /correct <memory_id | old text> => <new fact or preference>");
+      return;
+    }
+
+    const result = this.options.memoryStore.correct(
+      this.resolveUserId(message),
+      parsed.target,
+      parsed.content,
+      memorySourceFromMessage(message),
+      message.timestamp
+    );
+    const prefix = result.forgotten.length > 0
+      ? `Corrected ${result.forgotten.length} memor${result.forgotten.length === 1 ? "y" : "ies"}`
+      : "Stored correction without matching an active memory";
+    await this.reply(message, `${prefix}. Remembered ${result.memory.memory_id}: ${result.memory.content}`);
+  }
+
+  private resolveUserId(message: UnifiedMessage): string {
+    return this.options.resolveUserId?.(message) ?? message.sender_id;
+  }
 }
 
 function extractText(message: UnifiedMessage): string | undefined {
@@ -85,6 +200,23 @@ function extractText(message: UnifiedMessage): string | undefined {
     return message.content.text;
   }
   return undefined;
+}
+
+function parseCorrection(args: string): { target: string; content: string } | undefined {
+  const splitIndex = args.indexOf("=>");
+  if (splitIndex >= 0) {
+    const target = args.slice(0, splitIndex).trim();
+    const content = args.slice(splitIndex + 2).trim();
+    return target && content ? { target, content } : undefined;
+  }
+
+  const firstWhitespace = args.search(/\s/);
+  if (firstWhitespace <= 0) {
+    return undefined;
+  }
+  const target = args.slice(0, firstWhitespace).trim();
+  const content = args.slice(firstWhitespace).trim();
+  return target && content ? { target, content } : undefined;
 }
 
 function formatSessionStatus(session: AgentSession | undefined): string {

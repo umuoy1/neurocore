@@ -281,6 +281,8 @@ PA-M3 主动运营闭环
 
 ### PA-M4：个人知识与记忆
 
+> 2026-04-25 增量：用户偏好记忆的最小治理闭环已落地。`examples/personal-assistant/src/memory/` 新增 SQLite-backed `PersonalMemoryStore`，IM 命令支持 `/remember`、`/forget`、`/correct`、`/memories`，普通消息会把 active memories 注入 runtime input metadata。PA-M4 仍未完成文档知识库、引用式知识问答、衰减和隐私标签。
+
 **产品目标**：
 让助理真正变成“懂这个用户”的系统，而不是每轮都从零开始的聊天机器人。
 
@@ -293,6 +295,7 @@ PA-M3 主动运营闭环
 
 **核心范围**：
 
+- 显式个人偏好记忆命令与 active/tombstoned 状态
 - 知识库 ingest
 - `knowledge_search`
 - 个人偏好 profile

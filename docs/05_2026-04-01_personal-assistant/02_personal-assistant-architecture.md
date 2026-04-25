@@ -42,7 +42,7 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**关键约束**：个人助理首先作为 `examples/` 下的独立应用实现，不新增 workspace package；不修改 `protocol / runtime-core / sdk-core` 等核心包。所有集成通过已有的 SPI 接口完成（`Tool`、`MemoryProvider`、`Sensor`/`Actuator`）。
+**关键约束**：个人助理首先作为 `examples/` 下的独立应用实现，不新增 workspace package；不修改 `protocol / runtime-core / sdk-core` 等核心包。所有集成通过已有的 SPI 接口完成（`Tool`、`MemoryProvider`、`Sensor`/`Actuator`）。产品层个人偏好记忆通过 `personal_memories` SQLite 表和 IM 命令治理，再注入 runtime input metadata。
 
 ---
 
@@ -57,6 +57,9 @@ examples/
     │   ├── app/
     │   │   ├── create-personal-assistant.ts
     │   │   └── assistant-config.ts
+    │   ├── memory/
+    │   │   ├── personal-memory-store.ts
+    │   │   └── sqlite-personal-memory-store.ts
     │   ├── im-gateway/
     │   │   ├── types.ts
     │   │   ├── adapter/
