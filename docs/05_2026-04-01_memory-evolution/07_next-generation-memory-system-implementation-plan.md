@@ -5,9 +5,19 @@
 > 目标：把正式架构规格压缩成后续可直接写代码的实施单。本文档之后，记忆系统不再新增设计文档，后续工作全部转入代码实现与回归验证。
 >
 > 2026-04-24 实施回写：
-> - Phase 0 ~ Phase 6 当前阶段已完成。
-> - 当前代码已补齐：正式 `Episode` 真相层、`Memory Gate + Recall Bundle`、`SemanticCard / ProceduralSkillSpec` 正式对象、episode→card/spec 的 `suspect / tombstone / rollback` 治理传播、`memory-objective-benchmark / memory-causal-regression` 两条确定性评测，以及 Recall Bundle 对 `parametric_unit_refs` 的汇聚。
+> - Phase 0 ~ Phase 5 当前阶段已完成。
+> - 当前代码已补齐：正式 `Episode` 真相层、`Memory Gate + Recall Bundle`、`SemanticCard / ProceduralSkillSpec` 正式对象、episode→card/spec 的 `suspect / tombstone / rollback` 治理传播，以及 `memory-objective-benchmark / memory-causal-regression` 两条确定性评测。
 > - 本文档后续只维护“已完成 / 非目标 / 后续增强”边界，不再作为待施工清单。
+>
+> 2026-04-25 路线校准：
+> - Phase 6 `Parametric extension` 已取消为当前路线非目标。
+> - `parametric_unit_refs` 只保留为历史兼容字段，不再由 `RecallBundle` 汇聚，不参与 `CycleEngine` 激活，也不触发 soft prompt / LoRA 训练。
+>
+> 2026-04-25 P1 回写：
+> - 新增 `runMemorySystemBenchmark()` 与 `examples/demo-memory-system-benchmark.mjs`，把 LongMemEval retrieval、objective benchmark、causal regression 汇聚成一个可落盘 artifact。
+> - 新增 `validateSqlFirstRuntimeState()`，可检查 SQLite runtime state 是否仍含 legacy fat memory/checkpoint payload，并验证 SQL-first 表与迁移状态。
+> - 个人助理显式记忆交互已落地：`/remember`、`/forget`、`/correct`、`/memories` 写入 `personal_memories` SQLite 表，并注入 `input.metadata.personal_memory`。
+> - Console Memory Inspector 已新增 Observability 视图；runtime-server memory endpoint 已返回 retrieval plan、recall bundle 与 memory warnings。
 
 ---
 
@@ -20,7 +30,7 @@
 3. 引入 `Memory Gate + Recall Bundle`
 4. 把 `Semantic Card` 和 `Skill Spec` 升级为正式对象
 5. 打通删除、回滚、评测与 Console 可观测性
-6. 在主链稳定后，才进入可选参数增益层
+6. 保持参数层为非目标，避免训练系统复杂度进入当前主线
 
 本计划不再讨论“要不要这样设计”，只定义“按什么顺序改、改哪些文件、如何验收”。
 
@@ -103,11 +113,11 @@
 3. Semantic / Procedural formal objects
 4. Governance
 5. Evaluation
-6. Parametric extension
+6. Evaluation / Console observability
 
-### 3.3 先符号化闭环，再参数化扩展
+### 3.3 只做符号化闭环
 
-在 `Semantic Card / Skill Spec / tombstone / suspect / rollback` 没打通之前，不进入 `Soft Prompt / LoRA` 主实施。
+当前路线不进入 `Soft Prompt / LoRA` 主实施。`Semantic Card / Skill Spec / tombstone / suspect / rollback` 是记忆系统主链。
 
 ### 3.4 只接受可回归改造
 
@@ -311,7 +321,7 @@
 2. episode tombstone 时：
    - 标记相关 semantic cards
    - 标记相关 skill specs
-   - 后续可停用 parametric refs
+   - 历史兼容 parametric refs 不得进入激活路径
 3. 在 runtime 恢复时检查 suspect 对象
 4. 在 Console API 层暴露治理状态
 
@@ -365,31 +375,31 @@
 - retrieval benchmark 可稳定跑
 - objective / causal benchmark 有 deterministic fixture
 - benchmark 结果可写入 artifact
+- memory system benchmark 可一次性汇聚 retrieval / objective / causal 三条报告
+- SQL-first validator 可验证 legacy migration 后 runtime snapshot 已瘦身
 
-### Phase 6：可选参数增益层
+### Phase 6：参数增益层
 
 目标：
 
-- 在主链稳定后，引入 `Soft Prompt / LoRA` 作为可选优化
+- 当前路线取消 `Soft Prompt / LoRA` 实施
+- 保留协议字段的历史兼容边界，但不训练、不加载、不激活
 
 前置条件：
 
-- Phase 0 ~ 5 全部完成
-- delete / suspect / rollback 已稳定
-- evaluation 证明参数层有明确收益
+- 未来如需重新启用，必须重新立项并先完成收益评测
 
 实施内容：
 
-1. `Semantic Card -> Soft Prompt` 绑定
-2. `Skill Spec -> LoRA Adapter` 绑定
-3. provenance / enable / disable / retrain 元数据
-4. `CycleEngine` 在 Recall Bundle 基础上可激活 parametric unit
+1. `RecallBundle` 不汇聚 `parametric_unit_refs`
+2. `CycleEngine` 不激活 parametric unit
+3. 历史兼容字段不得影响检索、治理或响应生成
 
 主要文件：
 
-- `packages/runtime-core/src/skill/procedural-memory-provider.ts`
-- `packages/runtime-core/src/cycle/cycle-engine.ts`
-- `packages/memory-core/src/semantic-memory.ts`
+- `packages/runtime-core/src/memory/recall-bundle.ts`
+- `tests/memory-recall-bundle.test.mjs`
+- `tests/memory-retrieval-plan.test.mjs`
 
 说明：
 
@@ -398,6 +408,7 @@
 - base weight merge
 - 默认在线反向传播
 - 把小模型当唯一长期记忆体
+- soft prompt / LoRA 训练、加载或激活
 
 ---
 
@@ -440,10 +451,10 @@
 5. `governance`
 6. `eval-core`
 7. `console/runtime-server` 的可视化和接口补齐
-8. `parametric extension`（如果前面全部稳定）
+8. `console/runtime-server` 的可视化和接口补齐
 
-不要并行做 Phase 2 和 Phase 6。  
-不要在 Phase 3 前提前上参数增益层。  
+不要并行做 Phase 2 和参数层实验。  
+不要在当前路线中提前上参数增益层。  
 不要在治理链没打通前做大规模训练资产落盘。
 
 ---
