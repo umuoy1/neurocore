@@ -3,6 +3,7 @@ import { OpenAICompatibleReasoner } from "@neurocore/sdk-node";
 import type { Reasoner } from "@neurocore/protocol";
 import { CliAdapter } from "../im-gateway/adapter/cli.js";
 import { DiscordAdapter } from "../im-gateway/adapter/discord.js";
+import { EmailAdapter } from "../im-gateway/adapter/email.js";
 import { FeishuAdapter } from "../im-gateway/adapter/feishu.js";
 import { SlackAdapter } from "../im-gateway/adapter/slack.js";
 import { TelegramAdapter } from "../im-gateway/adapter/telegram.js";
@@ -216,6 +217,13 @@ export async function startPersonalAssistantApp(
         api_base_url: config.discord.api_base_url
       }),
       allowed_senders: config.discord.allowed_senders
+    });
+  }
+
+  if (config.connectors?.email?.sender) {
+    gateway.registerAdapter(new EmailAdapter({ sender: config.connectors.email.sender }), {
+      auth: {},
+      allowed_senders: []
     });
   }
 

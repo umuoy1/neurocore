@@ -375,3 +375,33 @@
 |---|---|
 | Ledger | `PA2-P1-03` 已标记 completed |
 | 下一项 | `PA2-P1-04` Email adapter with webhook and cron integration |
+
+### PA2-P1-04 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Email adapter | 新增 `EmailAdapter`，支持 inbound email event、outbound `EmailSendProvider` delivery 和 no-op edit/typing |
+| Untrusted ingress | inbound email 进入 gateway 前写入 `UNTRUSTED_EMAIL_CONTENT`，metadata/channel/identity 均带 untrusted 标记 |
+| Delivery route | `IMPlatform` 扩展为 `email`，NotificationDispatcher 可通过 email route 投递 cron/background task 结果 |
+| Approval trace | `email_send` 高风险工具保持 approval 拦截；auto-approved 执行后 trace structured payload 记录 message_id 和 tool_name |
+| App wiring | `startPersonalAssistantApp` 在存在 email sender provider 时注册 EmailAdapter |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-email-adapter.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-proactive.test.mjs` | 通过，4 项回归 |
+| `node --test tests/personal-assistant-approval.test.mjs` | 通过，5 项回归 |
+| `npm run pa:task-check -- PA2-P1-04` | 通过 |
+| `npm run pa:accept -- PA2-P1-04` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P1-04` 已标记 completed |
+| 下一项 | `PA2-P1-05` Skills registry and AgentSkills compatibility |

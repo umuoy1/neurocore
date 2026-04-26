@@ -1,4 +1,4 @@
-export type IMPlatform = "cli" | "discord" | "feishu" | "slack" | "telegram" | "web";
+export type IMPlatform = "cli" | "discord" | "email" | "feishu" | "slack" | "telegram" | "web";
 
 export type PersonalChannelKind = "cli" | "im" | "web";
 
@@ -154,10 +154,10 @@ export interface PushNotificationOptions {
   chat_id?: string;
 }
 
-export const IM_PLATFORMS = ["cli", "discord", "feishu", "slack", "telegram", "web"] as const;
+export const IM_PLATFORMS = ["cli", "discord", "email", "feishu", "slack", "telegram", "web"] as const;
 
 export function isIMPlatform(value: unknown): value is IMPlatform {
-  return value === "cli" || value === "discord" || value === "feishu" || value === "slack" || value === "telegram" || value === "web";
+  return value === "cli" || value === "discord" || value === "email" || value === "feishu" || value === "slack" || value === "telegram" || value === "web";
 }
 
 export function getChannelKind(platform: IMPlatform): PersonalChannelKind {
@@ -201,6 +201,22 @@ export function getDefaultChannelCapabilities(platform: IMPlatform): ChannelCapa
         streaming: true,
         edits: true,
         threads: false,
+        reactions: false,
+        voice: false
+      };
+    case "email":
+      return {
+        text: true,
+        markdown: true,
+        status: true,
+        images: true,
+        files: true,
+        actions: false,
+        approval_requests: true,
+        typing: false,
+        streaming: false,
+        edits: false,
+        threads: true,
         reactions: false,
         voice: false
       };
