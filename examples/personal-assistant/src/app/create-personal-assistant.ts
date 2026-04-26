@@ -2,6 +2,7 @@ import { defineAgent, type AgentBuilder } from "@neurocore/sdk-core";
 import { OpenAICompatibleReasoner } from "@neurocore/sdk-node";
 import type { Reasoner } from "@neurocore/protocol";
 import { CliAdapter } from "../im-gateway/adapter/cli.js";
+import { DiscordAdapter } from "../im-gateway/adapter/discord.js";
 import { FeishuAdapter } from "../im-gateway/adapter/feishu.js";
 import { SlackAdapter } from "../im-gateway/adapter/slack.js";
 import { TelegramAdapter } from "../im-gateway/adapter/telegram.js";
@@ -205,6 +206,16 @@ export async function startPersonalAssistantApp(
         api_base_url: config.slack.api_base_url
       }),
       allowed_senders: config.slack.allowed_senders
+    });
+  }
+
+  if (config.discord?.enabled && config.discord.bot_token) {
+    gateway.registerAdapter(new DiscordAdapter(), {
+      auth: compactAuth({
+        bot_token: config.discord.bot_token,
+        api_base_url: config.discord.api_base_url
+      }),
+      allowed_senders: config.discord.allowed_senders
     });
   }
 

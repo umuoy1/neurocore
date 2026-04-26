@@ -345,3 +345,33 @@
 |---|---|
 | Ledger | `PA2-P1-02` 已标记 completed |
 | 下一项 | `PA2-P1-03` Discord adapter |
+
+### PA2-P1-03 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Discord adapter | 新增 `DiscordAdapter`，实现 Gateway message event 归一化、Discord REST 发送/编辑/typing 和测试用 `receiveGatewayEvent` |
+| Channel / DM / thread | channel 与 thread 直接作为 Discord channel target；`dm:<user_id>` 会先创建 DM channel 再发送 |
+| Auth boundary | adapter start 要求 bot token，入口忽略 bot author，并用 `allowed_senders` 阻断未授权 user |
+| Approval callback | Discord button interaction 归一化为 PersonalGateway action message，保留 reply message id |
+| Delivery | markdown、status、approval_request、image/file fallback 均可转为 Discord message payload |
+| App config | 支持 `DISCORD_BOT_TOKEN`、`DISCORD_API_BASE_URL`、`DISCORD_ALLOWED_SENDERS` 和本地 config |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-discord.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-gateway.test.mjs` | 通过，7 项回归 |
+| `npm run pa:task-check -- PA2-P1-03` | 通过 |
+| `npm run pa:accept -- PA2-P1-03` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P1-03` 已标记 completed |
+| 下一项 | `PA2-P1-04` Email adapter with webhook and cron integration |

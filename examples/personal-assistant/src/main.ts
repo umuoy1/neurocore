@@ -4,6 +4,7 @@ export * from "./im-gateway/types.js";
 export * from "./im-gateway/ingress.js";
 export * from "./im-gateway/gateway.js";
 export * from "./im-gateway/adapter/cli.js";
+export * from "./im-gateway/adapter/discord.js";
 export * from "./im-gateway/adapter/web-chat.js";
 export * from "./im-gateway/adapter/feishu.js";
 export * from "./im-gateway/adapter/slack.js";
