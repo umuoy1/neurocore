@@ -435,3 +435,32 @@
 |---|---|
 | Ledger | `PA2-P1-05` 已标记 completed |
 | 下一项 | `PA2-P1-06` MCP client and tool filtering |
+
+### PA2-P1-06 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| MCP client | 新增 `PersonalMcpClient`，支持 HTTP JSON-RPC 和 stdio JSON-line `tools/list` / `tools/call` |
+| Tool filtering | `include_tools` 和 `exclude_tools` 在 discovery 阶段过滤 MCP tools |
+| ToolGateway injection | `createPersonalAssistantAgent` 支持通过 `mcpTools` options 注入发现后的 MCP tools |
+| Untrusted output | MCP tool summary 以 `UNTRUSTED_MCP_CONTENT` 开头，payload 标记 `untrusted_content` 和 `untrusted_reason` |
+| Resource marking | MCP result resources 会被复制到 payload.resources，并逐条标记 `trust: untrusted` |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-mcp.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-e2e.test.mjs` | 通过，6 项回归 |
+| `npm run pa:task-check -- PA2-P1-06` | 通过 |
+| `npm run pa:accept -- PA2-P1-06` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P1-06` 已标记 completed |
+| 下一项 | `PA2-P1-07` Subagent lifecycle and task panel |

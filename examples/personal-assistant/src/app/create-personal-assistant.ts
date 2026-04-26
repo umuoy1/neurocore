@@ -1,6 +1,6 @@
 import { defineAgent, type AgentBuilder } from "@neurocore/sdk-core";
 import { OpenAICompatibleReasoner } from "@neurocore/sdk-node";
-import type { Reasoner } from "@neurocore/protocol";
+import type { Reasoner, Tool } from "@neurocore/protocol";
 import { CliAdapter } from "../im-gateway/adapter/cli.js";
 import { DiscordAdapter } from "../im-gateway/adapter/discord.js";
 import { EmailAdapter } from "../im-gateway/adapter/email.js";
@@ -41,6 +41,7 @@ export interface RunningPersonalAssistantApp {
 export interface PersonalAssistantAgentOptions {
   personalMemoryStore?: PersonalMemoryStore;
   skillRegistry?: AgentSkillRegistry;
+  mcpTools?: Tool[];
 }
 
 export function createPersonalAssistantAgent(
@@ -111,6 +112,10 @@ export function createPersonalAssistantAgent(
     for (const tool of createPersonalSkillTools(skillRegistry)) {
       agent.registerTool(tool);
     }
+  }
+
+  for (const tool of options.mcpTools ?? []) {
+    agent.registerTool(tool);
   }
 
   return agent;

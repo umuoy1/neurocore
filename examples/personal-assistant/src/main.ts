@@ -20,5 +20,6 @@ export * from "./im-gateway/runtime/assistant-runtime-factory.js";
 export * from "./memory/personal-memory-store.js";
 export * from "./memory/personal-memory-recall-provider.js";
 export * from "./memory/sqlite-personal-memory-store.js";
+export * from "./mcp/personal-mcp-client.js";
 export * from "./skills/agent-skill-registry.js";
 export * from "./skills/skill-tools.js";

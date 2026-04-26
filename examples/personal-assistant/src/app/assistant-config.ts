@@ -4,6 +4,7 @@ import type { OpenAICompatibleConfig } from "@neurocore/sdk-node";
 import type { Reasoner } from "@neurocore/protocol";
 import type { HeartbeatCheck, ScheduleEntry } from "../proactive/types.js";
 import type { ServiceConnectorConfig } from "../connectors/types.js";
+import type { PersonalMcpServerConfig } from "../mcp/personal-mcp-client.js";
 
 export interface PersonalAssistantAppConfig {
   db_path: string;
@@ -69,6 +70,10 @@ export interface PersonalAssistantAppConfig {
   skills?: {
     enabled?: boolean;
     directories?: string[];
+  };
+  mcp?: {
+    enabled?: boolean;
+    servers?: PersonalMcpServerConfig[];
   };
   proactive?: {
     enabled?: boolean;
@@ -175,6 +180,7 @@ export function createPersonalAssistantConfigFromEnv(
       enabled: parseOptionalBoolean(env.PERSONAL_ASSISTANT_SKILLS_ENABLED) ?? appConfig.skills?.enabled,
       directories: parseOptionalList(env.PERSONAL_ASSISTANT_SKILL_DIRS) ?? appConfig.skills?.directories
     },
+    mcp: appConfig.mcp,
     proactive: appConfig.proactive
   };
 }
