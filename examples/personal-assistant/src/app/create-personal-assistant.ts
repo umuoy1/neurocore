@@ -27,6 +27,8 @@ import { createEmailReadTool } from "../connectors/email/email-read.js";
 import { createEmailSendTool } from "../connectors/email/email-send.js";
 import { createWebSearchTool } from "../connectors/search/web-search.js";
 import { ProactiveEngine } from "../proactive/proactive-engine.js";
+import { createAgentSkillRegistryFromConfig, type AgentSkillRegistry } from "../skills/agent-skill-registry.js";
+import { createPersonalSkillTools } from "../skills/skill-tools.js";
 import type { PersonalAssistantAppConfig } from "./assistant-config.js";
 
 export interface RunningPersonalAssistantApp {
@@ -38,6 +40,7 @@ export interface RunningPersonalAssistantApp {
 
 export interface PersonalAssistantAgentOptions {
   personalMemoryStore?: PersonalMemoryStore;
+  skillRegistry?: AgentSkillRegistry;
 }
 
 export function createPersonalAssistantAgent(
@@ -45,6 +48,7 @@ export function createPersonalAssistantAgent(
   options: PersonalAssistantAgentOptions = {}
 ): AgentBuilder {
   const reasoner = resolveReasoner(config.reasoner, config.openai);
+  const skillRegistry = options.skillRegistry ?? createAgentSkillRegistryFromConfig(config.skills);
   const agent = defineAgent({
     id: config.agent?.id ?? "personal-assistant",
     name: config.agent?.name ?? "NeuroCore Assistant",
@@ -103,6 +107,12 @@ export function createPersonalAssistantAgent(
     agent.registerMemoryProvider(new PersonalMemoryRecallProvider(options.personalMemoryStore));
   }
 
+  if (skillRegistry) {
+    for (const tool of createPersonalSkillTools(skillRegistry)) {
+      agent.registerTool(tool);
+    }
+  }
+
   return agent;
 }
 
@@ -110,9 +120,10 @@ export async function startPersonalAssistantApp(
   config: PersonalAssistantAppConfig
 ): Promise<RunningPersonalAssistantApp> {
   const memoryStore = new SqlitePersonalMemoryStore({ filename: config.db_path });
+  const skillRegistry = createAgentSkillRegistryFromConfig(config.skills);
   const runtimeFactory = new AssistantRuntimeFactory({
     dbPath: config.db_path,
-    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore })
+    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, skillRegistry })
   });
   const builder = runtimeFactory.getBuilder();
 
@@ -138,6 +149,7 @@ export async function startPersonalAssistantApp(
     router,
     dispatcher,
     memoryStore,
+    skillRegistry,
     resolveUserId,
     model: config.openai
       ? {

@@ -5,6 +5,7 @@ import type { ConversationRouter } from "../conversation/conversation-router.js"
 import type { SessionRoute } from "../types.js";
 import type { NotificationDispatcher } from "../notification/notification-dispatcher.js";
 import type { UnifiedMessage } from "../types.js";
+import type { AgentSkillRecord, AgentSkillRegistry } from "../../skills/agent-skill-registry.js";
 
 export type CommandRiskLevel = "none" | "low" | "medium" | "high";
 
@@ -31,6 +32,7 @@ export interface CommandHandlerOptions {
   router: ConversationRouter;
   dispatcher: NotificationDispatcher;
   memoryStore?: PersonalMemoryStore;
+  skillRegistry?: AgentSkillRegistry;
   resolveUserId?: (message: UnifiedMessage) => string;
   model?: CommandHandlerModelInfo;
 }
@@ -199,10 +201,16 @@ export class CommandHandler {
         name: "/skills",
         aliases: [],
         description: "List or inspect skills.",
-        usage: "/skills",
+        usage: "/skills [search <query> | run <skill_id> [input] | audit]",
         risk_level: "none",
-        parameters: [],
-        execute: ({ message }) => this.reply(message, "Skill inspection is not wired into the example app yet.")
+        parameters: [
+          {
+            name: "subcommand",
+            required: false,
+            description: "Optional search, run or audit operation."
+          }
+        ],
+        execute: ({ message, args }) => this.skills(message, args)
       }
     ];
   }
@@ -262,6 +270,53 @@ export class CommandHandler {
       `model: ${model?.model ?? "custom"}`,
       `api_url: ${model?.apiUrl ?? "n/a"}`
     ].join("\n"));
+  }
+
+  private async skills(message: UnifiedMessage, args: string): Promise<void> {
+    const registry = this.options.skillRegistry;
+    if (!registry) {
+      await this.reply(message, "Skills are not configured.");
+      return;
+    }
+
+    const [subcommand, ...rest] = args.split(/\s+/).filter(Boolean);
+    if (!subcommand) {
+      await this.reply(message, formatSkillList(registry.listSkills({ platform: message.platform }), message.platform));
+      return;
+    }
+
+    if (subcommand === "search") {
+      const query = rest.join(" ");
+      await this.reply(message, formatSkillList(registry.searchSkills(query, { platform: message.platform }), message.platform));
+      return;
+    }
+
+    if (subcommand === "audit") {
+      await this.reply(message, formatSkillAudit(registry.listSkills({ platform: message.platform }), message.platform));
+      return;
+    }
+
+    if (subcommand === "run") {
+      const [skillId, ...inputParts] = rest;
+      if (!skillId) {
+        await this.reply(message, "Usage: /skills run <skill_id> [input]");
+        return;
+      }
+      try {
+        const result = registry.invokeSkill(skillId, inputParts.join(" "), { platform: message.platform });
+        await this.reply(message, [
+          `Skill invoked: ${result.skill.name}`,
+          `risk: ${result.skill.risk_level}`,
+          `permissions: ${formatSkillPermissions(result.skill.permissions)}`,
+          result.input ? `input: ${result.input}` : undefined
+        ].filter(Boolean).join("\n"));
+      } catch (error) {
+        await this.reply(message, error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+
+    await this.reply(message, "Usage: /skills [search <query> | run <skill_id> [input] | audit]");
   }
 
   private async usage(message: UnifiedMessage): Promise<void> {
@@ -417,6 +472,34 @@ function extractText(message: UnifiedMessage): string | undefined {
     return message.content.text;
   }
   return undefined;
+}
+
+function formatSkillList(skills: AgentSkillRecord[], platform: string): string {
+  if (skills.length === 0) {
+    return `No skills are available for ${platform}.`;
+  }
+  return [
+    `Skills for ${platform}:`,
+    ...skills.map((skill) =>
+      `${skill.id}: ${skill.name} (${skill.risk_level}) permissions=${formatSkillPermissions(skill.permissions)}`
+    )
+  ].join("\n");
+}
+
+function formatSkillAudit(skills: AgentSkillRecord[], platform: string): string {
+  if (skills.length === 0) {
+    return `No skills are available for ${platform}.`;
+  }
+  return [
+    `Skill audit for ${platform}:`,
+    ...skills.map((skill) =>
+      `${skill.id}: enabled=${skill.enabled}; risk=${skill.risk_level}; channels=${skill.channels.length > 0 ? skill.channels.join(",") : "all"}; permissions=${formatSkillPermissions(skill.permissions)}`
+    )
+  ].join("\n");
+}
+
+function formatSkillPermissions(permissions: string[]): string {
+  return permissions.length > 0 ? permissions.join(",") : "none";
 }
 
 function parseCorrection(args: string): { target: string; content: string } | undefined {

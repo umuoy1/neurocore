@@ -66,6 +66,10 @@ export interface PersonalAssistantAppConfig {
     api_base_url?: string;
     allowed_senders?: string[];
   };
+  skills?: {
+    enabled?: boolean;
+    directories?: string[];
+  };
   proactive?: {
     enabled?: boolean;
     heartbeat_interval_ms?: number;
@@ -166,6 +170,10 @@ export function createPersonalAssistantConfigFromEnv(
       bot_token: discordBotToken,
       api_base_url: env.DISCORD_API_BASE_URL ?? appConfig.discord?.api_base_url,
       allowed_senders: parseOptionalList(env.DISCORD_ALLOWED_SENDERS) ?? appConfig.discord?.allowed_senders
+    },
+    skills: {
+      enabled: parseOptionalBoolean(env.PERSONAL_ASSISTANT_SKILLS_ENABLED) ?? appConfig.skills?.enabled,
+      directories: parseOptionalList(env.PERSONAL_ASSISTANT_SKILL_DIRS) ?? appConfig.skills?.directories
     },
     proactive: appConfig.proactive
   };

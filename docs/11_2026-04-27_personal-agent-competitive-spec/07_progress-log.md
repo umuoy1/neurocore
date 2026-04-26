@@ -405,3 +405,33 @@
 |---|---|
 | Ledger | `PA2-P1-04` 已标记 completed |
 | 下一项 | `PA2-P1-05` Skills registry and AgentSkills compatibility |
+
+### PA2-P1-05 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Skill registry | 新增 `AgentSkillRegistry`，递归发现 AgentSkills 风格 `SKILL.md` 并解析 id、name、description、permissions、channels、risk_level、enabled、content_hash |
+| Channel governance | skill list/search/invoke 会按 `IMPlatform` 过滤 channel visibility，隐藏技能无法在不允许渠道运行 |
+| Slash command | `/skills` 支持 list、search、audit、run，未配置 registry 时明确返回未配置 |
+| Tool gateway | 新增 `personal_skill_list` 和 `personal_skill_invoke`，在工具层输出结构化 skill metadata、instructions、permissions 和 allowed 状态 |
+| App config | 支持 `PERSONAL_ASSISTANT_SKILLS_ENABLED`、`PERSONAL_ASSISTANT_SKILL_DIRS` 和本地 config skills directories |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-skills.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-e2e.test.mjs` | 通过，6 项回归 |
+| `node --test tests/personal-assistant-gateway.test.mjs` | 通过，7 项回归 |
+| `npm run pa:task-check -- PA2-P1-05` | 通过 |
+| `npm run pa:accept -- PA2-P1-05` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P1-05` 已标记 completed |
+| 下一项 | `PA2-P1-06` MCP client and tool filtering |
