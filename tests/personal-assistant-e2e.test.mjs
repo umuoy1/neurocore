@@ -53,10 +53,74 @@ test("personal assistant can call web_search and answer with the observation", {
     assert.equal(result.finalState, "completed");
     assert.match(result.outputText ?? "", /NeuroCore/);
     assert.match(result.outputText ?? "", /structured agent runtime/i);
+    assert.match(result.outputText ?? "", /UNTRUSTED_WEB_CONTENT/);
+    assert.match(result.outputText ?? "", /\[src_1\] https:\/\/example\.test\/neurocore/);
+
+    const observation = findToolObservation(session, "web_search");
+    const payload = observation.structured_payload;
+    assert.equal(payload.untrusted_content, true);
+    assert.equal(payload.results[0].source_id, "src_1");
+    assert.equal(payload.results[0].trust, "untrusted");
+    assert.deepEqual(payload.citations, ["[src_1] https://example.test/neurocore"]);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+for (const toolName of ["web_fetch", "web_browser"]) {
+  test(`personal assistant can call ${toolName} with citations, trace and untrusted marker`, { concurrency: false }, async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "neurocore-pa-fetch-e2e-"));
+    try {
+      const agent = createPersonalAssistantAgent({
+        db_path: join(tempDir, "personal-assistant-test.sqlite"),
+        tenant_id: "test-tenant",
+        reasoner: createFetchLikeReasoner(toolName),
+        connectors: {
+          browser: {
+            fetch: async (url) => {
+              assert.equal(url, "https://example.test/page");
+              return new Response(
+                `<html><head><title>Example Page</title></head><body><main>Fetched content with a cited claim.</main><a href="https://example.test/ref">ref</a></body></html>`,
+                {
+                  status: 200,
+                  headers: { "content-type": "text/html" }
+                }
+              );
+            }
+          }
+        }
+      });
+
+      const session = agent.createSession({
+        agent_id: "personal-assistant",
+        tenant_id: "test-tenant",
+        initial_input: {
+          content: "fetch example page"
+        }
+      });
+
+      const result = await session.run();
+      assert.equal(result.finalState, "completed");
+      assert.match(result.outputText ?? "", /UNTRUSTED_WEB_CONTENT/);
+      assert.match(result.outputText ?? "", /Example Page/);
+      assert.match(result.outputText ?? "", /Fetched content with a cited claim/);
+      assert.match(result.outputText ?? "", /\[src_page\] https:\/\/example\.test\/page/);
+      assert.match(result.outputText ?? "", /Trace: fetch_url/);
+
+      const observation = findToolObservation(session, toolName);
+      const payload = observation.structured_payload;
+      assert.equal(payload.untrusted_content, true);
+      assert.deepEqual(payload.citations, ["[src_page] https://example.test/page"]);
+      assert.equal(payload.source.trust, "untrusted");
+      assert.equal(payload.browser_trace.action, "fetch_url");
+      assert.equal(payload.browser_trace.tool_name, toolName);
+      assert.equal(payload.browser_trace.url, "https://example.test/page");
+      assert.equal(payload.browser_trace.link_count, 1);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+}
 
 test("personal assistant baseline slash commands are schema registered", () => {
   const harness = createCommandHarness("web");
@@ -194,6 +258,62 @@ function createSearchReasoner() {
   };
 }
 
+function createFetchLikeReasoner(toolName) {
+  return {
+    name: `${toolName}-reasoner`,
+    async plan(ctx) {
+      return [
+        {
+          proposal_id: ctx.services.generateId("prp"),
+          schema_version: ctx.profile.schema_version,
+          session_id: ctx.session.session_id,
+          cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+          module_name: `${toolName}-reasoner`,
+          proposal_type: "plan",
+          salience_score: 0.9,
+          confidence: 0.95,
+          risk: 0,
+          payload: { summary: `Call ${toolName}, then summarize.` }
+        }
+      ];
+    },
+    async respond(ctx) {
+      const input = typeof ctx.runtime_state.current_input_content === "string"
+        ? ctx.runtime_state.current_input_content
+        : "";
+
+      if (input.startsWith("Tool observation:")) {
+        return [
+          {
+            action_id: ctx.services.generateId("act"),
+            action_type: "respond",
+            title: `Return ${toolName} result`,
+            description: input.replace(/^Tool observation:\s*/, "").trim(),
+            side_effect_level: "none"
+          }
+        ];
+      }
+
+      return [
+        {
+          action_id: ctx.services.generateId("act"),
+          action_type: "call_tool",
+          title: `Fetch with ${toolName}`,
+          tool_name: toolName,
+          tool_args: {
+            url: "https://example.test/page",
+            format: "text"
+          },
+          side_effect_level: "none"
+        }
+      ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
+    }
+  };
+}
+
 function createPersonalMemoryReasoner() {
   return {
     name: "personal-memory-reasoner",
@@ -239,6 +359,15 @@ function createPersonalMemoryReasoner() {
       yield action.description ?? action.title;
     }
   };
+}
+
+function findToolObservation(session, toolName) {
+  const record = session.getTraceRecords().find((candidate) =>
+    candidate.selected_action?.tool_name === toolName &&
+    candidate.observation?.status === "success"
+  );
+  assert.ok(record?.observation, `expected trace observation for ${toolName}`);
+  return record.observation;
 }
 
 function createCommandHarness(platform) {

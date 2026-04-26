@@ -257,3 +257,31 @@
 |---|---|
 | Ledger | `PA2-P0-07` 已标记 completed |
 | 下一项 | `PA2-P0-08` Web search, fetch and browser connector closure |
+
+### PA2-P0-08 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Web search citation | `web_search` 输出 `sources`、`citations`、`source_id`、`trust: untrusted`，摘要包含 `UNTRUSTED_WEB_CONTENT` 和来源引用 |
+| Web fetch | 新增 `web_fetch` 工具，与 `web_browser` 共用 URL fetch connector，输出 cited source 和 untrusted marker |
+| Browser trace | `web_fetch` / `web_browser` payload 写入 `browser_trace`，包含 action、tool_name、url、fetched_at、content_chars、link_count |
+| Reasoning safety | 工具摘要在进入后续 reasoning 前带 `UNTRUSTED_WEB_CONTENT`，trace structured payload 同步保留 untrusted metadata |
+| Ledger 扩展 | P1/P2 roadmap 任务已写入 `project-ledger.json`，下一项自动前移到 `PA2-P1-01` |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-e2e.test.mjs` | 通过，6 项测试 |
+| `npm run pa:task-check -- PA2-P0-08` | 通过 |
+| `npm run pa:accept -- PA2-P0-08` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P0-08` 已标记 completed，P0 任务链完成 |
+| 下一项 | `PA2-P1-01` Telegram adapter |

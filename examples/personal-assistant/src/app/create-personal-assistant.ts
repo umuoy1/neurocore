@@ -16,7 +16,7 @@ import type { IMPlatform } from "../im-gateway/types.js";
 import { PersonalMemoryRecallProvider } from "../memory/personal-memory-recall-provider.js";
 import type { PersonalMemoryStore } from "../memory/personal-memory-store.js";
 import { SqlitePersonalMemoryStore } from "../memory/sqlite-personal-memory-store.js";
-import { createWebBrowserTool } from "../connectors/browser/web-browser.js";
+import { createWebBrowserTool, createWebFetchTool } from "../connectors/browser/web-browser.js";
 import { createCalendarReadTool } from "../connectors/calendar/calendar-read.js";
 import { createCalendarWriteTool } from "../connectors/calendar/calendar-write.js";
 import { createEmailReadTool } from "../connectors/email/email-read.js";
@@ -74,6 +74,7 @@ export function createPersonalAssistantAgent(
   }
 
   agent.registerTool(createWebBrowserTool(config.connectors?.browser));
+  agent.registerTool(createWebFetchTool(config.connectors?.browser));
 
   if (config.connectors?.email?.reader) {
     agent.registerTool(createEmailReadTool(config.connectors.email.reader));

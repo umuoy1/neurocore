@@ -2,9 +2,9 @@
   "schema_version": "1.0.0",
   "project": "personal-agent-competitive-spec",
   "meta": {
-    "current_task": "PA2-P0-08",
-    "phase": "Phase 4",
-    "updated_at": "2026-04-27T02:42:49+08:00",
+    "current_task": "PA2-P1-01",
+    "phase": "Phase 5",
+    "updated_at": "2026-04-27T02:49:12+08:00",
     "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
   },
   "phases": [
@@ -328,7 +328,9 @@
       "id": "PA2-P0-08",
       "phase": "Phase 4",
       "title": "Web search, fetch and browser connector closure",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-04-27T02:49:12+08:00",
+      "acceptance_last_run": "npm run pa:accept -- PA2-P0-08",
       "depends_on": [
         "PA2-P0-04"
       ],
@@ -348,6 +350,474 @@
       "write_paths": [
         "examples/personal-assistant/",
         "tests/personal-assistant-e2e.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ],
+      "started_at": "2026-04-26T18:43:56.561Z"
+    },
+    {
+      "id": "PA2-P1-01",
+      "phase": "Phase 5",
+      "title": "Telegram adapter",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-02"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/03_delivery-roadmap.md#4-p1-任务链"
+      ],
+      "acceptance": [
+        "Telegram inbound messages normalize to the PersonalGateway envelope",
+        "Telegram delivery supports text, markdown and status responses with explicit channel capabilities",
+        "unauthorized Telegram senders are rejected before session routing"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-telegram.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/personal-assistant-telegram.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P1-02",
+      "phase": "Phase 5",
+      "title": "Slack adapter",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-02"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/03_delivery-roadmap.md#4-p1-任务链"
+      ],
+      "acceptance": [
+        "Slack events normalize to the PersonalGateway envelope",
+        "Slack delivery preserves thread and markdown capability metadata",
+        "Slack signing and allowlist checks run before session routing"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-slack.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/personal-assistant-slack.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P1-03",
+      "phase": "Phase 5",
+      "title": "Discord adapter",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-02"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/03_delivery-roadmap.md#4-p1-任务链"
+      ],
+      "acceptance": [
+        "Discord messages normalize to the PersonalGateway envelope",
+        "Discord delivery supports channel, DM and thread targets with explicit capabilities",
+        "Discord bot authorization and user binding are enforced before routing"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-discord.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/personal-assistant-discord.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P1-04",
+      "phase": "Phase 5",
+      "title": "Email adapter with webhook and cron integration",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-07"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/04_acceptance-oracle.md#4-产品级验收场景"
+      ],
+      "acceptance": [
+        "inbound email events enter the gateway as untrusted channel input",
+        "email delivery can be invoked by cron and background task completion",
+        "send email actions use approval and delivery trace records"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-email-adapter.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/personal-assistant-email-adapter.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P1-05",
+      "phase": "Phase 6",
+      "title": "Skills registry and AgentSkills compatibility",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-04"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/03_delivery-roadmap.md#4-p1-任务链"
+      ],
+      "acceptance": [
+        "SKILL.md directories are discovered and indexed with metadata",
+        "skills can be listed and invoked through governed tools or commands",
+        "skill permissions and channel visibility are enforced"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-skills.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/personal-assistant-skills.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P1-06",
+      "phase": "Phase 6",
+      "title": "MCP client and tool filtering",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-05"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/03_delivery-roadmap.md#4-p1-任务链"
+      ],
+      "acceptance": [
+        "stdio and HTTP MCP tool discovery can register tools into ToolGateway",
+        "include and exclude filters restrict MCP tools per agent",
+        "MCP outputs and resources are marked untrusted before reasoning"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-mcp.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/personal-assistant-mcp.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P1-07",
+      "phase": "Phase 6",
+      "title": "Subagent lifecycle and task panel",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-06"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/04_acceptance-oracle.md#4-产品级验收场景"
+      ],
+      "acceptance": [
+        "parent sessions can spawn, list, inspect and cancel child agent tasks",
+        "child task state and result summaries enter the background task ledger",
+        "parent cancellation cascades to active child tasks"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-subagents.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/personal-assistant-subagents.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P1-08",
+      "phase": "Phase 2",
+      "title": "Hybrid memory search and session search",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-03"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/05_test-strategy.md#4-测试数据"
+      ],
+      "acceptance": [
+        "session history is searchable by keyword, semantic text and time filters",
+        "hybrid search results carry provenance into the recall bundle",
+        "LongMemEval smoke does not regress from the current baseline"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-memory-search.test.mjs",
+        "npm run benchmark:longmemeval:stable -- --dataset data --shard-size 50 --limit-shards 1 --granularity both --top-k 10"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/memory-core/",
+        "tests/personal-assistant-memory-search.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P1-09",
+      "phase": "Phase 6",
+      "title": "Docker and SSH sandbox provider",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-05"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/03_delivery-roadmap.md#4-p1-任务链"
+      ],
+      "acceptance": [
+        "sandbox provider SPI supports local, Docker and SSH execution targets",
+        "high-risk shell and file operations can be forced into sandbox providers",
+        "sandbox selection and command output are traceable"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-sandbox.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/policy-core/",
+        "tests/personal-assistant-sandbox.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P1-10",
+      "phase": "Phase 4",
+      "title": "Heartbeat and standing orders",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-07"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/03_delivery-roadmap.md#4-p1-任务链"
+      ],
+      "acceptance": [
+        "standing orders are persisted with owner, scope, expiry and permission metadata",
+        "heartbeat runs due-only checks and silently skips when no actionable work exists",
+        "standing orders and heartbeat actions create auditable task and trace records"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-standing-orders.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/personal-assistant-standing-orders.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P2-01",
+      "phase": "Phase 7",
+      "title": "Memory wiki and claim evidence layer",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P1-08"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/03_delivery-roadmap.md#5-p2-任务链"
+      ],
+      "acceptance": [
+        "personal facts are represented as claims with evidence, freshness and contradiction metadata",
+        "wiki pages can be rebuilt from claims and source sessions",
+        "user review can approve, correct or retire claims"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-memory-wiki.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/memory-core/",
+        "tests/personal-assistant-memory-wiki.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P2-02",
+      "phase": "Phase 7",
+      "title": "Dreaming and consolidation pipeline",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P2-01"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/03_delivery-roadmap.md#5-p2-任务链"
+      ],
+      "acceptance": [
+        "background consolidation proposes memory updates from recent sessions",
+        "proposed updates pass duplicate, conflict, privacy and injection checks",
+        "dreaming output remains reviewable before entering active memory"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-dreaming.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/memory-core/",
+        "tests/personal-assistant-dreaming.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P2-03",
+      "phase": "Phase 7",
+      "title": "Automatic skill generation and skill regression",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P1-05"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/03_delivery-roadmap.md#5-p2-任务链"
+      ],
+      "acceptance": [
+        "successful repeated workflows can generate procedural skill candidates",
+        "generated skills must pass validation and regression tests before activation",
+        "skill versions can be disabled or rolled back"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-auto-skills.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/runtime-core/",
+        "tests/personal-assistant-auto-skills.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P2-04",
+      "phase": "Phase 7",
+      "title": "Multi-agent profile and channel binding",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P1-07"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/03_delivery-roadmap.md#5-p2-任务链"
+      ],
+      "acceptance": [
+        "multiple agent profiles can isolate memory, tools, policy and channel bindings",
+        "routes select the correct agent profile by user, channel and workspace",
+        "profile-level policy changes are audited"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-agent-profiles.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/personal-assistant-agent-profiles.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P2-05",
+      "phase": "Phase 7",
+      "title": "Trajectory data, redaction and benchmark artifacts",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P1-08"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/05_test-strategy.md#5-ci-分层建议"
+      ],
+      "acceptance": [
+        "assistant trajectories can be exported with trace, memory and tool provenance",
+        "private identifiers and secrets are redacted before export",
+        "benchmark artifacts can replay selected trajectories deterministically"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-trajectory-export.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/eval-core/",
+        "tests/personal-assistant-trajectory-export.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P2-06",
+      "phase": "Phase 7",
+      "title": "Full-channel media and voice",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P1-04"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/03_delivery-roadmap.md#5-p2-任务链"
+      ],
+      "acceptance": [
+        "image, file, audio and voice inputs normalize into channel attachments",
+        "media extraction outputs are marked with provenance and sensitivity",
+        "delivery can send supported media artifacts through enabled channels"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-media.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/personal-assistant-media.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P2-07",
+      "phase": "Phase 7",
+      "title": "Console unified governance view",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P1-07"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/03_delivery-roadmap.md#5-p2-任务链"
+      ],
+      "acceptance": [
+        "Console can inspect sessions, background tasks, approvals, schedules and child agents",
+        "Console can approve, reject, pause, resume and cancel governed work",
+        "governance actions are written to audit trace records"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-console-governance.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/console/",
+        "tests/personal-assistant-console-governance.test.mjs",
         "docs/11_2026-04-27_personal-agent-competitive-spec/"
       ]
     }
