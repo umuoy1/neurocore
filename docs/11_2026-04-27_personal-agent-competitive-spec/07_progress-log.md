@@ -613,3 +613,34 @@
 |---|---|
 | Ledger | `PA2-P2-01` 已标记 completed |
 | 下一项 | `PA2-P2-02` Dreaming and consolidation pipeline |
+
+### PA2-P2-02 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Dreaming consolidator | 新增 `DreamingConsolidator`，从 recent session search entries 生成 memory claim candidates |
+| Evidence carryover | 每个 candidate 保留 session_search evidence refs、source_entry_ids、session_id、source_message_id |
+| Safety checks | candidate 进入 review 前执行 duplicate、conflict、privacy、injection checks |
+| Reviewable batch | consolidation 输出 `DreamingBatch(status=reviewable)`，不会直接写入 active claim store |
+| Activation gate | 只有 `approveCandidate()` 被 reviewer 调用后才写入 approved memory claim，并记录 candidate id 和 safety checks |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-dreaming.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-memory-wiki.test.mjs` | 通过，3 项回归 |
+| `node --test tests/personal-assistant-memory-search.test.mjs` | 通过，2 项回归 |
+| `node --test tests/memory-recall-bundle.test.mjs` | 通过，2 项回归 |
+| `npm run pa:task-check -- PA2-P2-02` | 通过 |
+| `npm run pa:accept -- PA2-P2-02` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P2-02` 已标记 completed |
+| 下一项 | `PA2-P2-03` Automatic skill generation and skill regression |

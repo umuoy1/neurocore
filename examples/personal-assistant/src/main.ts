@@ -24,6 +24,7 @@ export * from "./memory/session-search-recall-provider.js";
 export * from "./memory/memory-claim-store.js";
 export * from "./memory/sqlite-memory-claim-store.js";
 export * from "./memory/memory-wiki.js";
+export * from "./memory/dreaming-consolidator.js";
 export * from "./memory/sqlite-personal-memory-store.js";
 export * from "./mcp/personal-mcp-client.js";
 export * from "./skills/agent-skill-registry.js";
