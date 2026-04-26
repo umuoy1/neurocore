@@ -521,3 +521,34 @@
 |---|---|
 | Ledger | `PA2-P1-08` 已标记 completed |
 | 下一项 | `PA2-P1-09` Docker and SSH sandbox provider |
+
+### PA2-P1-09 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Sandbox SPI | 新增 `SandboxProvider` / `SandboxManager`，支持 local、Docker、SSH execution targets |
+| Sandbox tools | 新增 `sandbox_shell`、`sandbox_file_read`、`sandbox_file_write`，所有输出带 `SANDBOX_TRACE` 和 structured sandbox payload |
+| Provider trace | sandbox result 记录 provider、target、operation、command、exit_code、timeout、executable、args、cwd |
+| Policy forcing | policy-core 新增 `SandboxPolicyProvider`，可将原始 `shell` / `file_write` 等高风险工具 block，并要求走 sandbox 工具 |
+| App wiring | `PersonalAssistantAppConfig.sandbox` 支持启用 sandbox、选择默认 target、配置 Docker/SSH/local，并在 Agent 启动时注册 sandbox tools |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-sandbox.test.mjs` | 通过，4 项测试 |
+| `node --test tests/policy-governance.test.mjs` | 通过，6 项回归 |
+| `node --test tests/personal-assistant-approval.test.mjs` | 通过，5 项回归 |
+| `node --test tests/personal-assistant-e2e.test.mjs` | 通过，6 项回归 |
+| `npm run pa:task-check -- PA2-P1-09` | 通过 |
+| `npm run pa:accept -- PA2-P1-09` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P1-09` 已标记 completed |
+| 下一项 | `PA2-P1-10` Heartbeat and standing orders |

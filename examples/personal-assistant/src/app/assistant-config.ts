@@ -5,6 +5,7 @@ import type { Reasoner } from "@neurocore/protocol";
 import type { HeartbeatCheck, ScheduleEntry } from "../proactive/types.js";
 import type { ServiceConnectorConfig } from "../connectors/types.js";
 import type { PersonalMcpServerConfig } from "../mcp/personal-mcp-client.js";
+import type { PersonalAssistantSandboxConfig, SandboxTarget } from "../sandbox/sandbox-provider.js";
 
 export interface PersonalAssistantAppConfig {
   db_path: string;
@@ -75,6 +76,7 @@ export interface PersonalAssistantAppConfig {
     enabled?: boolean;
     servers?: PersonalMcpServerConfig[];
   };
+  sandbox?: PersonalAssistantSandboxConfig;
   proactive?: {
     enabled?: boolean;
     heartbeat_interval_ms?: number;
@@ -181,6 +183,7 @@ export function createPersonalAssistantConfigFromEnv(
       directories: parseOptionalList(env.PERSONAL_ASSISTANT_SKILL_DIRS) ?? appConfig.skills?.directories
     },
     mcp: appConfig.mcp,
+    sandbox: resolveSandboxConfig(env, appConfig.sandbox),
     proactive: appConfig.proactive
   };
 }
@@ -347,6 +350,49 @@ function parseOptionalList(value: string | undefined): string[] | undefined {
   }
 
   return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function resolveSandboxConfig(
+  env: NodeJS.ProcessEnv,
+  fallback: PersonalAssistantSandboxConfig | undefined
+): PersonalAssistantSandboxConfig | undefined {
+  const enabled = parseOptionalBoolean(env.PERSONAL_ASSISTANT_SANDBOX_ENABLED) ?? fallback?.enabled;
+  if (enabled === undefined && !fallback) {
+    return undefined;
+  }
+
+  return {
+    ...fallback,
+    enabled,
+    default_target: parseSandboxTarget(env.PERSONAL_ASSISTANT_SANDBOX_TARGET) ?? fallback?.default_target,
+    force_tools: parseOptionalList(env.PERSONAL_ASSISTANT_SANDBOX_FORCE_TOOLS) ?? fallback?.force_tools,
+    local: {
+      ...fallback?.local,
+      cwd: env.PERSONAL_ASSISTANT_SANDBOX_LOCAL_CWD ?? fallback?.local?.cwd,
+      shell: env.PERSONAL_ASSISTANT_SANDBOX_LOCAL_SHELL ?? fallback?.local?.shell
+    },
+    docker: {
+      ...fallback?.docker,
+      image: env.PERSONAL_ASSISTANT_SANDBOX_DOCKER_IMAGE ?? fallback?.docker?.image,
+      host_workspace: env.PERSONAL_ASSISTANT_SANDBOX_DOCKER_HOST_WORKSPACE ?? fallback?.docker?.host_workspace,
+      container_workspace: env.PERSONAL_ASSISTANT_SANDBOX_DOCKER_CONTAINER_WORKSPACE ?? fallback?.docker?.container_workspace,
+      shell: env.PERSONAL_ASSISTANT_SANDBOX_DOCKER_SHELL ?? fallback?.docker?.shell
+    },
+    ssh: {
+      ...fallback?.ssh,
+      host: env.PERSONAL_ASSISTANT_SANDBOX_SSH_HOST ?? fallback?.ssh?.host,
+      user: env.PERSONAL_ASSISTANT_SANDBOX_SSH_USER ?? fallback?.ssh?.user,
+      port: parseOptionalInt(env.PERSONAL_ASSISTANT_SANDBOX_SSH_PORT) ?? fallback?.ssh?.port,
+      workspace: env.PERSONAL_ASSISTANT_SANDBOX_SSH_WORKSPACE ?? fallback?.ssh?.workspace
+    }
+  };
+}
+
+function parseSandboxTarget(value: string | undefined): SandboxTarget | undefined {
+  if (value === "local" || value === "docker" || value === "ssh") {
+    return value;
+  }
+  return undefined;
 }
 
 function formatErrorMessage(error: unknown): string {

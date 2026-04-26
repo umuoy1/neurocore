@@ -6,6 +6,7 @@
   },
   "references": [
     { "path": "../../packages/protocol" },
+    { "path": "../../packages/policy-core" },
     { "path": "../../packages/runtime-core" },
     { "path": "../../packages/sdk-core" },
     { "path": "../../packages/sdk-node" }

@@ -1,6 +1,7 @@
 import { defineAgent, type AgentBuilder } from "@neurocore/sdk-core";
 import { OpenAICompatibleReasoner } from "@neurocore/sdk-node";
 import type { Reasoner, Tool } from "@neurocore/protocol";
+import { SandboxPolicyProvider } from "@neurocore/policy-core";
 import { CliAdapter } from "../im-gateway/adapter/cli.js";
 import { DiscordAdapter } from "../im-gateway/adapter/discord.js";
 import { EmailAdapter } from "../im-gateway/adapter/email.js";
@@ -32,6 +33,13 @@ import { createWebSearchTool } from "../connectors/search/web-search.js";
 import { ProactiveEngine } from "../proactive/proactive-engine.js";
 import { createAgentSkillRegistryFromConfig, type AgentSkillRegistry } from "../skills/agent-skill-registry.js";
 import { createPersonalSkillTools } from "../skills/skill-tools.js";
+import {
+  createSandboxManagerFromConfig,
+  defaultSandboxForceTools,
+  defaultSandboxedTools,
+  type SandboxManager
+} from "../sandbox/sandbox-provider.js";
+import { createSandboxTools } from "../sandbox/sandbox-tools.js";
 import type { PersonalAssistantAppConfig } from "./assistant-config.js";
 
 export interface RunningPersonalAssistantApp {
@@ -45,6 +53,7 @@ export interface PersonalAssistantAgentOptions {
   personalMemoryStore?: PersonalMemoryStore;
   sessionSearchStore?: SessionSearchStore;
   skillRegistry?: AgentSkillRegistry;
+  sandboxManager?: SandboxManager;
   mcpTools?: Tool[];
 }
 
@@ -106,6 +115,20 @@ export function createPersonalAssistantAgent(
     agent.configureApprovalPolicy({
       allowed_approvers: config.agent.approvers
     });
+  }
+
+  const sandboxManager = options.sandboxManager ?? createSandboxManagerFromConfig(config.sandbox);
+  if (sandboxManager) {
+    for (const tool of createSandboxTools(sandboxManager)) {
+      agent.registerTool(tool);
+    }
+    const forcedTools = config.sandbox?.force_tools ?? defaultSandboxForceTools();
+    if (forcedTools.length > 0) {
+      agent.registerPolicyProvider(new SandboxPolicyProvider({
+        requiredSandboxTools: forcedTools,
+        sandboxedTools: defaultSandboxedTools()
+      }));
+    }
   }
 
   if (options.personalMemoryStore) {
