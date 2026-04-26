@@ -13,6 +13,8 @@ import { IMGateway } from "../im-gateway/gateway.js";
 import { NotificationDispatcher } from "../im-gateway/notification/notification-dispatcher.js";
 import { AssistantRuntimeFactory } from "../im-gateway/runtime/assistant-runtime-factory.js";
 import type { IMPlatform } from "../im-gateway/types.js";
+import { PersonalMemoryRecallProvider } from "../memory/personal-memory-recall-provider.js";
+import type { PersonalMemoryStore } from "../memory/personal-memory-store.js";
 import { SqlitePersonalMemoryStore } from "../memory/sqlite-personal-memory-store.js";
 import { createWebBrowserTool } from "../connectors/browser/web-browser.js";
 import { createCalendarReadTool } from "../connectors/calendar/calendar-read.js";
@@ -30,7 +32,14 @@ export interface RunningPersonalAssistantApp {
   close(): Promise<void>;
 }
 
-export function createPersonalAssistantAgent(config: PersonalAssistantAppConfig): AgentBuilder {
+export interface PersonalAssistantAgentOptions {
+  personalMemoryStore?: PersonalMemoryStore;
+}
+
+export function createPersonalAssistantAgent(
+  config: PersonalAssistantAppConfig,
+  options: PersonalAssistantAgentOptions = {}
+): AgentBuilder {
   const reasoner = resolveReasoner(config.reasoner, config.openai);
   const agent = defineAgent({
     id: config.agent?.id ?? "personal-assistant",
@@ -85,22 +94,26 @@ export function createPersonalAssistantAgent(config: PersonalAssistantAppConfig)
     });
   }
 
+  if (options.personalMemoryStore) {
+    agent.registerMemoryProvider(new PersonalMemoryRecallProvider(options.personalMemoryStore));
+  }
+
   return agent;
 }
 
 export async function startPersonalAssistantApp(
   config: PersonalAssistantAppConfig
 ): Promise<RunningPersonalAssistantApp> {
+  const memoryStore = new SqlitePersonalMemoryStore({ filename: config.db_path });
   const runtimeFactory = new AssistantRuntimeFactory({
     dbPath: config.db_path,
-    buildAgent: () => createPersonalAssistantAgent(config)
+    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore })
   });
   const builder = runtimeFactory.getBuilder();
 
   const mappingStore = new SqliteSessionMappingStore({ filename: config.db_path });
   const userLinkStore = new SqlitePlatformUserLinkStore({ filename: config.db_path });
   const approvalBindingStore = new SqliteApprovalBindingStore({ filename: config.db_path });
-  const memoryStore = new SqlitePersonalMemoryStore({ filename: config.db_path });
   const resolveUserId = (message: { platform: IMPlatform; sender_id: string }) =>
     userLinkStore.resolveCanonicalUserId(message.platform, message.sender_id) ?? message.sender_id;
   const router = new ConversationRouter({

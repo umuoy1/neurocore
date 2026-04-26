@@ -117,3 +117,31 @@
 |---|---|
 | Ledger | `PA2-P0-02` 已标记 completed |
 | 下一项 | `PA2-P0-03` Explicit personal memory in recall bundle |
+
+### PA2-P0-03 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| 个人记忆 provider | 新增 `PersonalMemoryRecallProvider`，将 active personal memories 注入 memory recall proposals、entries 和 digests |
+| Agent 接线 | `startPersonalAssistantApp` 共享同一个 `SqlitePersonalMemoryStore` 给 command handler 和 runtime memory provider |
+| 纠错语义 | provider 只读取 `listActive`，`/correct` tombstone 的旧事实不会进入 recall bundle |
+| OpenAI 兼容 | proposal payload 同时包含 `entries`，可被 OpenAI-compatible reasoner 的 memoryRecall 摘要读取 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-e2e.test.mjs tests/memory-recall-bundle.test.mjs` | 通过，4 项测试 |
+| `node --test tests/personal-assistant-gateway.test.mjs` | 通过，7 项测试 |
+| `npm run pa:task-check -- PA2-P0-03` | 通过 |
+| `npm run pa:accept -- PA2-P0-03` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P0-03` 已标记 completed |
+| 下一项 | `PA2-P0-04` Command registry and baseline slash commands |
