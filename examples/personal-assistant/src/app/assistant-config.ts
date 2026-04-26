@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { OpenAICompatibleConfig } from "@neurocore/sdk-node";
 import type { Reasoner } from "@neurocore/protocol";
-import type { HeartbeatCheck, ScheduleEntry } from "../proactive/types.js";
+import type { CreateStandingOrderInput, HeartbeatCheck, ScheduleEntry } from "../proactive/types.js";
 import type { ServiceConnectorConfig } from "../connectors/types.js";
 import type { PersonalMcpServerConfig } from "../mcp/personal-mcp-client.js";
 import type { PersonalAssistantSandboxConfig, SandboxTarget } from "../sandbox/sandbox-provider.js";
@@ -82,6 +82,7 @@ export interface PersonalAssistantAppConfig {
     heartbeat_interval_ms?: number;
     checks?: HeartbeatCheck[];
     schedules?: ScheduleEntry[];
+    standing_orders?: CreateStandingOrderInput[];
   };
 }
 

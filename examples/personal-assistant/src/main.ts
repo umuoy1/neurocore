@@ -28,3 +28,8 @@ export * from "./skills/skill-tools.js";
 export * from "./subagents/subagent-manager.js";
 export * from "./sandbox/sandbox-provider.js";
 export * from "./sandbox/sandbox-tools.js";
+export * from "./proactive/types.js";
+export * from "./proactive/background-task-ledger.js";
+export * from "./proactive/proactive-engine.js";
+export * from "./proactive/standing-order-store.js";
+export * from "./proactive/store/sqlite-standing-order-store.js";

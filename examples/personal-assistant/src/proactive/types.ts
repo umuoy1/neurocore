@@ -15,6 +15,54 @@ export interface HeartbeatCheck {
   execute(): Promise<CheckResult | CheckResult[]>;
 }
 
+export type StandingOrderStatus = "active" | "paused" | "expired";
+
+export interface StandingOrderScope {
+  type: "global" | "user" | "channel";
+  user_id?: string;
+  platform?: IMPlatform;
+  chat_id?: string;
+}
+
+export interface StandingOrderPermission {
+  tools?: string[];
+  channels?: IMPlatform[];
+  requires_approval?: boolean;
+}
+
+export interface StandingOrderRecord {
+  order_id: string;
+  owner_user_id: string;
+  instruction: string;
+  scope: StandingOrderScope;
+  status: StandingOrderStatus;
+  permission: StandingOrderPermission;
+  expires_at?: string;
+  created_at: string;
+  updated_at: string;
+  last_applied_at?: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface CreateStandingOrderInput {
+  owner_user_id: string;
+  instruction: string;
+  scope: StandingOrderScope;
+  permission?: StandingOrderPermission;
+  expires_at?: string;
+  created_at?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface StandingOrderQuery {
+  owner_user_id?: string;
+  user_id?: string;
+  platform?: IMPlatform;
+  chat_id?: string;
+  now?: string;
+  include_paused?: boolean;
+}
+
 export interface ScheduleEntry {
   id: string;
   cron: string;

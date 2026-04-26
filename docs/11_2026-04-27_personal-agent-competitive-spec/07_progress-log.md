@@ -552,3 +552,32 @@
 |---|---|
 | Ledger | `PA2-P1-09` 已标记 completed |
 | 下一项 | `PA2-P1-10` Heartbeat and standing orders |
+
+### PA2-P1-10 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Standing order store | 新增 SQLite-backed `StandingOrderStore`，持久化 owner、scope、expiry、permission、metadata 和 last_applied_at |
+| ProactiveEngine API | 新增 register/list/pause/resume standing order API，并支持启动时从 config 写入 standing orders |
+| Heartbeat injection | heartbeat task prompt 和 input metadata 注入 active standing orders，按 user/platform scope 过滤 |
+| Due-only heartbeat | `triggered=false` heartbeat result 继续静默跳过，不创建后台任务、不投递通知 |
+| Audit metadata | heartbeat background task metadata 写入 payload、standing_order_ids、standing_orders、trace_ids、cycle_ids |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-standing-orders.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-proactive.test.mjs tests/personal-assistant-e2e.test.mjs` | 通过，10 项回归 |
+| `npm run pa:task-check -- PA2-P1-10` | 通过 |
+| `npm run pa:accept -- PA2-P1-10` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P1-10` 已标记 completed |
+| 下一项 | `PA2-P2-01` Memory wiki and claim evidence layer |

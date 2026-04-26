@@ -4,12 +4,21 @@ import type { IMGateway } from "../im-gateway/gateway.js";
 import { BackgroundTaskLedger } from "./background-task-ledger.js";
 import { HeartbeatScheduler } from "./heartbeat/heartbeat-scheduler.js";
 import { CronScheduler } from "./scheduler/cron-scheduler.js";
-import type { BackgroundTaskEntry, CheckResult, HeartbeatCheck, ScheduleEntry } from "./types.js";
+import type {
+  BackgroundTaskEntry,
+  CheckResult,
+  CreateStandingOrderInput,
+  HeartbeatCheck,
+  ScheduleEntry,
+  StandingOrderRecord
+} from "./types.js";
+import type { StandingOrderStore } from "./standing-order-store.js";
 
 export interface ProactiveEngineOptions {
   agent: AgentBuilder;
   gateway: IMGateway;
   tenantId: string;
+  standingOrderStore?: StandingOrderStore;
 }
 
 export class ProactiveEngine {
@@ -38,6 +47,36 @@ export class ProactiveEngine {
 
   public registerSchedule(entry: ScheduleEntry): void {
     this.cronScheduler.register(entry);
+  }
+
+  public registerStandingOrder(input: CreateStandingOrderInput): StandingOrderRecord {
+    return this.requireStandingOrderStore().create(input);
+  }
+
+  public listStandingOrders(input: {
+    owner_user_id?: string;
+    user_id?: string;
+    target_platform?: CheckResult["target_platform"];
+    now?: string;
+  } = {}): StandingOrderRecord[] {
+    const store = this.options.standingOrderStore;
+    if (!store) {
+      return [];
+    }
+    return store.listActive({
+      owner_user_id: input.owner_user_id,
+      user_id: input.user_id,
+      platform: input.target_platform,
+      now: input.now
+    });
+  }
+
+  public pauseStandingOrder(orderId: string): StandingOrderRecord | undefined {
+    return this.options.standingOrderStore?.updateStatus(orderId, "paused");
+  }
+
+  public resumeStandingOrder(orderId: string): StandingOrderRecord | undefined {
+    return this.options.standingOrderStore?.updateStatus(orderId, "active");
   }
 
   public listSchedules(): ScheduleEntry[] {
@@ -94,6 +133,7 @@ export class ProactiveEngine {
 
   private async runHeartbeatResults(results: CheckResult[]): Promise<void> {
     for (const result of results) {
+      const standingOrders = this.getStandingOrdersForHeartbeat(result);
       const task = this.taskLedger.create({
         source: "heartbeat",
         description: result.summary,
@@ -101,7 +141,9 @@ export class ProactiveEngine {
         target_platform: result.target_platform,
         priority: result.priority,
         metadata: {
-          payload: result.payload ?? {}
+          payload: result.payload ?? {},
+          standing_order_ids: standingOrders.map((order) => order.order_id),
+          standing_orders: standingOrders.map(toStandingOrderMetadata)
         }
       });
       const session = this.options.agent.createSession({
@@ -110,18 +152,27 @@ export class ProactiveEngine {
         user_id: result.target_user,
         session_mode: "async",
         initial_input: createUserInput(
-          `System heartbeat detected:\n${result.summary}\nDecide whether the user should be notified.`,
+          buildHeartbeatPrompt(result, standingOrders),
           {
             source: "heartbeat",
             background_task_id: task.task_id,
-            payload: result.payload ?? {}
+            payload: result.payload ?? {},
+            standing_order_ids: standingOrders.map((order) => order.order_id),
+            standing_orders: standingOrders.map(toStandingOrderMetadata)
           }
         )
       });
       this.taskLedger.markRunning(task.task_id, session.id);
+      for (const order of standingOrders) {
+        this.options.standingOrderStore?.markApplied(order.order_id);
+      }
 
       try {
         const run = await session.run();
+        this.taskLedger.mergeMetadata(task.task_id, {
+          trace_ids: run.traces.map((trace) => trace.trace_id),
+          cycle_ids: run.traces.map((trace) => trace.cycle_id)
+        });
         const lastStep = run.steps.at(-1);
         if (lastStep?.approval) {
           const deliveryTarget = { platform: result.target_platform, priority: result.priority };
@@ -217,4 +268,37 @@ export class ProactiveEngine {
       throw error;
     }
   }
+
+  private getStandingOrdersForHeartbeat(result: CheckResult): StandingOrderRecord[] {
+    return this.options.standingOrderStore?.listActive({
+      user_id: result.target_user,
+      platform: result.target_platform
+    }) ?? [];
+  }
+
+  private requireStandingOrderStore(): StandingOrderStore {
+    if (!this.options.standingOrderStore) {
+      throw new Error("Standing order store is not configured.");
+    }
+    return this.options.standingOrderStore;
+  }
+}
+
+function buildHeartbeatPrompt(result: CheckResult, standingOrders: StandingOrderRecord[]): string {
+  const orders = standingOrders.length > 0
+    ? `Standing orders:\n${standingOrders.map((order) => `- [${order.order_id}] ${order.instruction}`).join("\n")}\n\n`
+    : "";
+  return `${orders}System heartbeat detected:\n${result.summary}\nDecide whether the user should be notified.`;
+}
+
+function toStandingOrderMetadata(order: StandingOrderRecord): Record<string, unknown> {
+  return {
+    order_id: order.order_id,
+    owner_user_id: order.owner_user_id,
+    instruction: order.instruction,
+    scope: order.scope,
+    permission: order.permission,
+    expires_at: order.expires_at,
+    metadata: order.metadata
+  };
 }

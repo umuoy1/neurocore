@@ -85,6 +85,20 @@ export class BackgroundTaskLedger {
     });
   }
 
+  public mergeMetadata(taskId: string, metadata: Record<string, unknown>): BackgroundTaskEntry {
+    const task = this.tasks.get(taskId);
+    if (!task) {
+      throw new Error(`Unknown background task: ${taskId}`);
+    }
+    return this.update(taskId, {
+      metadata: {
+        ...task.metadata,
+        ...metadata
+      },
+      updated_at: new Date().toISOString()
+    });
+  }
+
   public cancel(taskId: string, cancelledAt = new Date().toISOString()): BackgroundTaskEntry | undefined {
     const task = this.tasks.get(taskId);
     if (!task || task.status === "succeeded" || task.status === "failed" || task.status === "cancelled") {

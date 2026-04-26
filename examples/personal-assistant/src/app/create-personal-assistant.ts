@@ -31,6 +31,7 @@ import { createEmailReadTool } from "../connectors/email/email-read.js";
 import { createEmailSendTool } from "../connectors/email/email-send.js";
 import { createWebSearchTool } from "../connectors/search/web-search.js";
 import { ProactiveEngine } from "../proactive/proactive-engine.js";
+import { SqliteStandingOrderStore } from "../proactive/store/sqlite-standing-order-store.js";
 import { createAgentSkillRegistryFromConfig, type AgentSkillRegistry } from "../skills/agent-skill-registry.js";
 import { createPersonalSkillTools } from "../skills/skill-tools.js";
 import {
@@ -280,11 +281,14 @@ export async function startPersonalAssistantApp(
   await gateway.start();
 
   let proactive: ProactiveEngine | undefined;
+  let standingOrderStore: SqliteStandingOrderStore | undefined;
   if (config.proactive?.enabled) {
+    standingOrderStore = new SqliteStandingOrderStore({ filename: config.db_path });
     proactive = new ProactiveEngine({
       agent: builder,
       gateway,
-      tenantId: config.tenant_id
+      tenantId: config.tenant_id,
+      standingOrderStore
     });
 
     if (config.proactive.checks && config.proactive.checks.length > 0) {
@@ -295,6 +299,9 @@ export async function startPersonalAssistantApp(
     }
     for (const schedule of config.proactive.schedules ?? []) {
       proactive.registerSchedule(schedule);
+    }
+    for (const order of config.proactive.standing_orders ?? []) {
+      proactive.registerStandingOrder(order);
     }
     await proactive.start();
   }
@@ -308,6 +315,7 @@ export async function startPersonalAssistantApp(
       await gateway.stop();
       memoryStore.close();
       sessionSearchStore.close();
+      standingOrderStore?.close();
     }
   };
 }
