@@ -8,6 +8,7 @@ import type { CommandHandler } from "./command/command-handler.js";
 import type { ConversationRouter } from "./conversation/conversation-router.js";
 import type { NotificationDispatcher } from "./notification/notification-dispatcher.js";
 import type { PersonalMemoryRecord, PersonalMemoryStore } from "../memory/personal-memory-store.js";
+import type { AddSessionSearchEntryInput, SessionSearchStore } from "../memory/session-search-store.js";
 import type { IMAdapterConfig, IMPlatform, MessageContent, PushNotificationOptions, UnifiedMessage } from "./types.js";
 
 interface RegisteredAdapter {
@@ -33,6 +34,7 @@ export interface IMGatewayOptions {
   approvalBindingStore: ApprovalBindingStore;
   commandHandler?: CommandHandler;
   memoryStore?: PersonalMemoryStore;
+  sessionSearchStore?: SessionSearchStore;
   resolveUserId?: (message: UnifiedMessage) => string;
 }
 
@@ -153,6 +155,24 @@ export class IMGateway {
     });
 
     const resolved = this.options.router.resolveOrCreate(message, input);
+    const tenantId = resolved.handle.getSession()?.tenant_id ?? "default";
+    this.recordSessionSearchEntry({
+      tenant_id: tenantId,
+      user_id: userId,
+      session_id: resolved.session_id,
+      role: "user",
+      content: prompt,
+      created_at: message.timestamp,
+      source_platform: message.platform,
+      source_chat_id: message.chat_id,
+      source_message_id: message.message_id,
+      metadata: {
+        reply_to: message.reply_to,
+        sender_id: message.sender_id,
+        channel_kind: message.channel?.kind,
+        source_metadata: message.metadata
+      }
+    });
     const progress = shouldForwardProgress(message.platform)
       ? this.attachProgressStream(message, resolved.session_id, resolved.handle)
       : undefined;
@@ -203,9 +223,39 @@ export class IMGateway {
 
       const output = result.outputText ?? "The assistant completed without emitting a textual response.";
       if (!shouldStreamAssistantOutput(message.platform) || !progress?.hasOutput) {
-        await this.options.dispatcher.sendToChat(message.platform, message.chat_id, {
+        const sent = await this.options.dispatcher.sendToChat(message.platform, message.chat_id, {
           type: "text",
           text: output
+        });
+        this.recordSessionSearchEntry({
+          tenant_id: tenantId,
+          user_id: userId,
+          session_id: resolved.session_id,
+          cycle_id: result.steps.at(-1)?.cycleId,
+          trace_id: result.steps.at(-1)?.trace.trace_id,
+          role: "assistant",
+          content: output,
+          source_platform: message.platform,
+          source_chat_id: message.chat_id,
+          source_message_id: sent.message_id,
+          metadata: {
+            reply_to_user_message_id: message.message_id
+          }
+        });
+      } else {
+        this.recordSessionSearchEntry({
+          tenant_id: tenantId,
+          user_id: userId,
+          session_id: resolved.session_id,
+          cycle_id: result.steps.at(-1)?.cycleId,
+          trace_id: result.steps.at(-1)?.trace.trace_id,
+          role: "assistant",
+          content: output,
+          source_platform: message.platform,
+          source_chat_id: message.chat_id,
+          metadata: {
+            reply_to_user_message_id: message.message_id
+          }
         });
       }
     } finally {
@@ -270,6 +320,12 @@ export class IMGateway {
 
   private resolveUserId(message: UnifiedMessage): string {
     return this.options.resolveUserId?.(message) ?? message.sender_id;
+  }
+
+  private recordSessionSearchEntry(input: AddSessionSearchEntryInput): void {
+    try {
+      this.options.sessionSearchStore?.addEntry(input);
+    } catch {}
   }
 
   private attachProgressStream(

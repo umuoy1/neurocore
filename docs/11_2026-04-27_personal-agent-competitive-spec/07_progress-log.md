@@ -491,3 +491,33 @@
 |---|---|
 | Ledger | `PA2-P1-07` 已标记 completed |
 | 下一项 | `PA2-P1-08` Hybrid memory search and session search |
+
+### PA2-P1-08 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Session search store | 新增 SQLite-backed `SessionSearchStore`，支持 keyword、semantic text、time filter、user/tenant scope 和 provenance 字段 |
+| Recall provider | 新增 `SessionSearchRecallProvider`，将 hybrid search results、entries、match_reasons 和 provenance 注入 `memory_recall_bundle.proposals` |
+| Gateway indexing | IM Gateway 自动索引用户输入和助手输出，绑定 session、cycle、trace、platform、chat 和 message provenance |
+| App wiring | `createPersonalAssistantAgent` / `startPersonalAssistantApp` 支持共享 `sessionSearchStore`，启动后同库写入并召回会话历史 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-memory-search.test.mjs` | 通过，2 项测试 |
+| `node --test tests/memory-recall-bundle.test.mjs` | 通过，2 项回归 |
+| `node --test tests/personal-assistant-e2e.test.mjs tests/personal-assistant-gateway.test.mjs` | 通过，13 项回归 |
+| `npm run benchmark:longmemeval:stable -- --dataset data --shard-size 50 --limit-shards 1 --granularity both --top-k 10` | 通过，session R@10 `1.0000` / MRR `0.9822`，turn R@10 `0.9267` / MRR `0.7068` |
+| `npm run pa:task-check -- PA2-P1-08` | 通过 |
+| `npm run pa:accept -- PA2-P1-08` | 通过，同上 LongMemEval 指标 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P1-08` 已标记 completed |
+| 下一项 | `PA2-P1-09` Docker and SSH sandbox provider |

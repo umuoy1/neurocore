@@ -19,6 +19,9 @@ import { AssistantRuntimeFactory } from "../im-gateway/runtime/assistant-runtime
 import type { IMPlatform } from "../im-gateway/types.js";
 import { PersonalMemoryRecallProvider } from "../memory/personal-memory-recall-provider.js";
 import type { PersonalMemoryStore } from "../memory/personal-memory-store.js";
+import { SessionSearchRecallProvider } from "../memory/session-search-recall-provider.js";
+import type { SessionSearchStore } from "../memory/session-search-store.js";
+import { SqliteSessionSearchStore } from "../memory/session-search-store.js";
 import { SqlitePersonalMemoryStore } from "../memory/sqlite-personal-memory-store.js";
 import { createWebBrowserTool, createWebFetchTool } from "../connectors/browser/web-browser.js";
 import { createCalendarReadTool } from "../connectors/calendar/calendar-read.js";
@@ -40,6 +43,7 @@ export interface RunningPersonalAssistantApp {
 
 export interface PersonalAssistantAgentOptions {
   personalMemoryStore?: PersonalMemoryStore;
+  sessionSearchStore?: SessionSearchStore;
   skillRegistry?: AgentSkillRegistry;
   mcpTools?: Tool[];
 }
@@ -108,6 +112,10 @@ export function createPersonalAssistantAgent(
     agent.registerMemoryProvider(new PersonalMemoryRecallProvider(options.personalMemoryStore));
   }
 
+  if (options.sessionSearchStore) {
+    agent.registerMemoryProvider(new SessionSearchRecallProvider(options.sessionSearchStore));
+  }
+
   if (skillRegistry) {
     for (const tool of createPersonalSkillTools(skillRegistry)) {
       agent.registerTool(tool);
@@ -125,10 +133,11 @@ export async function startPersonalAssistantApp(
   config: PersonalAssistantAppConfig
 ): Promise<RunningPersonalAssistantApp> {
   const memoryStore = new SqlitePersonalMemoryStore({ filename: config.db_path });
+  const sessionSearchStore = new SqliteSessionSearchStore({ filename: config.db_path });
   const skillRegistry = createAgentSkillRegistryFromConfig(config.skills);
   const runtimeFactory = new AssistantRuntimeFactory({
     dbPath: config.db_path,
-    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, skillRegistry })
+    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, skillRegistry })
   });
   const builder = runtimeFactory.getBuilder();
 
@@ -172,6 +181,7 @@ export async function startPersonalAssistantApp(
     approvalBindingStore,
     commandHandler,
     memoryStore,
+    sessionSearchStore,
     resolveUserId
   });
   gatewayRef = gateway;
@@ -274,6 +284,7 @@ export async function startPersonalAssistantApp(
       await proactive?.stop();
       await gateway.stop();
       memoryStore.close();
+      sessionSearchStore.close();
     }
   };
 }
