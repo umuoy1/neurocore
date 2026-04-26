@@ -202,3 +202,30 @@
 |---|---|
 | Ledger | `PA2-P0-05` 已标记 completed |
 | 下一项 | `PA2-P0-06` Minimum background task ledger |
+
+### PA2-P0-06 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Background task ledger | 新增 `BackgroundTaskLedger`，支持 created、running、succeeded、failed、cancelled |
+| Proactive 接线 | heartbeat/cron 运行时创建 background task，写入 session_id、approval_id、result_text、delivery target |
+| 查询和取消 | `ProactiveEngine` 暴露 `listBackgroundTasks()`、`getBackgroundTask()`、`cancelBackgroundTask()` |
+| 完成投递 | notification/approval 投递后记录 delivered_at 和 delivery_target |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-proactive.test.mjs` | 通过，3 项测试 |
+| `npm run pa:task-check -- PA2-P0-06` | 通过 |
+| `npm run pa:accept -- PA2-P0-06` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P0-06` 已标记 completed |
+| 下一项 | `PA2-P0-07` Minimum cron and delivery |
