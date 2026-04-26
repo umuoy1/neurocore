@@ -5,9 +5,11 @@ import type {
   MessageContent,
   PersonalChannelContext,
   PersonalIdentityContext,
+  PersonalMediaAttachment,
   UnifiedMessage
 } from "./types.js";
 import { getChannelKind, getDefaultChannelCapabilities } from "./types.js";
+import { normalizeMediaAttachments, type PersonalMediaAttachmentInput } from "./media/media-attachments.js";
 
 export interface PersonalIngressMessageInput {
   message_id?: string;
@@ -18,6 +20,7 @@ export interface PersonalIngressMessageInput {
   content: MessageContent | string;
   reply_to?: string;
   metadata?: Record<string, unknown>;
+  attachments?: PersonalMediaAttachmentInput[] | PersonalMediaAttachment[];
   channel?: Partial<PersonalChannelContext>;
   identity?: Partial<PersonalIdentityContext>;
 }
@@ -28,6 +31,8 @@ export function normalizePersonalIngressMessage(input: PersonalIngressMessageInp
   const senderId = input.sender_id ?? defaultSenderId(platform, chatId);
   const timestamp = input.timestamp ?? new Date().toISOString();
   const metadata = isRecord(input.metadata) ? input.metadata : {};
+  const messageId = input.message_id ?? randomUUID();
+  const content = normalizeContent(input.content);
   const capabilities = normalizeCapabilities(platform, input.channel?.capabilities);
   const channel: PersonalChannelContext = {
     platform,
@@ -47,12 +52,19 @@ export function normalizePersonalIngressMessage(input: PersonalIngressMessageInp
   };
 
   return {
-    message_id: input.message_id ?? randomUUID(),
+    message_id: messageId,
     platform,
     chat_id: chatId,
     sender_id: senderId,
     timestamp,
-    content: normalizeContent(input.content),
+    content,
+    attachments: normalizeMediaAttachments(content, input.attachments, {
+      platform,
+      chat_id: chatId,
+      message_id: messageId,
+      sender_id: senderId,
+      received_at: timestamp
+    }),
     reply_to: input.reply_to,
     channel,
     identity,

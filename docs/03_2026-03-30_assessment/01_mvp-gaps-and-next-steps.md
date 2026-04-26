@@ -25,6 +25,7 @@
 > - 2026-04-25 Console 记忆可观测性补充：`GET /v1/sessions/:id/memory` 已返回 retrieval plans、recall bundles、latest plan/bundle 与 memory warnings；Console Memory Inspector 已新增 Observability 视图。
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-04` 已完成多 Agent profile + channel binding。当前新增 profile registry、profile-scoped session route store、profile-aware router 和 profile policy audit；同一 chat 可按 user/channel/workspace 路由到不同 builder、tenant、memory/tool/policy scope。
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-05` 已完成轨迹数据、脱敏和 benchmark artifact。当前可从个人助理 session replay 导出 trace/memory/tool provenance，经稳定脱敏后转换为可确定性 replay 的 eval artifact。
+> - 2026-04-27 个人助理 P2 补充：`PA2-P2-06` 已完成全渠道媒体和语音基础层。当前 image/file/audio/voice 输入会归一化为 channel attachments，带 provenance/sensitivity 进入 runtime metadata 和 `content_parts`，audio/voice 输出具备富内容投递与文本 fallback。
 
 ## 交付总结
 

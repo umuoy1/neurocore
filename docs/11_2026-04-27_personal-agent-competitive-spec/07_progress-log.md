@@ -734,3 +734,34 @@
 |---|---|
 | Ledger | `PA2-P2-05` 已标记 completed |
 | 下一项 | `PA2-P2-06` Full-channel media and voice |
+
+### PA2-P2-06 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Media attachment model | `UnifiedMessage` 新增 image/file/audio/voice 统一 attachments，保留 provenance、mime、duration、transcript、sensitivity |
+| Ingress normalization | `normalizePersonalIngressMessage()` 可从媒体 content 或 attachments 数组生成 channel attachments |
+| Runtime extraction | 新增 `extractMediaForRuntime()`，将媒体转换为摘要、provenance、sensitivity 和 `UserInput.content_parts` |
+| Gateway wiring | 普通消息 metadata 注入 `media_attachments` / `media_extractions`，prompt 注入媒体摘要和提取文本 |
+| Delivery fallback | audio/voice 输出内容可通过 dispatcher 保持富内容对象，并为 Slack/Discord/Email/Feishu 等文本渠道提供 fallback 文本 |
+| WebChat support | WebChat payload 支持 image/file/audio/voice 输入和附件数组 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-media.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-gateway.test.mjs tests/personal-assistant-web-chat.test.mjs tests/personal-assistant-email-adapter.test.mjs` | 通过，15 项回归 |
+| `node --test tests/personal-assistant-telegram.test.mjs tests/personal-assistant-slack.test.mjs tests/personal-assistant-discord.test.mjs` | 通过，9 项回归 |
+| `npm run pa:task-check -- PA2-P2-06` | 通过 |
+| `npm run pa:accept -- PA2-P2-06` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P2-06` 已标记 completed |
+| 下一项 | `PA2-P2-07` Console unified governance view |

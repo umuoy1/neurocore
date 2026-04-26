@@ -212,6 +212,41 @@ export class WebChatAdapter implements IMAdapter {
       case "markdown":
         content = { type: "markdown", text: asRequiredString(record.text, "") };
         break;
+      case "image":
+        content = {
+          type: "image",
+          url: asRequiredString(record.url, ""),
+          caption: asOptionalString(record.caption)
+        };
+        break;
+      case "file":
+        content = {
+          type: "file",
+          url: asRequiredString(record.url, ""),
+          filename: asRequiredString(record.filename, "file"),
+          mime_type: asOptionalString(record.mime_type),
+          text_excerpt: asOptionalString(record.text_excerpt)
+        };
+        break;
+      case "audio":
+        content = {
+          type: "audio",
+          url: asRequiredString(record.url, ""),
+          filename: asOptionalString(record.filename),
+          mime_type: asOptionalString(record.mime_type),
+          transcript: asOptionalString(record.transcript),
+          duration_ms: asOptionalNumber(record.duration_ms)
+        };
+        break;
+      case "voice":
+        content = {
+          type: "voice",
+          url: asRequiredString(record.url, ""),
+          mime_type: asOptionalString(record.mime_type),
+          transcript: asOptionalString(record.transcript),
+          duration_ms: asOptionalNumber(record.duration_ms)
+        };
+        break;
       case "action":
         content = {
           type: "action",
@@ -234,6 +269,7 @@ export class WebChatAdapter implements IMAdapter {
       sender_id: asRequiredString(record.sender_id, senderId),
       timestamp,
       content,
+      attachments: Array.isArray(record.attachments) ? record.attachments.filter(isRecord) : undefined,
       reply_to: asOptionalString(record.reply_to),
       metadata: isRecord(record.metadata) ? record.metadata : {},
       channel: {
@@ -313,6 +349,10 @@ function asRequiredString(value: unknown, fallback: string): string {
 
 function asOptionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function asOptionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

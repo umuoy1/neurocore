@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { randomUUID } from "node:crypto";
 import type { IMAdapter } from "./im-adapter.js";
 import { normalizePersonalIngressMessage } from "../ingress.js";
+import { formatMediaDeliveryText } from "../media/media-attachments.js";
 import type { IMAdapterConfig, IMPlatform, MessageContent, UnifiedMessage } from "../types.js";
 
 export interface SlackAdapterOptions {
@@ -305,9 +306,10 @@ function formatMessageText(content: MessageContent): string {
     case "approval_request":
       return content.text;
     case "image":
-      return content.caption ? `${content.caption}\n${content.url}` : content.url;
     case "file":
-      return `${content.filename}\n${content.url}`;
+    case "audio":
+    case "voice":
+      return formatMediaDeliveryText(content);
     case "action":
       return content.action;
   }

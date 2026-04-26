@@ -21,6 +21,7 @@ export * from "./im-gateway/conversation/sqlite-profile-scoped-session-mapping-s
 export * from "./im-gateway/conversation/sqlite-platform-user-link-store.js";
 export * from "./im-gateway/approval/sqlite-approval-binding-store.js";
 export * from "./im-gateway/runtime/assistant-runtime-factory.js";
+export * from "./im-gateway/media/media-attachments.js";
 export * from "./memory/personal-memory-store.js";
 export * from "./memory/personal-memory-recall-provider.js";
 export * from "./memory/session-search-store.js";

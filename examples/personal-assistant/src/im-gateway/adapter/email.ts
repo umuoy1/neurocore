@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { EmailSendProvider } from "../../connectors/types.js";
 import type { IMAdapter } from "./im-adapter.js";
 import { normalizePersonalIngressMessage } from "../ingress.js";
+import { formatMediaDeliveryText } from "../media/media-attachments.js";
 import type { IMAdapterConfig, IMPlatform, MessageContent, UnifiedMessage } from "../types.js";
 
 export interface EmailAdapterOptions {
@@ -174,9 +175,10 @@ function formatBody(content: MessageContent): string {
         `${content.approve_label ?? "Approve"} / ${content.reject_label ?? "Reject"}`
       ].join("\n");
     case "image":
-      return content.caption ? `${content.caption}\n${content.url}` : content.url;
     case "file":
-      return `${content.filename}\n${content.url}`;
+    case "audio":
+    case "voice":
+      return formatMediaDeliveryText(content);
     case "action":
       return content.action;
   }

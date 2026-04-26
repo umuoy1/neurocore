@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IMAdapter } from "./im-adapter.js";
 import { normalizePersonalIngressMessage } from "../ingress.js";
+import { formatMediaDeliveryText } from "../media/media-attachments.js";
 import type { IMAdapterConfig, IMPlatform, MessageContent, UnifiedMessage } from "../types.js";
 
 export interface DiscordAdapterOptions {
@@ -194,12 +195,11 @@ export class DiscordAdapter implements IMAdapter {
           ]
         };
       case "image":
-        return {
-          content: content.caption ? `${content.caption}\n${content.url}` : content.url
-        };
       case "file":
+      case "audio":
+      case "voice":
         return {
-          content: `${content.filename}\n${content.url}`
+          content: formatMediaDeliveryText(content)
         };
       case "status":
         return {

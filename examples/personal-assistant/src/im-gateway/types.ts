@@ -40,6 +40,39 @@ export interface PersonalIdentityContext {
 
 export type NotificationPriority = "silent" | "normal" | "urgent";
 
+export type PersonalMediaKind = "image" | "file" | "audio" | "voice";
+
+export type PersonalMediaSensitivity = "public" | "private" | "sensitive" | "unknown";
+
+export interface PersonalMediaProvenance {
+  platform: IMPlatform;
+  chat_id: string;
+  message_id: string;
+  attachment_id: string;
+  sender_id?: string;
+  received_at: string;
+  source_url?: string;
+  filename?: string;
+  mime_type?: string;
+}
+
+export interface PersonalMediaAttachment {
+  attachment_id: string;
+  kind: PersonalMediaKind;
+  url?: string;
+  filename?: string;
+  mime_type?: string;
+  size_bytes?: number;
+  caption?: string;
+  alt_text?: string;
+  transcript?: string;
+  text_excerpt?: string;
+  duration_ms?: number;
+  sensitivity: PersonalMediaSensitivity;
+  provenance: PersonalMediaProvenance;
+  metadata: Record<string, unknown>;
+}
+
 export type MessageContent =
   | { type: "text"; text: string }
   | { type: "markdown"; text: string }
@@ -54,7 +87,9 @@ export type MessageContent =
       data?: Record<string, unknown>;
     }
   | { type: "image"; url: string; caption?: string }
-  | { type: "file"; url: string; filename: string }
+  | { type: "file"; url: string; filename: string; mime_type?: string; text_excerpt?: string }
+  | { type: "audio"; url: string; filename?: string; mime_type?: string; transcript?: string; duration_ms?: number }
+  | { type: "voice"; url: string; mime_type?: string; transcript?: string; duration_ms?: number }
   | { type: "action"; action: string; params?: Record<string, unknown> }
   | {
       type: "approval_request";
@@ -71,6 +106,7 @@ export interface UnifiedMessage {
   sender_id: string;
   timestamp: string;
   content: MessageContent;
+  attachments?: PersonalMediaAttachment[];
   reply_to?: string;
   channel?: PersonalChannelContext;
   identity?: PersonalIdentityContext;

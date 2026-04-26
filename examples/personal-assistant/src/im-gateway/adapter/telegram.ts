@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IMAdapter } from "./im-adapter.js";
 import { normalizePersonalIngressMessage } from "../ingress.js";
+import { formatMediaDeliveryText } from "../media/media-attachments.js";
 import type { IMAdapterConfig, IMPlatform, MessageContent, UnifiedMessage } from "../types.js";
 
 export interface TelegramAdapterOptions {
@@ -225,6 +226,24 @@ export class TelegramAdapter implements IMAdapter {
             chat_id: chatId,
             document: content.url,
             caption: content.filename
+          }
+        };
+      case "audio":
+        return {
+          method: "sendAudio",
+          body: {
+            chat_id: chatId,
+            audio: content.url,
+            caption: content.transcript ?? content.filename
+          }
+        };
+      case "voice":
+        return {
+          method: "sendVoice",
+          body: {
+            chat_id: chatId,
+            voice: content.url,
+            caption: content.transcript
           }
         };
       case "action":

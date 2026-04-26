@@ -28,6 +28,7 @@
 > - 2026-04-25 Console 记忆可观测性补充：runtime-server memory endpoint 已暴露 retrieval plan、recall bundle 和 memory warnings；Console Memory Inspector 已新增 Observability tab。
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-04` 已收口多 Agent profile + channel binding。当前 personal assistant 已具备 profile registry、SQLite channel binding、profile-scoped route、profile-aware router 与 profile policy audit；同一用户/渠道/workspace 可隔离到不同 agent builder、tenant、memory scope、tool scope 和 policy scope。
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-05` 已收口轨迹导出、脱敏与 benchmark artifact。当前 `@neurocore/eval-core` 已提供 personal-agent trajectory export、redaction、benchmark artifact builder 和 deterministic replay report，个人助理可直接从 `AgentSessionHandle.replay()` 生成可评测轨迹。
+> - 2026-04-27 个人助理 P2 补充：`PA2-P2-06` 已收口全渠道媒体和语音基础层。当前 Gateway 已支持 image/file/audio/voice attachment 规范化、媒体提取 provenance/sensitivity、runtime `content_parts` 注入，以及音频/语音内容的跨渠道投递 fallback。
 
 ## 完成度
 

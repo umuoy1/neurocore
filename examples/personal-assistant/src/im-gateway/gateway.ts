@@ -6,6 +6,7 @@ import type { ApprovalBindingStore } from "./approval/approval-binding-store.js"
 import type { IMAdapter } from "./adapter/im-adapter.js";
 import type { CommandHandler } from "./command/command-handler.js";
 import type { ConversationRouting } from "./conversation/conversation-router.js";
+import { extractMediaForRuntime, formatMediaPrompt, type PersonalMediaExtraction } from "./media/media-attachments.js";
 import type { NotificationDispatcher } from "./notification/notification-dispatcher.js";
 import type { PersonalMemoryRecord, PersonalMemoryStore } from "../memory/personal-memory-store.js";
 import type { AddSessionSearchEntryInput, SessionSearchStore } from "../memory/session-search-store.js";
@@ -107,11 +108,12 @@ export class IMGateway {
       return;
     }
 
-    const prompt = messageToPrompt(message);
+    const mediaExtractions = extractMediaForRuntime(message);
+    const prompt = messageToPrompt(message, mediaExtractions);
     if (!prompt) {
       await this.options.dispatcher.sendToChat(message.platform, message.chat_id, {
         type: "text",
-        text: "Only text and markdown inputs are supported in the current example."
+        text: "Only text, markdown, image, file, audio and voice inputs are supported in the current example."
       });
       return;
     }
@@ -134,6 +136,7 @@ export class IMGateway {
       trust_level: message.identity?.trust_level ?? "unknown",
       metadata: message.identity?.metadata ?? {}
     };
+    const mediaContentParts = mediaExtractions.flatMap((item) => item.content_parts);
     const input = createUserInput(prompt, {
       platform: message.platform,
       chat_id: message.chat_id,
@@ -146,13 +149,30 @@ export class IMGateway {
       channel,
       identity,
       source_metadata: message.metadata,
+      media_attachments: (message.attachments ?? []).map((attachment) => ({
+        attachment_id: attachment.attachment_id,
+        kind: attachment.kind,
+        filename: attachment.filename,
+        mime_type: attachment.mime_type,
+        size_bytes: attachment.size_bytes,
+        sensitivity: attachment.sensitivity,
+        provenance: attachment.provenance
+      })),
+      media_extractions: mediaExtractions.map((item) => ({
+        attachment_id: item.attachment_id,
+        kind: item.kind,
+        summary: item.summary,
+        text: item.text,
+        sensitivity: item.sensitivity,
+        provenance: item.provenance
+      })),
       personal_memory: personalMemories.length > 0
         ? {
             user_id: userId,
             memories: personalMemories.map(toMemoryMetadata)
           }
         : undefined
-    });
+    }, mediaContentParts);
 
     const resolved = this.options.router.resolveOrCreate(message, input);
     const tenantId = resolved.handle.getSession()?.tenant_id ?? "default";
@@ -440,11 +460,21 @@ function shouldStreamAssistantOutput(platform: IMPlatform): boolean {
   return platform === "web" || platform === "feishu";
 }
 
-function messageToPrompt(message: UnifiedMessage): string | undefined {
+function messageToPrompt(message: UnifiedMessage, mediaExtractions: PersonalMediaExtraction[] = []): string | undefined {
+  const mediaPrompt = formatMediaPrompt(mediaExtractions);
   if (message.content.type === "text" || message.content.type === "markdown") {
-    return message.content.text;
+    return [message.content.text, mediaPrompt].filter(Boolean).join("\n\n");
   }
-  return undefined;
+  if (message.content.type === "image") {
+    return [message.content.caption, mediaPrompt].filter(Boolean).join("\n\n") || mediaPrompt;
+  }
+  if (message.content.type === "file") {
+    return [message.content.text_excerpt, mediaPrompt].filter(Boolean).join("\n\n") || mediaPrompt;
+  }
+  if (message.content.type === "audio" || message.content.type === "voice") {
+    return [message.content.transcript, mediaPrompt].filter(Boolean).join("\n\n") || mediaPrompt;
+  }
+  return mediaPrompt;
 }
 
 function buildApprovalMessage(approval: ApprovalRequest): MessageContent {

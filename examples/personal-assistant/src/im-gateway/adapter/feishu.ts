@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import type { IMAdapter } from "./im-adapter.js";
 import { normalizePersonalIngressMessage } from "../ingress.js";
+import { formatMediaDeliveryText } from "../media/media-attachments.js";
 import type { IMAdapterConfig, IMPlatform, MessageContent, UnifiedMessage } from "../types.js";
 
 interface FeishuTokenResponse {
@@ -295,6 +296,13 @@ export class FeishuAdapter implements IMAdapter {
       case "status":
         return {
           text: formatStatusText(content)
+        };
+      case "image":
+      case "file":
+      case "audio":
+      case "voice":
+        return {
+          text: formatMediaDeliveryText(content)
         };
       case "text":
       default:
