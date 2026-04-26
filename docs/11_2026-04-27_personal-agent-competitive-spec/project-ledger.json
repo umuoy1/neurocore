@@ -2,9 +2,9 @@
   "schema_version": "1.0.0",
   "project": "personal-agent-competitive-spec",
   "meta": {
-    "current_task": "PA2-P2-03",
+    "current_task": "PA2-P2-04",
     "phase": "Phase 7",
-    "updated_at": "2026-04-27T04:01:05+08:00",
+    "updated_at": "2026-04-27T04:04:10+08:00",
     "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
   },
   "phases": [
@@ -723,7 +723,9 @@
       "id": "PA2-P2-03",
       "phase": "Phase 7",
       "title": "Automatic skill generation and skill regression",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-04-27T04:04:10+08:00",
+      "acceptance_last_run": "npm run pa:accept -- PA2-P2-03",
       "depends_on": [
         "PA2-P1-05"
       ],
@@ -745,7 +747,8 @@
         "packages/runtime-core/",
         "tests/personal-assistant-auto-skills.test.mjs",
         "docs/11_2026-04-27_personal-agent-competitive-spec/"
-      ]
+      ],
+      "started_at": "2026-04-26T20:01:56.872Z"
     },
     {
       "id": "PA2-P2-04",

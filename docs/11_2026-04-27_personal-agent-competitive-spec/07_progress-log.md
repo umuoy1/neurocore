@@ -644,3 +644,33 @@
 |---|---|
 | Ledger | `PA2-P2-02` 已标记 completed |
 | 下一项 | `PA2-P2-03` Automatic skill generation and skill regression |
+
+### PA2-P2-03 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Auto skill manager | 新增 `AutoSkillManager`，从 repeated successful workflows 生成 skill candidates |
+| Candidate gate | candidate 默认不激活；`activateCandidate()` 要求 validation report passed |
+| Regression validation | 新增 validator SPI 和 `createExpectedOutputValidator()`，用 regression cases 检查 generated skill instructions |
+| Registry activation | validated candidate 可激活到 `AgentSkillRegistry`，生成 AgentSkills-compatible record |
+| Version lifecycle | 同 skill 多版本会替换旧 active version；支持 disable version 和 rollback 到上一版本 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-auto-skills.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-skills.test.mjs` | 通过，3 项回归 |
+| `node --test tests/skill-system.test.mjs tests/procedural-skill-spec.test.mjs` | 通过，28 项回归 |
+| `npm run pa:task-check -- PA2-P2-03` | 通过 |
+| `npm run pa:accept -- PA2-P2-03` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P2-03` 已标记 completed |
+| 下一项 | `PA2-P2-04` Multi-agent profile and channel binding |
