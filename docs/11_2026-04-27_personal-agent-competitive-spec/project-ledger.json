@@ -1,0 +1,334 @@
+{
+  "schema_version": "1.0.0",
+  "project": "personal-agent-competitive-spec",
+  "meta": {
+    "current_task": "PA2-P0-01",
+    "phase": "Phase 1",
+    "updated_at": "2026-04-27T00:00:00.000+08:00",
+    "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
+  },
+  "phases": [
+    {
+      "id": "Phase 0",
+      "title": "Control Plane",
+      "exit_criteria": [
+        "long-run protocol docs exist",
+        "project ledger is machine-checkable",
+        "plan-check and accept commands pass"
+      ]
+    },
+    {
+      "id": "Phase 1",
+      "title": "Gateway + Conversation",
+      "exit_criteria": [
+        "PersonalGateway ingress is unified",
+        "conversation handoff prevents short-context loss"
+      ]
+    },
+    {
+      "id": "Phase 2",
+      "title": "Memory",
+      "exit_criteria": [
+        "explicit personal memory enters recall bundle",
+        "memory correction and review are test-covered"
+      ]
+    },
+    {
+      "id": "Phase 3",
+      "title": "Command + Governance",
+      "exit_criteria": [
+        "slash commands are schema-registered",
+        "high-risk actions require approval"
+      ]
+    },
+    {
+      "id": "Phase 4",
+      "title": "Automation",
+      "exit_criteria": [
+        "cron and background tasks are durable",
+        "task lifecycle is auditable"
+      ]
+    },
+    {
+      "id": "Phase 5",
+      "title": "Channels",
+      "exit_criteria": [
+        "P1 channel adapters have E2E smoke coverage"
+      ]
+    },
+    {
+      "id": "Phase 6",
+      "title": "Extensibility",
+      "exit_criteria": [
+        "skills, MCP, subagents, browser and sandbox are governed"
+      ]
+    },
+    {
+      "id": "Phase 7",
+      "title": "Beyond",
+      "exit_criteria": [
+        "memory wiki, dreaming, benchmark and Console governance are complete"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "PA2-P0-00",
+      "phase": "Phase 0",
+      "title": "Long-run control plane",
+      "status": "completed",
+      "completed_at": "2026-04-27T00:00:00.000+08:00",
+      "acceptance_last_run": "npm run pa:accept -- PA2-P0-00",
+      "depends_on": [],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/02_architecture.md",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/03_delivery-roadmap.md",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/04_acceptance-oracle.md",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/05_test-strategy.md",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/06_long-run-agent-protocol.md"
+      ],
+      "acceptance": [
+        "planning docs 02-08 exist",
+        "project-ledger.json parses and validates",
+        "package scripts pa:plan-check, pa:next-task, pa:start, pa:task-check, pa:accept exist",
+        "AGENTS.md references the long-run protocol",
+        "long-run protocol requires task commits and phase pushes"
+      ],
+      "tests": [
+        "npm run pa:plan-check",
+        "npm run pa:next-task",
+        "node --check scripts/personal-agent-plan.mjs",
+        "npm run pa:task-check -- PA2-P0-00"
+      ],
+      "write_paths": [
+        "AGENTS.md",
+        "package.json",
+        "scripts/personal-agent-plan.mjs",
+        "docs/README.md",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P0-01",
+      "phase": "Phase 1",
+      "title": "PersonalGateway unified ingress",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-00"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/02_architecture.md#2-组件边界",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/03_delivery-roadmap.md#3-p0-任务链"
+      ],
+      "acceptance": [
+        "WebChat, CLI and IM ingress convert to one message envelope",
+        "channel capabilities are explicit",
+        "identity and channel metadata are passed to ConversationRouter"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-gateway.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/personal-assistant-gateway.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P0-02",
+      "phase": "Phase 1",
+      "title": "Conversation handoff and short-reference continuity",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-01"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/02_architecture.md#41-用户消息流程",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/04_acceptance-oracle.md#4-产品级验收场景"
+      ],
+      "acceptance": [
+        "terminal session reopen preserves recent user and assistant turns",
+        "short reference questions resolve from handoff metadata",
+        "same chat id restores route without losing context"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-web-chat.test.mjs tests/personal-assistant-e2e.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/personal-assistant-web-chat.test.mjs",
+        "tests/personal-assistant-e2e.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P0-03",
+      "phase": "Phase 2",
+      "title": "Explicit personal memory in recall bundle",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-02"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/02_architecture.md#3-主数据模型",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/04_acceptance-oracle.md#3-p0-验收-oracle"
+      ],
+      "acceptance": [
+        "/remember, /forget, /correct, /memories are equivalent across enabled entries",
+        "active personal memories are injected through runtime metadata or recall bundle",
+        "memory corrections disable stale facts"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-e2e.test.mjs tests/memory-recall-bundle.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/memory-core/",
+        "tests/personal-assistant-e2e.test.mjs",
+        "tests/memory-recall-bundle.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P0-04",
+      "phase": "Phase 3",
+      "title": "Command registry and baseline slash commands",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-01"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/02_architecture.md#42-slash-command-流程",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#4-用户可见命令清单"
+      ],
+      "acceptance": [
+        "/new, /status, /stop, /model, /usage and /compact are schema-registered",
+        "commands produce the same outcome across WebChat and CLI ingress",
+        "unknown commands return structured errors"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-e2e.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/personal-assistant-e2e.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P0-05",
+      "phase": "Phase 3",
+      "title": "Tool approval and command risk classification",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-04"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/02_architecture.md#2-组件边界",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/04_acceptance-oracle.md#4-产品级验收场景"
+      ],
+      "acceptance": [
+        "high-risk shell, send_message and webhook actions require approval by default",
+        "approval and denial are auditable",
+        "risk classification is visible in command output"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-approval.test.mjs tests/policy-governance.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/policy-core/",
+        "tests/personal-assistant-approval.test.mjs",
+        "tests/policy-governance.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P0-06",
+      "phase": "Phase 4",
+      "title": "Minimum background task ledger",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-05"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/02_architecture.md#44-子-agent-流程",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/04_acceptance-oracle.md#3-p0-验收-oracle"
+      ],
+      "acceptance": [
+        "background tasks have created, running, succeeded, failed and cancelled states",
+        "tasks can be listed, inspected and cancelled",
+        "completion can be delivered back to origin channel"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-proactive.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/personal-assistant-proactive.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P0-07",
+      "phase": "Phase 4",
+      "title": "Minimum cron and delivery",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-06"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/02_architecture.md#43-自动化流程",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/05_test-strategy.md#3-p0-测试映射"
+      ],
+      "acceptance": [
+        "one-shot and recurring schedules can be created",
+        "cron entries can be paused, resumed, run and removed",
+        "cron results are delivered to configured target"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-proactive.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/personal-assistant-proactive.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    },
+    {
+      "id": "PA2-P0-08",
+      "phase": "Phase 4",
+      "title": "Web search, fetch and browser connector closure",
+      "status": "pending",
+      "depends_on": [
+        "PA2-P0-04"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/01_openclaw-hermes-feature-map.md#3-功能总清单",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/05_test-strategy.md#3-p0-测试映射"
+      ],
+      "acceptance": [
+        "web search and fetch outputs cite sources",
+        "browser actions are traceable",
+        "web content is marked untrusted before entering memory or reasoning"
+      ],
+      "tests": [
+        "npm run build",
+        "node --test tests/personal-assistant-e2e.test.mjs"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/personal-assistant-e2e.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/"
+      ]
+    }
+  ]
+}

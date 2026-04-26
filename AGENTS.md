@@ -1,0 +1,27 @@
+# NeuroCore Agent Rules
+
+- 除非用户明确要求，否则不要在代码中添加注释。
+
+## 设计对齐原则
+
+所有代码的设计与编写必须遵循 `docs/` 中的设计文档和 milestone 规划。核心要求：
+
+1. **不偏离设计目标**：每次改动前先确认 docs 中的对应定义（Schema、SPI、模块职责、生命周期），不得凭直觉做局部 patch。
+2. **与设计闭环**：改动必须能追溯到某份设计文档中的具体条目（FR 编号、里程碑任务、Schema 字段、SPI 接口等），并在 commit message 中体现。
+3. **及时回归**：改动完成后对照 `docs/mvp_gaps_and_next_steps.md` 和 `docs/gap_analysis_and_roadmap.md` 检查完成度变化，确保不引入新的偏差。
+4. **不做局部 patch**：如果发现设计文档与实现不一致，优先修正实现以对齐设计，而非在实现上打补丁绕过。如果设计本身需要调整，先更新 docs 再改代码。
+5. **Milestone 驱动**：按 `gap_analysis_and_roadmap.md` 中的优先级（P0 -> P1 -> P2）推进，不跳级、不超前做未规划的能力。
+6. **及时更新进度文档**：每次完成功能改动后，同步更新 `docs/mvp_gaps_and_next_steps.md` 和 `docs/gap_analysis_and_roadmap.md` 中的完成状态、完成度百分比和剩余待办，保持文档与代码实现一致。
+
+## 个人助理长任务协议
+
+当任务涉及 `docs/11_2026-04-27_personal-agent-competitive-spec/` 或新个人助理 agent 对标实现时，必须遵守：
+
+1. 开工前读取 `docs/11_2026-04-27_personal-agent-competitive-spec/06_long-run-agent-protocol.md` 和 `docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json`。
+2. 开工前运行 `npm run pa:plan-check` 和 `npm run pa:next-task`。
+3. 如当前任务为 `pending`，先运行 `npm run pa:start -- <task_id>`。
+4. 只推进 `project-ledger.json` 中的 `meta.current_task`，除非用户明确指定其它任务。
+5. 不得把任务标记为完成，除非 `npm run pa:accept -- <task_id>` 通过。
+6. 每次完成任务后更新 `07_progress-log.md`；每次失败方案或回滚原因写入 `08_failed-attempts.md`。
+7. 每个 ledger task 验收后由 agent 自己创建 task commit；每个 Phase 收口后由 agent 自己 push，用户明确要求时也可任务级 push。
+8. 若发现实现与规划冲突，先更新本目录下的设计/roadmap/acceptance 文档，再改代码。
