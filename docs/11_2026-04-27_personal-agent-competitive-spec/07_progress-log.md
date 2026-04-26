@@ -315,3 +315,33 @@
 |---|---|
 | Ledger | `PA2-P1-01` 已标记 completed |
 | 下一项 | `PA2-P1-02` Slack adapter |
+
+### PA2-P1-02 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Slack adapter | 新增 `SlackAdapter`，实现 Slack Events API 归一化、Slack Web API 发送/编辑和测试用 `receiveEvent` |
+| Signing boundary | 支持 Slack `v0` HMAC signing 校验，签名缺失、错误或时间戳过期时不进入 routing |
+| Allowlist | `allowed_senders` 在 adapter 入口层拦截未授权 Slack user |
+| Thread routing | threaded Slack event 的 `chat_id` 编码为 `channel:thread_ts`，delivery 时还原为 `channel` + `thread_ts` |
+| Markdown/status delivery | markdown 以 `mrkdwn` 发送，status 格式化为 Slack 文本，approval request 使用 blocks button |
+| App config | 支持 `SLACK_BOT_TOKEN`、`SLACK_SIGNING_SECRET`、`SLACK_API_BASE_URL`、`SLACK_ALLOWED_SENDERS` 和本地 config |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-slack.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-gateway.test.mjs` | 通过，7 项回归 |
+| `npm run pa:task-check -- PA2-P1-02` | 通过 |
+| `npm run pa:accept -- PA2-P1-02` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P1-02` 已标记 completed |
+| 下一项 | `PA2-P1-03` Discord adapter |

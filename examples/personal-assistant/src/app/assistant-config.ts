@@ -53,6 +53,13 @@ export interface PersonalAssistantAppConfig {
     webhook_secret?: string;
     allowed_senders?: string[];
   };
+  slack?: {
+    enabled?: boolean;
+    bot_token?: string;
+    signing_secret?: string;
+    api_base_url?: string;
+    allowed_senders?: string[];
+  };
   proactive?: {
     enabled?: boolean;
     heartbeat_interval_ms?: number;
@@ -87,6 +94,7 @@ export function createPersonalAssistantConfigFromEnv(
   const feishuAppId = env.FEISHU_APP_ID ?? appConfig.feishu?.app_id;
   const feishuAppSecret = env.FEISHU_APP_SECRET ?? appConfig.feishu?.app_secret;
   const telegramBotToken = env.TELEGRAM_BOT_TOKEN ?? appConfig.telegram?.bot_token;
+  const slackBotToken = env.SLACK_BOT_TOKEN ?? appConfig.slack?.bot_token;
 
   return {
     db_path: env.PERSONAL_ASSISTANT_DB_PATH ?? appConfig.db_path ?? join(cwd, ROOT_CONFIG_DIR, "personal-assistant.sqlite"),
@@ -138,6 +146,13 @@ export function createPersonalAssistantConfigFromEnv(
       api_base_url: env.TELEGRAM_API_BASE_URL ?? appConfig.telegram?.api_base_url,
       webhook_secret: env.TELEGRAM_WEBHOOK_SECRET ?? appConfig.telegram?.webhook_secret,
       allowed_senders: parseOptionalList(env.TELEGRAM_ALLOWED_SENDERS) ?? appConfig.telegram?.allowed_senders
+    },
+    slack: {
+      enabled: parseOptionalBoolean(env.SLACK_ENABLED) ?? appConfig.slack?.enabled ?? Boolean(slackBotToken),
+      bot_token: slackBotToken,
+      signing_secret: env.SLACK_SIGNING_SECRET ?? appConfig.slack?.signing_secret,
+      api_base_url: env.SLACK_API_BASE_URL ?? appConfig.slack?.api_base_url,
+      allowed_senders: parseOptionalList(env.SLACK_ALLOWED_SENDERS) ?? appConfig.slack?.allowed_senders
     },
     proactive: appConfig.proactive
   };

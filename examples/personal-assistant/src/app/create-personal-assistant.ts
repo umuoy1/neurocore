@@ -3,6 +3,7 @@ import { OpenAICompatibleReasoner } from "@neurocore/sdk-node";
 import type { Reasoner } from "@neurocore/protocol";
 import { CliAdapter } from "../im-gateway/adapter/cli.js";
 import { FeishuAdapter } from "../im-gateway/adapter/feishu.js";
+import { SlackAdapter } from "../im-gateway/adapter/slack.js";
 import { TelegramAdapter } from "../im-gateway/adapter/telegram.js";
 import { WebChatAdapter } from "../im-gateway/adapter/web-chat.js";
 import { SqliteApprovalBindingStore } from "../im-gateway/approval/sqlite-approval-binding-store.js";
@@ -193,6 +194,17 @@ export async function startPersonalAssistantApp(
         webhook_secret: config.telegram.webhook_secret
       }),
       allowed_senders: config.telegram.allowed_senders
+    });
+  }
+
+  if (config.slack?.enabled && config.slack.bot_token) {
+    gateway.registerAdapter(new SlackAdapter(), {
+      auth: compactAuth({
+        bot_token: config.slack.bot_token,
+        signing_secret: config.slack.signing_secret,
+        api_base_url: config.slack.api_base_url
+      }),
+      allowed_senders: config.slack.allowed_senders
     });
   }
 
