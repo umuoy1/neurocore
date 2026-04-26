@@ -3,6 +3,7 @@ import { OpenAICompatibleReasoner } from "@neurocore/sdk-node";
 import type { Reasoner } from "@neurocore/protocol";
 import { CliAdapter } from "../im-gateway/adapter/cli.js";
 import { FeishuAdapter } from "../im-gateway/adapter/feishu.js";
+import { TelegramAdapter } from "../im-gateway/adapter/telegram.js";
 import { WebChatAdapter } from "../im-gateway/adapter/web-chat.js";
 import { SqliteApprovalBindingStore } from "../im-gateway/approval/sqlite-approval-binding-store.js";
 import { CommandHandler } from "../im-gateway/command/command-handler.js";
@@ -181,6 +182,17 @@ export async function startPersonalAssistantApp(
         app_secret: config.feishu.app_secret,
         ws_url: config.feishu.ws_url ?? ""
       }
+    });
+  }
+
+  if (config.telegram?.enabled && config.telegram.bot_token) {
+    gateway.registerAdapter(new TelegramAdapter(), {
+      auth: compactAuth({
+        bot_token: config.telegram.bot_token,
+        api_base_url: config.telegram.api_base_url,
+        webhook_secret: config.telegram.webhook_secret
+      }),
+      allowed_senders: config.telegram.allowed_senders
     });
   }
 

@@ -46,6 +46,13 @@ export interface PersonalAssistantAppConfig {
     app_secret?: string;
     ws_url?: string;
   };
+  telegram?: {
+    enabled?: boolean;
+    bot_token?: string;
+    api_base_url?: string;
+    webhook_secret?: string;
+    allowed_senders?: string[];
+  };
   proactive?: {
     enabled?: boolean;
     heartbeat_interval_ms?: number;
@@ -79,6 +86,7 @@ export function createPersonalAssistantConfigFromEnv(
   const openaiConfig = resolveOpenAIConfig(env, mergeOpenAIConfig(localConfig.llmConfig, appConfig.openai));
   const feishuAppId = env.FEISHU_APP_ID ?? appConfig.feishu?.app_id;
   const feishuAppSecret = env.FEISHU_APP_SECRET ?? appConfig.feishu?.app_secret;
+  const telegramBotToken = env.TELEGRAM_BOT_TOKEN ?? appConfig.telegram?.bot_token;
 
   return {
     db_path: env.PERSONAL_ASSISTANT_DB_PATH ?? appConfig.db_path ?? join(cwd, ROOT_CONFIG_DIR, "personal-assistant.sqlite"),
@@ -123,6 +131,13 @@ export function createPersonalAssistantConfigFromEnv(
       app_id: feishuAppId,
       app_secret: feishuAppSecret,
       ws_url: env.FEISHU_WS_URL ?? appConfig.feishu?.ws_url
+    },
+    telegram: {
+      enabled: parseOptionalBoolean(env.TELEGRAM_ENABLED) ?? appConfig.telegram?.enabled ?? Boolean(telegramBotToken),
+      bot_token: telegramBotToken,
+      api_base_url: env.TELEGRAM_API_BASE_URL ?? appConfig.telegram?.api_base_url,
+      webhook_secret: env.TELEGRAM_WEBHOOK_SECRET ?? appConfig.telegram?.webhook_secret,
+      allowed_senders: parseOptionalList(env.TELEGRAM_ALLOWED_SENDERS) ?? appConfig.telegram?.allowed_senders
     },
     proactive: appConfig.proactive
   };

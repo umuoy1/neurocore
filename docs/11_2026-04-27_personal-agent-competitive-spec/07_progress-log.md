@@ -285,3 +285,33 @@
 |---|---|
 | Ledger | `PA2-P0-08` 已标记 completed，P0 任务链完成 |
 | 下一项 | `PA2-P1-01` Telegram adapter |
+
+### PA2-P1-01 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Telegram adapter | 新增 `TelegramAdapter`，实现 Telegram Bot API 发送、编辑、typing 和测试用 `receiveUpdate` |
+| Ingress normalization | Telegram message / callback_query 归一化为 PersonalGateway envelope，保留 chat、identity、transport metadata |
+| Channel capabilities | `IMPlatform` 扩展为 `telegram`，默认支持 text、markdown、status、images、files、actions、approval_requests、typing、edits |
+| Delivery | text、markdown、status、approval_request 均可转为 Telegram `sendMessage` payload，approval 使用 inline keyboard callback |
+| Auth boundary | `allowed_senders` 在 adapter 入口层拦截未授权 sender，不进入 session routing |
+| App config | 支持 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_API_BASE_URL`、`TELEGRAM_WEBHOOK_SECRET`、`TELEGRAM_ALLOWED_SENDERS` 和本地 config |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-telegram.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-gateway.test.mjs` | 通过，7 项回归 |
+| `npm run pa:task-check -- PA2-P1-01` | 通过 |
+| `npm run pa:accept -- PA2-P1-01` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P1-01` 已标记 completed |
+| 下一项 | `PA2-P1-02` Slack adapter |

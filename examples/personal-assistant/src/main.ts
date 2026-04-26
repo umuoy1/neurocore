@@ -6,6 +6,7 @@ export * from "./im-gateway/gateway.js";
 export * from "./im-gateway/adapter/cli.js";
 export * from "./im-gateway/adapter/web-chat.js";
 export * from "./im-gateway/adapter/feishu.js";
+export * from "./im-gateway/adapter/telegram.js";
 export * from "./im-gateway/command/command-handler.js";
 export * from "./im-gateway/notification/notification-dispatcher.js";
 export * from "./im-gateway/conversation/conversation-router.js";
