@@ -581,3 +581,35 @@
 |---|---|
 | Ledger | `PA2-P1-10` 已标记 completed |
 | 下一项 | `PA2-P2-01` Memory wiki and claim evidence layer |
+
+### PA2-P2-01 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Claim store | 新增 SQLite-backed `MemoryClaimStore`，以 typed claim 表示个人事实 |
+| Evidence layer | claim 支持 personal memory、session search、manual、external evidence refs，保留 session/message provenance |
+| Freshness | claim 记录 observed_at、ttl_days、expires_at 和 freshness score |
+| Contradiction | 同 user/subject 的不同 active claim 自动生成 contradiction metadata |
+| Wiki rebuild | 新增 `rebuildMemoryWikiPage`，从 approved claims 重建 subject 分组 wiki markdown |
+| Review lifecycle | 用户 review 支持 approve、correct、retire，保留 reviewer_id、reviewed_at、correction_of |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-memory-wiki.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-memory-search.test.mjs` | 通过，2 项回归 |
+| `node --test tests/memory-recall-bundle.test.mjs` | 通过，2 项回归 |
+| `node --test tests/personal-assistant-e2e.test.mjs` | 通过，6 项回归 |
+| `npm run pa:task-check -- PA2-P2-01` | 通过 |
+| `npm run pa:accept -- PA2-P2-01` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P2-01` 已标记 completed |
+| 下一项 | `PA2-P2-02` Dreaming and consolidation pipeline |
