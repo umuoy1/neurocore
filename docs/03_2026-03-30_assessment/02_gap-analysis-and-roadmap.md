@@ -27,6 +27,7 @@
 > - 2026-04-26 记忆检索补充：episodic retrieval 已补 stopword-aware sparse scoring、query/phrase coverage、BM25 rerank、role preference、金额/数量事实形态 boost、targeted query expansion 与候选 score 缓存；LongMemEval session ingestion 已补 full / user / assistant / lead-user / preference / fact 多视图。LongMemEval stable session 3-shard 当前验证达到 non-abstention `420`、R@5 `1.0000`、R@10 `1.0000`、MRR `0.9441`；当前优化版 session full baseline 为 non-abstention `1410`、R@5 `0.9574`、R@10 `0.9766`、MRR `0.8964`，其中 `longmemeval_s_cleaned` R@5 `0.9787`、R@10 `0.9915`。
 > - 2026-04-25 Console 记忆可观测性补充：runtime-server memory endpoint 已暴露 retrieval plan、recall bundle 和 memory warnings；Console Memory Inspector 已新增 Observability tab。
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-04` 已收口多 Agent profile + channel binding。当前 personal assistant 已具备 profile registry、SQLite channel binding、profile-scoped route、profile-aware router 与 profile policy audit；同一用户/渠道/workspace 可隔离到不同 agent builder、tenant、memory scope、tool scope 和 policy scope。
+> - 2026-04-27 个人助理 P2 补充：`PA2-P2-05` 已收口轨迹导出、脱敏与 benchmark artifact。当前 `@neurocore/eval-core` 已提供 personal-agent trajectory export、redaction、benchmark artifact builder 和 deterministic replay report，个人助理可直接从 `AgentSessionHandle.replay()` 生成可评测轨迹。
 
 ## 完成度
 

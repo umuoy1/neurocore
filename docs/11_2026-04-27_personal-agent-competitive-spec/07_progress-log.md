@@ -703,3 +703,34 @@
 |---|---|
 | Ledger | `PA2-P2-04` 已标记 completed |
 | 下一项 | `PA2-P2-05` Trajectory data, redaction and benchmark artifacts |
+
+### PA2-P2-05 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Trajectory export | `exportPersonalAgentTrajectory()` 可导出 session replay、trace records、final output、channel/identity/profile metadata |
+| Provenance | 导出结果包含 trace provenance、memory recall/attached memory provenance 和 tool execution provenance |
+| Redaction | 内置稳定脱敏器，覆盖 secret key 字段、Bearer/token/API key、email、phone、user/chat/message/session 私有标识和自由文本中的已知私有 ID |
+| Benchmark artifact | `buildPersonalAgentTrajectoryBenchmarkArtifact()` 可把脱敏轨迹转换为 deterministic replay case |
+| Deterministic replay | `replayPersonalAgentTrajectoryBenchmarkArtifact()` 基于 replay signature 验证 artifact 可稳定回放 |
+| Personal assistant wrapper | 新增 `exportPersonalAssistantSessionTrajectory()`，可直接从 `AgentSessionHandle.replay()` 生成轨迹数据 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-trajectory-export.test.mjs` | 通过，1 项测试 |
+| `node --test tests/longmemeval-benchmark.test.mjs tests/memory-objective-benchmark.test.mjs tests/memory-causal-regression.test.mjs` | 通过，15 项回归 |
+| `node --test tests/personal-assistant-e2e.test.mjs tests/personal-assistant-memory-search.test.mjs` | 通过，8 项回归 |
+| `npm run pa:task-check -- PA2-P2-05` | 通过 |
+| `npm run pa:accept -- PA2-P2-05` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P2-05` 已标记 completed |
+| 下一项 | `PA2-P2-06` Full-channel media and voice |

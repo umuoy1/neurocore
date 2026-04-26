@@ -10,3 +10,4 @@ export * from "./memory-causal-regression.js";
 export * from "./meta-benchmark.js";
 export * from "./meta-online-eval.js";
 export * from "./autonomy-benchmark.js";
+export * from "./personal-agent-trajectory.js";

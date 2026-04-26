@@ -37,6 +37,7 @@ export * from "./skills/auto-skill-manager.js";
 export * from "./subagents/subagent-manager.js";
 export * from "./sandbox/sandbox-provider.js";
 export * from "./sandbox/sandbox-tools.js";
+export * from "./trajectory/trajectory-exporter.js";
 export * from "./proactive/types.js";
 export * from "./proactive/background-task-ledger.js";
 export * from "./proactive/proactive-engine.js";
