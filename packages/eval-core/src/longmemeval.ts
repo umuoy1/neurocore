@@ -195,7 +195,7 @@ export class NeuroCoreLongMemEvalRetriever implements LongMemEvalRetriever {
     this.topK = options.topK ?? 5;
     this.providerRetrievalTopK = options.providerRetrievalTopK ?? Math.max(
       this.topK,
-      Math.ceil(this.topK / 0.6)
+      this.granularity === "turn" ? this.topK * 6 : this.topK * 10
     );
     this.sqliteFilename = options.sqliteFilename;
     this.scopePrefix = options.scopePrefix
@@ -724,28 +724,32 @@ function buildLongMemEvalEpisodes(
 
     if (granularity === "session") {
       const transcript = formatSessionTranscript(session);
-      episodes.push({
-        episode_id: `lme_episode_${instance.question_id}_${historySessionId}`,
-        schema_version: "1.0.0",
-        session_id: syntheticSessionId,
-        trigger_summary: session[0]?.content.slice(0, 200) ?? historySessionId,
-        goal_refs: [],
-        context_digest: transcript,
-        selected_strategy: `longmemeval_session:${historySessionId}`,
-        action_refs: [],
-        observation_refs: [],
-        outcome: "success",
-        outcome_summary: transcript,
-        metadata: {
-          longmemeval_question_id: instance.question_id,
-          longmemeval_session_id: historySessionId,
-          longmemeval_granularity: granularity,
-          longmemeval_has_answer: session.some((turn) => turn.has_answer === true),
-          longmemeval_content: transcript,
-          longmemeval_session_date: sessionDate
-        },
-        created_at: sessionDate
-      });
+      const sessionViews = buildLongMemEvalSessionViews(session, transcript);
+      for (const view of sessionViews) {
+        episodes.push({
+          episode_id: `lme_episode_${instance.question_id}_${historySessionId}_${view.name}`,
+          schema_version: "1.0.0",
+          session_id: syntheticSessionId,
+          trigger_summary: view.content.slice(0, 200) || session[0]?.content.slice(0, 200) || historySessionId,
+          goal_refs: [],
+          context_digest: view.content,
+          selected_strategy: `longmemeval_session:${historySessionId}:${view.name}`,
+          action_refs: [],
+          observation_refs: [],
+          outcome: "success",
+          outcome_summary: view.content,
+          metadata: {
+            longmemeval_question_id: instance.question_id,
+            longmemeval_session_id: historySessionId,
+            longmemeval_granularity: granularity,
+            longmemeval_view: view.name,
+            longmemeval_has_answer: session.some((turn) => turn.has_answer === true),
+            longmemeval_content: transcript,
+            longmemeval_session_date: sessionDate
+          },
+          created_at: sessionDate
+        });
+      }
       return;
     }
 
@@ -827,7 +831,8 @@ function makeLongMemEvalContext(input: {
       current_input_content: input.question,
       current_input_metadata: {
         question_date: input.questionDate,
-        question_type: input.questionType
+        question_type: input.questionType,
+        preferred_memory_role: inferLongMemEvalPreferredRole(input.questionType, input.question)
       }
     },
     services: {
@@ -909,10 +914,55 @@ function extractLongMemEvalHits(
   return hits;
 }
 
+function inferLongMemEvalPreferredRole(
+  questionType: string,
+  question: string
+): "user" | "assistant" | undefined {
+  if (questionType === "single-session-assistant" || questionType === "assistant_previnfo") {
+    return "assistant";
+  }
+  if (questionType === "single-session-user" || questionType === "single-session-preference") {
+    return "user";
+  }
+
+  const normalized = question.toLowerCase();
+  if (/\b(you|assistant)\b.*\b(said|say|told|recommend|recommended|suggest|suggested|advise|advised|answer|answered)\b/.test(normalized)) {
+    return "assistant";
+  }
+  if (/\b(i|me|my)\b.*\b(said|say|told|mention|mentioned|prefer|preferred|like|liked|want|wanted)\b/.test(normalized)) {
+    return "user";
+  }
+  return undefined;
+}
+
 function formatSessionTranscript(session: LongMemEvalTurn[]): string {
   return session
     .map((turn) => `${turn.role}: ${turn.content}`)
     .join("\n");
+}
+
+function buildLongMemEvalSessionViews(
+  session: LongMemEvalTurn[],
+  transcript: string
+): Array<{ name: string; content: string }> {
+  const userTurns = session.filter((turn) => turn.role === "user");
+  const assistantTurns = session.filter((turn) => turn.role === "assistant");
+  const preferenceTurns = userTurns.filter((turn) =>
+    /\b(prefer|like|love|enjoy|interested|want|wanted|need|needed|looking for|planning|tend to)\b/i.test(turn.content)
+  );
+  const factTurns = session.filter((turn) =>
+    /[$€£]\s?\d|\b\d+(?:\.\d+)?\b|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(turn.content)
+  );
+  const views = [
+    { name: "full", content: transcript },
+    { name: "user", content: formatSessionTranscript(userTurns) },
+    { name: "assistant", content: formatSessionTranscript(assistantTurns) },
+    { name: "lead-user", content: formatSessionTranscript(userTurns.slice(0, 3)) },
+    { name: "preference", content: formatSessionTranscript(preferenceTurns) },
+    { name: "fact", content: formatSessionTranscript(factTurns) }
+  ];
+
+  return views.filter((view) => view.content.trim().length > 0);
 }
 
 function lookupLongMemEvalSessionTimestamp(

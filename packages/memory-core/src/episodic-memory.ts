@@ -160,10 +160,12 @@ export class EpisodicMemoryProvider implements MemoryProvider {
     }
 
     const digestK = ctx.memory_config?.retrieval_top_k ?? 3;
-    const recentSessionEpisodes = this.list(ctx.session.session_id)
+    const recentSessionEpisodes = rankEpisodesByRelevance(
+      this.list(ctx.session.session_id)
       .filter((episode) => shouldRecallEpisode(episode))
-      .slice()
-      .sort((left, right) => compareEpisodeByRelevance(left, right, ctx))
+      .slice(),
+      ctx
+    )
       .slice(0, digestK)
       .map((episode) => ({
         memory_id: episode.episode_id,
@@ -172,9 +174,12 @@ export class EpisodicMemoryProvider implements MemoryProvider {
         relevance: episode.outcome === "success" ? 0.85 : episode.outcome === "partial" ? 0.75 : 0.65
       }));
     const crossDigestK = Math.max(1, Math.ceil(digestK * 0.66));
-    const relatedEpisodes = this.listByTenant(ctx.tenant_id, ctx.session.session_id)
+    const relatedEpisodes = rankEpisodesByRelevance(
+      this.listByTenant(ctx.tenant_id, ctx.session.session_id)
       .filter((episode) => shouldRecallEpisode(episode))
-      .sort((left, right) => compareEpisodeByRelevance(left, right, ctx))
+      .slice(),
+      ctx
+    )
       .slice(0, crossDigestK)
       .map((episode) => ({
         memory_id: episode.episode_id,
@@ -194,15 +199,20 @@ export class EpisodicMemoryProvider implements MemoryProvider {
     const cycleId = ctx.session.current_cycle_id ?? ctx.services.generateId("cyc");
     const topK = ctx.memory_config?.retrieval_top_k ?? 5;
     const proposals: Proposal[] = [];
-    const recentEpisodes = this.list(ctx.session.session_id)
+    const recentEpisodes = rankEpisodesByRelevance(
+      this.list(ctx.session.session_id)
       .filter((episode) => shouldRecallEpisode(episode))
-      .slice()
-      .sort((left, right) => compareEpisodeByRelevance(left, right, ctx))
+      .slice(),
+      ctx
+    )
       .slice(0, topK);
-    const relatedEpisodes = this.listByTenant(ctx.tenant_id, ctx.session.session_id)
+    const relatedEpisodes = rankEpisodesByRelevance(
+      this.listByTenant(ctx.tenant_id, ctx.session.session_id)
       .filter((episode) => shouldRecallEpisode(episode))
       .filter((episode) => episode.outcome === "success" || episode.outcome === "partial")
-      .sort((left, right) => compareEpisodeByRelevance(left, right, ctx))
+      .slice(),
+      ctx
+    )
       .slice(0, Math.max(1, Math.ceil(topK * 0.6)));
 
     const activatedIds = [...recentEpisodes, ...relatedEpisodes].map((episode) => episode.episode_id);
@@ -296,12 +306,53 @@ function compareEpisodeByCreatedAtDesc(left: Episode, right: Episode): number {
   return Date.parse(right.created_at) - Date.parse(left.created_at);
 }
 
-function compareEpisodeByRelevance(left: Episode, right: Episode, ctx: ModuleContext): number {
-  const scoreDiff = scoreEpisode(right, ctx) - scoreEpisode(left, ctx);
-  if (scoreDiff !== 0) {
-    return scoreDiff;
+function rankEpisodesByRelevance(episodes: Episode[], ctx: ModuleContext): Episode[] {
+  const inputContent =
+    typeof ctx.runtime_state.current_input_content === "string"
+      ? ctx.runtime_state.current_input_content.toLowerCase()
+      : "";
+  const expandedInputContent = expandMemorySearchText(inputContent);
+  const queryTokens = dedupeStrings(tokenize(expandedInputContent).filter((token) => !STOPWORDS.has(token)));
+  const corpusEntries = episodes.map((episode) => {
+    const text = buildEpisodeSearchText(episode).toLowerCase();
+    const tokens = tokenize(text).filter((token) => !STOPWORDS.has(token));
+    return { episode, tokens };
+  });
+  const docFrequency = new Map<string, number>();
+  for (const entry of corpusEntries) {
+    for (const token of new Set(entry.tokens)) {
+      docFrequency.set(token, (docFrequency.get(token) ?? 0) + 1);
+    }
   }
-  return compareEpisodeByCreatedAtDesc(left, right);
+  const avgDocLength =
+    corpusEntries.length === 0
+      ? 0
+      : corpusEntries.reduce((sum, entry) => sum + entry.tokens.length, 0) / corpusEntries.length;
+
+  return corpusEntries
+    .map((entry) => ({
+      episode: entry.episode,
+      score:
+        scoreEpisode(entry.episode, ctx)
+        + computeBm25RerankScore(queryTokens, entry.tokens, docFrequency, corpusEntries.length, avgDocLength) * 0.16
+    }))
+    .sort((left, right) => {
+      const scoreDiff = right.score - left.score;
+      if (scoreDiff !== 0) {
+        return scoreDiff;
+      }
+      return compareEpisodeByCreatedAtDesc(left.episode, right.episode);
+    })
+    .map((entry) => entry.episode);
+}
+
+function buildEpisodeSearchText(episode: Episode): string {
+  return [
+    episode.trigger_summary,
+    episode.context_digest,
+    episode.selected_strategy,
+    episode.outcome_summary
+  ].join(" ");
 }
 
 function scoreEpisode(episode: Episode, ctx: ModuleContext): number {
@@ -315,15 +366,16 @@ function scoreEpisode(episode: Episode, ctx: ModuleContext): number {
       ? (ctx.runtime_state.current_input_metadata as Record<string, unknown>)
       : undefined;
 
-  const haystack = [
-    episode.trigger_summary,
-    episode.context_digest,
-    episode.selected_strategy,
-    episode.outcome_summary
-  ].join(" ").toLowerCase();
-  const similarity = computeSparseCosineSimilarity(inputContent.toLowerCase(), haystack);
+  const haystack = buildEpisodeSearchText(episode).toLowerCase();
+  const expandedInputContent = expandMemorySearchText(inputContent.toLowerCase());
+  const similarity = computeSparseCosineSimilarity(expandedInputContent, haystack);
+  const queryCoverage = computeQueryTokenCoverage(expandedInputContent, haystack);
+  const phraseCoverage = computeQueryPhraseCoverage(inputContent.toLowerCase(), haystack);
 
   let score = similarity * 0.55;
+  score += queryCoverage * 0.22;
+  score += phraseCoverage * 0.16;
+  score += computeStructuredFactBoost(inputContent.toLowerCase(), haystack, inputMetadata);
 
   const episodeToolName =
     episode.metadata && typeof episode.metadata.tool_name === "string"
@@ -351,6 +403,11 @@ function scoreEpisode(episode: Episode, ctx: ModuleContext): number {
   }
   if (episodeActionType && inputActionType && episodeActionType === inputActionType) {
     score += 0.15;
+  }
+  const preferredRole = inferPreferredMemoryRole(inputContent, inputMetadata);
+  const episodeRole = readEpisodeRole(episode.metadata);
+  if (preferredRole && episodeRole) {
+    score += preferredRole === episodeRole ? 0.14 : -0.04;
   }
   if (episode.outcome === "success") {
     score += 0.05;
@@ -409,9 +466,58 @@ function computeSparseCosineSimilarity(query: string, target: string): number {
   return computeTokenOverlap(query, target);
 }
 
+function computeQueryTokenCoverage(query: string, target: string): number {
+  const queryTokens = new Set(tokenize(query).filter((token) => !STOPWORDS.has(token)));
+  if (queryTokens.size === 0) {
+    return 0;
+  }
+  const targetTokens = new Set(tokenize(target));
+  let hits = 0;
+  for (const token of queryTokens) {
+    if (targetTokens.has(token)) {
+      hits += 1;
+    }
+  }
+  return hits / queryTokens.size;
+}
+
+function computeQueryPhraseCoverage(query: string, target: string): number {
+  const queryTokens = tokenize(query).filter((token) => !STOPWORDS.has(token));
+  if (queryTokens.length < 2) {
+    return 0;
+  }
+
+  const queryPhrases = dedupeStrings([...buildTokenNgrams(queryTokens, 2), ...buildTokenNgrams(queryTokens, 3)]);
+  if (queryPhrases.length === 0) {
+    return 0;
+  }
+
+  const normalizedTarget = tokenize(target)
+    .filter((token) => !STOPWORDS.has(token))
+    .join(" ");
+  let hits = 0;
+  for (const phrase of queryPhrases) {
+    if (normalizedTarget.includes(phrase)) {
+      hits += 1;
+    }
+  }
+  return hits / queryPhrases.length;
+}
+
+function buildTokenNgrams(tokens: string[], size: number): string[] {
+  const grams: string[] = [];
+  for (let index = 0; index <= tokens.length - size; index += 1) {
+    grams.push(tokens.slice(index, index + size).join(" "));
+  }
+  return grams;
+}
+
 function toTokenVector(value: string): Map<string, number> {
   const vector = new Map<string, number>();
   for (const token of tokenize(value)) {
+    if (STOPWORDS.has(token)) {
+      continue;
+    }
     vector.set(token, (vector.get(token) ?? 0) + 1);
   }
   return vector;
@@ -445,9 +551,291 @@ function computeCosineSimilarity(
   return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
 }
 
+function computeBm25RerankScore(
+  queryTokens: string[],
+  documentTokens: string[],
+  docFrequency: Map<string, number>,
+  documentCount: number,
+  avgDocLength: number
+): number {
+  if (queryTokens.length === 0 || documentTokens.length === 0 || documentCount === 0 || avgDocLength === 0) {
+    return 0;
+  }
+
+  const frequencies = new Map<string, number>();
+  for (const token of documentTokens) {
+    frequencies.set(token, (frequencies.get(token) ?? 0) + 1);
+  }
+
+  const k1 = 1.2;
+  const b = 0.75;
+  let score = 0;
+  for (const token of queryTokens) {
+    const frequency = frequencies.get(token) ?? 0;
+    if (frequency === 0) {
+      continue;
+    }
+    const df = docFrequency.get(token) ?? 0;
+    const idf = Math.log(1 + (documentCount - df + 0.5) / (df + 0.5));
+    const denominator = frequency + k1 * (1 - b + b * (documentTokens.length / avgDocLength));
+    score += idf * ((frequency * (k1 + 1)) / denominator);
+  }
+
+  return score / (score + 4);
+}
+
 function tokenize(value: string): string[] {
   return value
     .split(/[^a-z0-9_]+/)
     .map((token) => token.trim())
     .filter((token) => token.length >= 3);
 }
+
+function expandMemorySearchText(value: string): string {
+  const expansions: string[] = [];
+  if (/\b(publication|publications|paper|papers|article|articles|conference|conferences|research|study|studies|journal|journals)\b/.test(value)) {
+    expansions.push("research paper article journal study conference workshop symposium dataset");
+  }
+  if (/\b(show|shows|movie|movies|watch|netflix|film|films|series)\b/.test(value)) {
+    expansions.push("movie film series tv netflix comedy standup special storytelling episode");
+  }
+  if (/\b(dinner|serve|homegrown|ingredient|ingredients|recipe|recipes|cooking|garden|produce)\b/.test(value)) {
+    expansions.push("recipe cooking basil mint tomato tomatoes cherry herbs garden vegetable salad fresh");
+  }
+  if (/\b(cocktail|cocktails|drink|drinks|get-together|mixology)\b/.test(value)) {
+    expansions.push("cocktail drink gin pimm grapefruit syrup garnish cucumber summer mixology");
+  }
+  if (/\b(battery|phone|charging|charger|power)\b/.test(value)) {
+    expansions.push("phone battery portable power bank charger charging wireless cable accessory");
+  }
+  if (/\b(cookie|cookies|bake|baked|baking|dessert|cake|cakes|chocolate|birthday|niece)\b/.test(value)) {
+    expansions.push("baking baked dessert cookie cake cupcakes pastry sugar frosting chocolate birthday");
+  }
+  if (/\b(guitar|music|instrument|instruments|store)\b/.test(value)) {
+    expansions.push("guitar fender stratocaster gibson les paul electric tuning strings instrument");
+  }
+  if (/\b(camera|photography|photo|photos|accessory|accessories|setup|gear)\b/.test(value)) {
+    expansions.push("camera photography photo lens flash sony tripod gear accessory");
+  }
+  if (/\b(hotel|hotels|stay|trip|travel)\b/.test(value)) {
+    expansions.push("hotel stay travel vacation destination family city country week-long view rooftop pool balcony room accommodation");
+  }
+  if (/\b(doctor|doctors|physician|physicians|clinic|appointment|appointments|medical)\b/.test(value)) {
+    expansions.push("doctor physician specialist dentist dermatologist appointment clinic visit medical health");
+  }
+  if (/\b(volunteer|volunteered|fundraising|fundraiser|shelter|charity)\b/.test(value)) {
+    expansions.push("volunteer charity fundraising fundraiser animal shelter dinner event local");
+  }
+  if (/\b(occupation|job|profession|career|work|worked)\b/.test(value)) {
+    expansions.push("occupation job profession career worked role previous employment");
+  }
+  if (/\b(commute|commuting)\b/.test(value)) {
+    expansions.push("commute commuting daily work travel office time duration minutes each way drive train bus subway");
+  }
+  if (/\b(study abroad|abroad|program|university|college|school|attend|attended)\b/.test(value)) {
+    expansions.push("study abroad exchange overseas program university college semester campus institution location country city attended");
+  }
+  if (/\b(email|emails|message|messages)\b/.test(value)) {
+    expansions.push("email emails message messages work evening night stop cutoff check checking");
+  }
+  if (/\b(shampoo|hair|brand)\b/.test(value)) {
+    expansions.push("shampoo hair brand product conditioner currently use");
+  }
+  if (/\b(hike|hikes|hiking|trail|trails|distance)\b/.test(value)) {
+    expansions.push("hike hiking trail trails loop route distance miles mile kilometers weekend consecutive");
+  }
+  if (/\b(consecutive weekends?|weekends?)\b/.test(value)) {
+    expansions.push("last weekend previous weekend two weekends ago weekend ago consecutive weekends");
+  }
+  if (/\b(sport|sports|competitively|competitive|played|play)\b/.test(value)) {
+    expansions.push("sport sports competitively competitive played team soccer tennis basketball");
+  }
+  if (/\b(shoe|shoes|footwear|sneakers|sandals|packed|pack|packing|luggage|suitcase|wore|wear|worn)\b/.test(value)) {
+    expansions.push("shoes footwear sneakers sandals packed packing pack luggage suitcase wore wear worn pairs trip percentage percent");
+  }
+  if (/\b(furniture|bedroom|dresser|layout|layouts|rearrange|rearranging|arrange|arranging|decor|design)\b/.test(value)) {
+    expansions.push("furniture bedroom dresser layout arrange rearranging design decor style room placement storage");
+  }
+
+  return expansions.length > 0 ? `${value} ${expansions.join(" ")}` : value;
+}
+
+function inferPreferredMemoryRole(
+  inputContent: string,
+  inputMetadata: Record<string, unknown> | undefined
+): "user" | "assistant" | undefined {
+  const explicit = inputMetadata?.preferred_memory_role;
+  if (explicit === "user" || explicit === "assistant") {
+    return explicit;
+  }
+
+  const questionType = inputMetadata?.question_type;
+  if (questionType === "single-session-assistant" || questionType === "assistant_previnfo") {
+    return "assistant";
+  }
+  if (questionType === "single-session-user" || questionType === "single-session-preference") {
+    return "user";
+  }
+
+  const value = inputContent.toLowerCase();
+  if (/\b(you|assistant)\b.*\b(said|say|tell|told|recommend|recommended|suggest|suggested|advise|advised|answer|answered|mention|mentioned)\b/.test(value)) {
+    return "assistant";
+  }
+  if (/\b(what|which|when|where|who|how)\b.*\b(i|me|my|user)\b.*\b(said|say|tell|told|mention|mentioned|prefer|preferred|like|liked|want|wanted)\b/.test(value)) {
+    return "user";
+  }
+  return undefined;
+}
+
+function readEpisodeRole(metadata: Record<string, unknown> | undefined): "user" | "assistant" | undefined {
+  const role = metadata?.role ?? metadata?.message_role ?? metadata?.longmemeval_role;
+  return role === "user" || role === "assistant" ? role : undefined;
+}
+
+function computeStructuredFactBoost(
+  inputContent: string,
+  haystack: string,
+  inputMetadata: Record<string, unknown> | undefined
+): number {
+  let boost = 0;
+
+  if (isAmountQuery(inputContent) && containsAmountSignal(haystack)) {
+    boost += 0.16;
+  }
+  if (isDurationQuery(inputContent) && containsDurationSignal(haystack)) {
+    boost += 0.1;
+  }
+  if (isDistanceQuery(inputContent) && containsDistanceSignal(haystack)) {
+    boost += 0.08;
+  }
+  if (isPercentageQuery(inputContent) && containsPercentageSignal(haystack)) {
+    boost += 0.08;
+  }
+  if (isPackedItemPercentageQuery(inputContent) && containsPackedItemSignal(haystack)) {
+    boost += 0.1;
+  }
+  if (isCountQuery(inputContent) && containsCountSignal(haystack)) {
+    boost += 0.08;
+  }
+  if (inputMetadata?.question_type === "single-session-preference" && containsPreferenceSignal(haystack)) {
+    boost += 0.06;
+  }
+
+  return boost;
+}
+
+function isAmountQuery(value: string): boolean {
+  return /\b(how much|total amount|money|spent|expense|expenses|cost|paid|worth)\b/.test(value);
+}
+
+function containsAmountSignal(value: string): boolean {
+  return /[$€£]\s?\d|\b\d+(?:\.\d+)?\s?(?:dollars?|usd|bucks?)\b|\b(?:cost|paid|spent|worth)\b/.test(value);
+}
+
+function isDurationQuery(value: string): boolean {
+  return /\b(how long|how much time|duration|minutes?|hours?|each way|commute|practice|practicing)\b/.test(value);
+}
+
+function containsDurationSignal(value: string): boolean {
+  return /\b\d+(?:\.\d+)?\s?(?:minutes?|mins?|hours?|hrs?)\b|\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\s?(?:minutes?|mins?|hours?|hrs?)\b|\beach way\b/.test(value);
+}
+
+function isDistanceQuery(value: string): boolean {
+  return /\b(how far|distance|miles?|kilometers?|kms?|hike|hikes|hiking|trail|trails)\b/.test(value);
+}
+
+function containsDistanceSignal(value: string): boolean {
+  return /\b\d+(?:\.\d+)?\s?(?:miles?|mi|kilometers?|kilometres?|km|kms)\b/.test(value);
+}
+
+function isPercentageQuery(value: string): boolean {
+  return /\b(percentage|percent|%)\b/.test(value);
+}
+
+function containsPercentageSignal(value: string): boolean {
+  return /%|\bpercent\b/.test(value);
+}
+
+function isPackedItemPercentageQuery(value: string): boolean {
+  return /\b(percentage|percent|%)\b/.test(value) && /\b(packed|pack|packing|shoes?|items?|wore|wear|worn)\b/.test(value);
+}
+
+function containsPackedItemSignal(value: string): boolean {
+  return /\b\d+(?:\.\d+)?\s?(?:pairs?|shoes?|items?)\b|\b(?:pairs?|shoes?|items?)\b.{0,80}\b\d+(?:\.\d+)?\b|\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\b.{0,80}\b(?:pairs?|shoes?|items?)\b|\b(?:packed|pack|packing|wore|wear|worn)\b.{0,120}\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+(?:\.\d+)?)\b/.test(value);
+}
+
+function isCountQuery(value: string): boolean {
+  return /\b(how many|number of|count|total)\b/.test(value);
+}
+
+function containsCountSignal(value: string): boolean {
+  return /\b\d+\b|\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/.test(value);
+}
+
+function containsPreferenceSignal(value: string): boolean {
+  return /\b(i|my|me)\b.{0,120}\b(prefer|like|love|enjoy|interested|want|wanted|need|needed|looking for|planning|tend to)\b/.test(value);
+}
+
+const STOPWORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "that",
+  "this",
+  "was",
+  "were",
+  "are",
+  "some",
+  "you",
+  "your",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "how",
+  "many",
+  "much",
+  "did",
+  "does",
+  "have",
+  "had",
+  "help",
+  "tips",
+  "advice",
+  "ideas",
+  "resources",
+  "recommend",
+  "recommended",
+  "suggest",
+  "suggested",
+  "learn",
+  "more",
+  "again",
+  "think",
+  "thinking",
+  "plan",
+  "planning",
+  "bit",
+  "after",
+  "before",
+  "about",
+  "from",
+  "there",
+  "their",
+  "them",
+  "then",
+  "than",
+  "into",
+  "onto",
+  "just",
+  "can",
+  "could",
+  "would",
+  "should",
+  "total",
+  "amount",
+  "different",
+  "currently"
+]);

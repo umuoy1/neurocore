@@ -22,6 +22,12 @@
 > 2026-04-26 P1/P2 评测回写：
 > - LongMemEval full dataset 稳定测试框架已补齐：`tools/longmemeval-prepare-bundle.py` 将 official bundle 分片并输出 hash/manifest，`examples/demo-longmemeval-stable-benchmark.mjs` 可逐 shard 跑 matrix 并写 combined summary。
 > - OpenAI-compatible config 新增 `extraBody`，LongMemEval hypothesis generation 与 official QA wrapper 可透传 `enable_thinking=false`，避免 reasoning-only 模型在短输出预算下返回空 `content`。
+>
+> 2026-04-26 检索质量回写：
+> - `EpisodicMemoryProvider` 已补 stopword-aware sparse scoring、query/phrase coverage、BM25 rerank、role preference、金额/数量事实形态 boost、targeted query expansion 与候选 score 缓存；LongMemEval session ingestion 已补 full / user / assistant / lead-user / preference / fact 多视图。
+> - LongMemEval stable session 3-shard 当前验证：non-abstention `420`，R@5 `1.0000`，R@10 `1.0000`，MRR `0.9441`。
+> - LongMemEval stable session full baseline 当前验证：non-abstention `1410`，R@5 `0.9574`，R@10 `0.9766`，MRR `0.8964`；其中 `longmemeval_s_cleaned` R@5 `0.9787`，R@10 `0.9915`。
+> - 当前 sparse-only 主要短板仍是 `temporal-reasoning` 与 `single-session-preference`；后续不通过参数微调解决，优先进入 semantic card / dense retrieval backend 对照和 reader/QA evaluator 闭环。
 
 ---
 

@@ -1794,6 +1794,189 @@ test("EpisodicMemoryProvider prefers input-relevant episodes over newer but unre
   assert.equal(proposal.payload.episodes[0].episode_id, "ep_relevant");
 });
 
+test("EpisodicMemoryProvider downranks generic request words during episodic retrieval", async () => {
+  const provider = new EpisodicMemoryProvider();
+  const ctx = {
+    ...makeCtx({ retrieval_top_k: 1 }),
+    runtime_state: {
+      current_input_content: "How many projects am I currently leading?"
+    }
+  };
+
+  await provider.writeEpisode(
+    ctx,
+    makeEpisode({
+      episode_id: "ep_project_fact",
+      created_at: "2026-04-01T00:00:00.000Z",
+      outcome_summary: "I am currently leading the Apollo migration project and the Billing cleanup project."
+    })
+  );
+  await provider.writeEpisode(
+    ctx,
+    makeEpisode({
+      episode_id: "ep_generic_count_newer",
+      created_at: "2026-04-03T00:00:00.000Z",
+      outcome_summary: "If I use the alias name, how many paths are there from sb to td?"
+    })
+  );
+
+  const [proposal] = await provider.retrieve(ctx);
+  assert.equal(proposal.payload.episodes[0].episode_id, "ep_project_fact");
+});
+
+test("EpisodicMemoryProvider favors amount-bearing memories for spending questions", async () => {
+  const provider = new EpisodicMemoryProvider();
+  const ctx = {
+    ...makeCtx({ retrieval_top_k: 1 }),
+    runtime_state: {
+      current_input_content: "How much money did I spend on bike expenses?"
+    }
+  };
+
+  await provider.writeEpisode(
+    ctx,
+    makeEpisode({
+      episode_id: "ep_bike_cost",
+      created_at: "2026-04-01T00:00:00.000Z",
+      outcome_summary: "I replaced my bike chain and it cost $25."
+    })
+  );
+  await provider.writeEpisode(
+    ctx,
+    makeEpisode({
+      episode_id: "ep_bike_mileage_newer",
+      created_at: "2026-04-03T00:00:00.000Z",
+      outcome_summary: "I have tracked 347 bike miles since the start of the year."
+    })
+  );
+
+  const [proposal] = await provider.retrieve(ctx);
+  assert.equal(proposal.payload.episodes[0].episode_id, "ep_bike_cost");
+});
+
+test("EpisodicMemoryProvider favors duration facts for time-based questions", async () => {
+  const provider = new EpisodicMemoryProvider();
+  const ctx = {
+    ...makeCtx({ retrieval_top_k: 1 }),
+    runtime_state: {
+      current_input_content: "How much time do I dedicate to practicing guitar every day?"
+    }
+  };
+
+  await provider.writeEpisode(
+    ctx,
+    makeEpisode({
+      episode_id: "ep_guitar_duration",
+      created_at: "2026-04-01T00:00:00.000Z",
+      outcome_summary: "I have been practicing guitar for 30 minutes daily before work."
+    })
+  );
+  await provider.writeEpisode(
+    ctx,
+    makeEpisode({
+      episode_id: "ep_guitar_gear_newer",
+      created_at: "2026-04-03T00:00:00.000Z",
+      outcome_summary: "I asked about guitar amps, effects pedals, and recording gear for a jam session."
+    })
+  );
+
+  const [proposal] = await provider.retrieve(ctx);
+  assert.equal(proposal.payload.episodes[0].episode_id, "ep_guitar_duration");
+});
+
+test("EpisodicMemoryProvider favors packed item facts for percentage questions", async () => {
+  const provider = new EpisodicMemoryProvider();
+  const ctx = {
+    ...makeCtx({ retrieval_top_k: 1 }),
+    runtime_state: {
+      current_input_content: "What percentage of packed shoes did I wear on my last trip?"
+    }
+  };
+
+  await provider.writeEpisode(
+    ctx,
+    makeEpisode({
+      episode_id: "ep_shoe_percentage",
+      created_at: "2026-04-01T00:00:00.000Z",
+      outcome_summary: "On my last trip I packed 5 pairs of shoes but only wore two pairs."
+    })
+  );
+  await provider.writeEpisode(
+    ctx,
+    makeEpisode({
+      episode_id: "ep_trip_packing_newer",
+      created_at: "2026-04-03T00:00:00.000Z",
+      outcome_summary: "I made a general packing list for a five day city trip with toiletries and snacks."
+    })
+  );
+
+  const [proposal] = await provider.retrieve(ctx);
+  assert.equal(proposal.payload.episodes[0].episode_id, "ep_shoe_percentage");
+});
+
+test("EpisodicMemoryProvider keeps discount percentage questions separate from packed item percentages", async () => {
+  const provider = new EpisodicMemoryProvider();
+  const ctx = {
+    ...makeCtx({ retrieval_top_k: 1 }),
+    runtime_state: {
+      current_input_content: "What percentage discount did I get on the book from my favorite author?"
+    }
+  };
+
+  await provider.writeEpisode(
+    ctx,
+    makeEpisode({
+      episode_id: "ep_book_discount",
+      created_at: "2026-04-01T00:00:00.000Z",
+      outcome_summary: "The new release from my favorite author was originally priced at $30, and I got the book for $24 after a discount."
+    })
+  );
+  await provider.writeEpisode(
+    ctx,
+    makeEpisode({
+      episode_id: "ep_shoe_percentage_newer",
+      created_at: "2026-04-03T00:00:00.000Z",
+      outcome_summary: "On my last trip I packed 5 pairs of shoes but only wore two pairs."
+    })
+  );
+
+  const [proposal] = await provider.retrieve(ctx);
+  assert.equal(proposal.payload.episodes[0].episode_id, "ep_book_discount");
+});
+
+test("EpisodicMemoryProvider bridges furniture layout questions to bedroom furniture preferences", async () => {
+  const provider = new EpisodicMemoryProvider();
+  const ctx = {
+    ...makeCtx({ retrieval_top_k: 1 }),
+    runtime_state: {
+      current_input_content: "I was thinking about rearranging the furniture in my bedroom this weekend. Any tips?",
+      current_input_metadata: {
+        question_type: "single-session-preference"
+      }
+    }
+  };
+
+  await provider.writeEpisode(
+    ctx,
+    makeEpisode({
+      episode_id: "ep_bedroom_dresser_preference",
+      created_at: "2026-04-01T00:00:00.000Z",
+      outcome_summary: "I am looking for mid-century modern design inspiration for a new bedroom dresser and want the room style to match it."
+    })
+  );
+  await provider.writeEpisode(
+    ctx,
+    makeEpisode({
+      episode_id: "ep_bedroom_wifi_newer",
+      created_at: "2026-04-03T00:00:00.000Z",
+      outcome_summary: "I had issues with the Wi-Fi signal in my bedroom and fixed the router placement."
+    })
+  );
+
+  const [proposal] = await provider.retrieve(ctx);
+  assert.equal(proposal.payload.episodes[0].episode_id, "ep_bedroom_dresser_preference");
+});
+
 test("SemanticMemoryProvider keeps latest summary by created_at across repeated pattern episodes", async () => {
   const provider = new SemanticMemoryProvider();
 

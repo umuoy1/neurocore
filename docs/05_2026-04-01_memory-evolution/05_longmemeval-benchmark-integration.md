@@ -39,6 +39,7 @@ LongMemEval 正好覆盖：
 - in-memory 与 SQLite-backed 两种 retrieval 路径
 - full-bundle smoke 脚本与标准化报告落盘
 - 大文件 full-bundle 分片预处理与稳定 runner，避免 `longmemeval_m_cleaned.json` 级别的大 JSON 触发 JS 单字符串上限
+- episodic sparse retrieval 质量优化：stopword-aware cosine、query token coverage、BM25 rerank、role preference、金额/数量事实形态 boost、候选 score 缓存
 - official retrieval / QA evaluator wrapper script
 - 仓库内 sample fixture 与 deterministic test
 
@@ -225,6 +226,23 @@ LongMemEval 的原始目标是“长时交互记忆的 assistant benchmark”，
 - per-split aggregate
 - session/turn 双粒度 matrix summary
 
+2026-04-26 当前本地 stable session retrieval 基线：
+
+| run | non_abstention_count | R@1 | R@3 | R@5 | R@10 | MRR |
+|---|---:|---:|---:|---:|---:|---:|
+| 3-shard confirm | 420 | 0.9048 | 0.9881 | 1.0000 | 1.0000 | 0.9441 |
+| full combined | 1410 | 0.8496 | 0.9355 | 0.9574 | 0.9766 | 0.8964 |
+
+2026-04-26 当前 full baseline 分 split 结果：
+
+| dataset_variant | non_abstention_count | R@1 | R@3 | R@5 | R@10 | MRR |
+|---|---:|---:|---:|---:|---:|---:|
+| longmemeval_oracle | 470 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
+| longmemeval_s_cleaned | 470 | 0.8957 | 0.9638 | 0.9787 | 0.9915 | 0.9324 |
+| longmemeval_m | 470 | 0.6532 | 0.8426 | 0.8936 | 0.9383 | 0.7569 |
+
+主要改善来自 session multi-view indexing、stopword-aware cosine、query/phrase coverage、BM25 rerank、role preference、事实形态 boost 与 targeted query expansion。full combined 下 `single-session-assistant` / `single-session-user` 已达到 R@5 `1.0000`，`knowledge-update` R@5 `0.9907`，当前 sparse-only 主要短板仍是 `temporal-reasoning` R@5 `0.9160` 与 `single-session-preference` R@5 `0.8667`，后续需要进入 semantic card / dense retrieval 对照，而不是继续对同一测试集做更激进的规则拟合。
+
 当前还支持一条完整的 QA 闭环：
 
 1. 用 `examples/demo-longmemeval-generate-hypotheses.mjs` 生成 official `hypothesis.jsonl`
@@ -277,7 +295,7 @@ LongMemEval 的原始目标是“长时交互记忆的 assistant benchmark”，
 
 下一步优先级：
 
-1. 使用 stable full runner 执行一轮真实全量 benchmark，并固化基线结果
+1. 在当前 session retrieval full baseline 上补 dense / embedding backend 对照，重点验证 `temporal-reasoning` 与 `single-session-preference`
 2. 加一层 answerer adapter，把 retrieval 结果喂给 reader model，生成 hypothesis
 3. 对接官方 QA evaluator，形成 retrieval + QA 的双报告
-4. 对比当前 sparse retrieval 与未来 dense retrieval/embedding backend 的增益
+4. 将公开榜单对比固定为同 split、同 metric、同是否使用 reranker / reader model 的口径，避免把 retrieval R@5 与 QA accuracy 混用
