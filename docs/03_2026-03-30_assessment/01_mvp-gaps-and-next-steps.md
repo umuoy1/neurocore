@@ -23,6 +23,7 @@
 > - 2026-04-26 记忆评测补充：LongMemEval full dataset 路径新增 stable runner。当前已补 `tools/longmemeval-prepare-bundle.py` 和 `examples/demo-longmemeval-stable-benchmark.mjs`，可把 2GB+ official JSON 分片成可被现有 JS loader 稳定消费的 full-bundle shard，并输出 manifest、shard matrix 与 combined summary；OpenAI-compatible 配置也支持 `extraBody` 以关闭 reasoning-only 模型的 thinking 输出。
 > - 2026-04-26 记忆检索补充：`EpisodicMemoryProvider` 的 sparse retrieval 已升级为 stopword-aware cosine + query/phrase coverage + BM25 rerank + role/fact-shape signals + targeted query expansion，并缓存候选 score，避免 sort comparator 重复计算；LongMemEval session ingestion 已补 full / user / assistant / lead-user / preference / fact 多视图。LongMemEval stable session 3-shard 验证达到 non-abstention `420`、R@5 `1.0000`、R@10 `1.0000`、MRR `0.9441`；当前优化版 session full baseline 为 non-abstention `1410`、R@5 `0.9574`、R@10 `0.9766`、MRR `0.8964`，其中 `longmemeval_s_cleaned` R@5 `0.9787`、R@10 `0.9915`。
 > - 2026-04-25 Console 记忆可观测性补充：`GET /v1/sessions/:id/memory` 已返回 retrieval plans、recall bundles、latest plan/bundle 与 memory warnings；Console Memory Inspector 已新增 Observability 视图。
+> - 2026-04-27 个人助理 P2 补充：`PA2-P2-04` 已完成多 Agent profile + channel binding。当前新增 profile registry、profile-scoped session route store、profile-aware router 和 profile policy audit；同一 chat 可按 user/channel/workspace 路由到不同 builder、tenant、memory/tool/policy scope。
 
 ## 交付总结
 

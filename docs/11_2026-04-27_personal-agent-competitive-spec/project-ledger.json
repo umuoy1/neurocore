@@ -2,9 +2,9 @@
   "schema_version": "1.0.0",
   "project": "personal-agent-competitive-spec",
   "meta": {
-    "current_task": "PA2-P2-04",
+    "current_task": "PA2-P2-05",
     "phase": "Phase 7",
-    "updated_at": "2026-04-27T04:04:10+08:00",
+    "updated_at": "2026-04-26T20:17:22.000Z",
     "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
   },
   "phases": [
@@ -754,7 +754,9 @@
       "id": "PA2-P2-04",
       "phase": "Phase 7",
       "title": "Multi-agent profile and channel binding",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-04-27T04:17:22+08:00",
+      "acceptance_last_run": "npm run pa:accept -- PA2-P2-04",
       "depends_on": [
         "PA2-P1-07"
       ],
@@ -774,8 +776,11 @@
       "write_paths": [
         "examples/personal-assistant/",
         "tests/personal-assistant-agent-profiles.test.mjs",
-        "docs/11_2026-04-27_personal-agent-competitive-spec/"
-      ]
+        "docs/11_2026-04-27_personal-agent-competitive-spec/",
+        "docs/03_2026-03-30_assessment/01_mvp-gaps-and-next-steps.md",
+        "docs/03_2026-03-30_assessment/02_gap-analysis-and-roadmap.md"
+      ],
+      "started_at": "2026-04-26T20:05:01.771Z"
     },
     {
       "id": "PA2-P2-05",

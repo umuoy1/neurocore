@@ -1,7 +1,7 @@
 import type { AgentSession, SessionCheckpoint } from "@neurocore/protocol";
 import type { PersonalMemoryStore } from "../../memory/personal-memory-store.js";
 import { memorySourceFromMessage } from "../../memory/personal-memory-store.js";
-import type { ConversationRouter } from "../conversation/conversation-router.js";
+import type { ConversationRouting } from "../conversation/conversation-router.js";
 import type { SessionRoute } from "../types.js";
 import type { NotificationDispatcher } from "../notification/notification-dispatcher.js";
 import type { UnifiedMessage } from "../types.js";
@@ -29,7 +29,7 @@ export interface CommandHandlerModelInfo {
 }
 
 export interface CommandHandlerOptions {
-  router: ConversationRouter;
+  router: ConversationRouting;
   dispatcher: NotificationDispatcher;
   memoryStore?: PersonalMemoryStore;
   skillRegistry?: AgentSkillRegistry;

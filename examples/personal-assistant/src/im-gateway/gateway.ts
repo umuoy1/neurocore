@@ -5,7 +5,7 @@ import { normalizePersonalIngressMessage } from "./ingress.js";
 import type { ApprovalBindingStore } from "./approval/approval-binding-store.js";
 import type { IMAdapter } from "./adapter/im-adapter.js";
 import type { CommandHandler } from "./command/command-handler.js";
-import type { ConversationRouter } from "./conversation/conversation-router.js";
+import type { ConversationRouting } from "./conversation/conversation-router.js";
 import type { NotificationDispatcher } from "./notification/notification-dispatcher.js";
 import type { PersonalMemoryRecord, PersonalMemoryStore } from "../memory/personal-memory-store.js";
 import type { AddSessionSearchEntryInput, SessionSearchStore } from "../memory/session-search-store.js";
@@ -29,7 +29,7 @@ interface OutputForwardState {
 
 export interface IMGatewayOptions {
   builder: AgentBuilder;
-  router: ConversationRouter;
+  router: ConversationRouting;
   dispatcher: NotificationDispatcher;
   approvalBindingStore: ApprovalBindingStore;
   commandHandler?: CommandHandler;
@@ -198,7 +198,7 @@ export class IMGateway {
     try {
       const result = resolved.is_new
         ? await resolved.handle.run()
-        : await resolved.handle.runText(prompt, input.metadata);
+        : await resolved.handle.runText(prompt, resolved.runtime_input?.metadata ?? input.metadata);
       await progress?.chain;
 
       const lastStep = result.steps.at(-1);
@@ -290,7 +290,7 @@ export class IMGateway {
     }
 
     try {
-      const handle = this.options.builder.connectSession(binding.session_id);
+      const handle = this.options.router.connect(binding.session_id);
       const result = decision === "approved"
         ? await handle.approve({
             approval_id: binding.approval_id,

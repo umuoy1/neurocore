@@ -674,3 +674,32 @@
 |---|---|
 | Ledger | `PA2-P2-03` 已标记 completed |
 | 下一项 | `PA2-P2-04` Multi-agent profile and channel binding |
+
+### PA2-P2-04 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Agent profile registry | 新增 `AgentProfileRegistry`、SQLite profile store 和 profile policy audit store |
+| Channel binding | profile binding 支持 user、platform/chat、channel kind、workspace 与 priority 匹配 |
+| Scoped route store | 新增 `SqliteProfileScopedSessionMappingStore`，同一 chat 可按 profile/workspace 隔离 session route |
+| Profile-aware routing | 新增 `ProfileAwareConversationRouter`，按 profile 选择 builder、tenant、memory/tool/policy scope，并把 profile metadata 注入 runtime input |
+| Approval recovery | Gateway approval action 改为通过 router 连接 session，避免多 builder/profile 下审批恢复走错 agent |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-agent-profiles.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-gateway.test.mjs tests/personal-assistant-approval.test.mjs` | 通过，12 项回归 |
+| `npm run pa:task-check -- PA2-P2-04` | 通过 |
+| `npm run pa:accept -- PA2-P2-04` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P2-04` 已标记 completed |
+| 下一项 | `PA2-P2-05` Trajectory data, redaction and benchmark artifacts |

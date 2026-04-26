@@ -88,9 +88,15 @@ export interface IMAdapterConfig {
 export interface SessionRoute {
   platform: IMPlatform;
   chat_id: string;
+  route_scope_key?: string;
   session_id: string;
   sender_id?: string;
   canonical_user_id?: string;
+  agent_profile_id?: string;
+  workspace_id?: string;
+  memory_scope?: string;
+  tool_scope?: string;
+  policy_scope?: string;
   created_at: string;
   updated_at: string;
   last_active_at: string;

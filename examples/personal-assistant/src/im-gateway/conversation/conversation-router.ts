@@ -11,6 +11,13 @@ import type {
 import type { SessionMappingStore } from "./session-mapping-store.js";
 import type { PlatformUserLinkStore } from "./platform-user-link-store.js";
 
+export interface ConversationRouting {
+  resolveOrCreate(message: UnifiedMessage, input: UserInput): ResolvedConversation;
+  clearRoute(message: Pick<UnifiedMessage, "platform" | "chat_id" | "sender_id" | "channel" | "metadata">): void;
+  listRoutesForUser(userId: string): SessionRoute[];
+  connect(sessionId: string): AgentSessionHandle;
+}
+
 export interface ConversationRouterOptions {
   builder: AgentBuilder;
   tenantId: string;
@@ -26,9 +33,12 @@ export interface ResolvedConversation {
   resumed_from_checkpoint: boolean;
   canonical_user_id: string;
   handoff?: ConversationHandoff;
+  agent_profile_id?: string;
+  workspace_id?: string;
+  runtime_input?: UserInput;
 }
 
-export class ConversationRouter {
+export class ConversationRouter implements ConversationRouting {
   private readonly idleTimeoutMs: number;
 
   public constructor(private readonly options: ConversationRouterOptions) {
@@ -57,7 +67,8 @@ export class ConversationRouter {
           handle,
           is_new: false,
           resumed_from_checkpoint: false,
-          canonical_user_id: canonicalUserId
+          canonical_user_id: canonicalUserId,
+          runtime_input: input
         };
       }
 
@@ -115,7 +126,8 @@ export class ConversationRouter {
       is_new: true,
       resumed_from_checkpoint: false,
       canonical_user_id: canonicalUserId,
-      handoff
+      handoff,
+      runtime_input: initialInput
     };
   }
 
@@ -143,11 +155,11 @@ export class ConversationRouter {
   }
 }
 
-function isTerminalState(state: SessionState): boolean {
+export function isTerminalState(state: SessionState): boolean {
   return state === "completed" || state === "failed" || state === "aborted";
 }
 
-function isIdle(state: SessionState, lastActiveAt: string | undefined, idleTimeoutMs: number): boolean {
+export function isIdle(state: SessionState, lastActiveAt: string | undefined, idleTimeoutMs: number): boolean {
   if (state === "suspended" || state === "hydrated") {
     return false;
   }
@@ -157,7 +169,7 @@ function isIdle(state: SessionState, lastActiveAt: string | undefined, idleTimeo
   return Date.now() - Date.parse(lastActiveAt) > idleTimeoutMs;
 }
 
-function attachConversationHandoff(input: UserInput, handoff: ConversationHandoff): UserInput {
+export function attachConversationHandoff(input: UserInput, handoff: ConversationHandoff): UserInput {
   return {
     ...input,
     metadata: {
@@ -169,7 +181,7 @@ function attachConversationHandoff(input: UserInput, handoff: ConversationHandof
   };
 }
 
-function buildConversationHandoff(
+export function buildConversationHandoff(
   handle: AgentSessionHandle,
   previousSessionId: string,
   reason: ConversationHandoff["reason"],
