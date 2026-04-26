@@ -22,6 +22,8 @@ export interface ScheduleEntry {
   target_user: string;
   target_platform?: IMPlatform;
   enabled: boolean;
+  mode?: "recurring" | "one_shot";
+  run_at?: string;
 }
 
 export interface ProactiveAction {

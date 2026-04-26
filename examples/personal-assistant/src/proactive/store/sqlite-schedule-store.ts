@@ -23,22 +23,28 @@ export class SqliteScheduleStore {
         task_description TEXT NOT NULL,
         target_user TEXT NOT NULL,
         target_platform TEXT,
+        mode TEXT,
+        run_at TEXT,
         enabled INTEGER NOT NULL
       );
     `);
+    ensureColumn(this.db, "proactive_schedules", "mode", "TEXT");
+    ensureColumn(this.db, "proactive_schedules", "run_at", "TEXT");
   }
 
   public upsert(entry: ScheduleEntry): void {
     this.db
       .prepare(`
         INSERT INTO proactive_schedules (
-          id, cron, task_description, target_user, target_platform, enabled
-        ) VALUES (?, ?, ?, ?, ?, ?)
+          id, cron, task_description, target_user, target_platform, mode, run_at, enabled
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           cron = excluded.cron,
           task_description = excluded.task_description,
           target_user = excluded.target_user,
           target_platform = excluded.target_platform,
+          mode = excluded.mode,
+          run_at = excluded.run_at,
           enabled = excluded.enabled
       `)
       .run(
@@ -47,6 +53,8 @@ export class SqliteScheduleStore {
         entry.task_description,
         entry.target_user,
         entry.target_platform ?? null,
+        entry.mode ?? (entry.run_at ? "one_shot" : "recurring"),
+        entry.run_at ?? null,
         entry.enabled ? 1 : 0
       );
   }
@@ -54,7 +62,7 @@ export class SqliteScheduleStore {
   public list(): ScheduleEntry[] {
     const rows = this.db
       .prepare(`
-        SELECT id, cron, task_description, target_user, target_platform, enabled
+        SELECT id, cron, task_description, target_user, target_platform, mode, run_at, enabled
         FROM proactive_schedules
         ORDER BY id ASC
       `)
@@ -66,9 +74,18 @@ export class SqliteScheduleStore {
       task_description: String(row.task_description),
       target_user: String(row.target_user),
       target_platform: normalizePlatform(row.target_platform),
+      mode: normalizeMode(row.mode),
+      run_at: typeof row.run_at === "string" ? row.run_at : undefined,
       enabled: Number(row.enabled) === 1
     }));
   }
+}
+
+function normalizeMode(value: unknown): ScheduleEntry["mode"] {
+  if (value === "one_shot" || value === "recurring") {
+    return value;
+  }
+  return undefined;
 }
 
 function normalizePlatform(value: unknown): IMPlatform | undefined {
@@ -79,4 +96,11 @@ function normalizePlatform(value: unknown): IMPlatform | undefined {
     return value;
   }
   throw new Error(`Unsupported IM platform value: ${String(value)}`);
+}
+
+function ensureColumn(db: DatabaseSync, table: string, column: string, definition: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!columns.some((entry) => entry.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }

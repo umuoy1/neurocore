@@ -13,12 +13,47 @@ export class CronScheduler {
   public constructor(private readonly options: CronSchedulerOptions) {}
 
   public register(entry: ScheduleEntry): void {
-    this.entries.set(entry.id, entry);
+    this.entries.set(entry.id, {
+      ...entry,
+      mode: entry.mode ?? (entry.run_at ? "one_shot" : "recurring")
+    });
   }
 
   public unregister(entryId: string): void {
     this.entries.delete(entryId);
     this.lastTriggeredMinute.delete(entryId);
+  }
+
+  public list(): ScheduleEntry[] {
+    return [...this.entries.values()].map((entry) => ({ ...entry }));
+  }
+
+  public get(entryId: string): ScheduleEntry | undefined {
+    const entry = this.entries.get(entryId);
+    return entry ? { ...entry } : undefined;
+  }
+
+  public pause(entryId: string): ScheduleEntry | undefined {
+    return this.setEnabled(entryId, false);
+  }
+
+  public resume(entryId: string): ScheduleEntry | undefined {
+    return this.setEnabled(entryId, true);
+  }
+
+  public remove(entryId: string): boolean {
+    const exists = this.entries.has(entryId);
+    this.unregister(entryId);
+    return exists;
+  }
+
+  public async runNow(entryId: string): Promise<boolean> {
+    const entry = this.entries.get(entryId);
+    if (!entry) {
+      return false;
+    }
+    await this.trigger(entry, new Date());
+    return true;
   }
 
   public start(): void {
@@ -43,17 +78,44 @@ export class CronScheduler {
       if (!entry.enabled) {
         continue;
       }
-      if (!matchesCron(entry.cron, now)) {
+      if (!matchesSchedule(entry, now)) {
         continue;
       }
       if (this.lastTriggeredMinute.get(entry.id) === currentMinute) {
         continue;
       }
 
-      this.lastTriggeredMinute.set(entry.id, currentMinute);
-      await this.options.onTriggered(entry);
+      await this.trigger(entry, now);
     }
   }
+
+  private setEnabled(entryId: string, enabled: boolean): ScheduleEntry | undefined {
+    const entry = this.entries.get(entryId);
+    if (!entry) {
+      return undefined;
+    }
+    const next = { ...entry, enabled };
+    this.entries.set(entryId, next);
+    return { ...next };
+  }
+
+  private async trigger(entry: ScheduleEntry, now: Date): Promise<void> {
+    this.lastTriggeredMinute.set(entry.id, now.toISOString().slice(0, 16));
+    await this.options.onTriggered({ ...entry });
+    if (entry.mode === "one_shot" || entry.run_at) {
+      this.setEnabled(entry.id, false);
+    }
+  }
+}
+
+function matchesSchedule(entry: ScheduleEntry, date: Date): boolean {
+  if (entry.mode === "one_shot" || entry.run_at) {
+    if (!entry.run_at) {
+      return matchesCron(entry.cron, date);
+    }
+    return Date.parse(entry.run_at) <= date.getTime();
+  }
+  return matchesCron(entry.cron, date);
 }
 
 function matchesCron(expression: string, date: Date): boolean {

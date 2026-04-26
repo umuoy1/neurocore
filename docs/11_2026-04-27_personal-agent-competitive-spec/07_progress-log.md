@@ -229,3 +229,31 @@
 |---|---|
 | Ledger | `PA2-P0-06` 已标记 completed |
 | 下一项 | `PA2-P0-07` Minimum cron and delivery |
+
+### PA2-P0-07 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Cron 管理 | `CronScheduler` 支持 list/get/pause/resume/remove/runNow |
+| one-shot | `ScheduleEntry` 支持 `mode: one_shot` 和 `run_at`，触发后自动 disabled |
+| recurring | 继续支持标准 5-field cron recurring schedule |
+| Engine API | `ProactiveEngine` 暴露 schedule 管理 API |
+| 投递验证 | cron 运行结果写入 background task ledger，并记录 delivery target |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-proactive.test.mjs` | 通过，4 项测试 |
+| `npm run pa:task-check -- PA2-P0-07` | 通过 |
+| `npm run pa:accept -- PA2-P0-07` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P0-07` 已标记 completed |
+| 下一项 | `PA2-P0-08` Web search, fetch and browser connector closure |

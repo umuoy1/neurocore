@@ -189,6 +189,70 @@ test("personal assistant background task ledger supports lifecycle inspection an
   }
 });
 
+test("personal assistant cron supports one-shot recurring pause resume run and remove", { concurrency: false }, async () => {
+  const notifications = [];
+  const approvals = [];
+  const gateway = createGatewayHarness({ notifications, approvals });
+  const tempDir = mkdtempSync(join(tmpdir(), "neurocore-pa-cron-delivery-"));
+  const builder = createPersonalAssistantAgent({
+    db_path: join(tempDir, "personal-assistant-proactive.sqlite"),
+    tenant_id: "test-tenant",
+    reasoner: createProactiveRespondReasoner()
+  });
+  const engine = new ProactiveEngine({
+    agent: builder,
+    gateway,
+    tenantId: "test-tenant"
+  });
+
+  engine.registerSchedule({
+    id: "recurring-1",
+    cron: "* * * * *",
+    task_description: "Send recurring update.",
+    target_user: "user-recurring",
+    target_platform: "web",
+    enabled: true,
+    mode: "recurring"
+  });
+  engine.registerSchedule({
+    id: "one-shot-1",
+    cron: "* * * * *",
+    task_description: "Send one-shot update.",
+    target_user: "user-one-shot",
+    target_platform: "web",
+    enabled: true,
+    mode: "one_shot",
+    run_at: "2026-04-03T10:00:00.000Z"
+  });
+
+  try {
+    assert.equal(engine.listSchedules().length, 2);
+
+    engine.pauseSchedule("recurring-1");
+    await engine.cronScheduler.tick(new Date("2026-04-03T10:00:00.000Z"));
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].userId, "user-one-shot");
+    assert.equal(engine.getSchedule("one-shot-1").enabled, false);
+
+    engine.resumeSchedule("recurring-1");
+    await engine.runScheduleNow("recurring-1");
+    assert.equal(notifications.length, 2);
+    assert.equal(notifications[1].userId, "user-recurring");
+    assert.equal(notifications[1].options.platform, "web");
+
+    assert.equal(engine.removeSchedule("recurring-1"), true);
+    assert.equal(engine.getSchedule("recurring-1"), undefined);
+    await engine.cronScheduler.tick(new Date("2026-04-03T10:01:00.000Z"));
+    assert.equal(notifications.length, 2);
+
+    const deliveredTasks = engine.listBackgroundTasks().filter((task) => task.status === "succeeded");
+    assert.equal(deliveredTasks.length, 2);
+    assert.ok(deliveredTasks.every((task) => task.delivery_target.platform === "web"));
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 function createGatewayHarness(state) {
   return {
     async pushNotification(userId, content, options) {

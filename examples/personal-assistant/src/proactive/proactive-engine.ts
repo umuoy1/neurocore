@@ -40,6 +40,30 @@ export class ProactiveEngine {
     this.cronScheduler.register(entry);
   }
 
+  public listSchedules(): ScheduleEntry[] {
+    return this.cronScheduler.list();
+  }
+
+  public getSchedule(entryId: string): ScheduleEntry | undefined {
+    return this.cronScheduler.get(entryId);
+  }
+
+  public pauseSchedule(entryId: string): ScheduleEntry | undefined {
+    return this.cronScheduler.pause(entryId);
+  }
+
+  public resumeSchedule(entryId: string): ScheduleEntry | undefined {
+    return this.cronScheduler.resume(entryId);
+  }
+
+  public removeSchedule(entryId: string): boolean {
+    return this.cronScheduler.remove(entryId);
+  }
+
+  public async runScheduleNow(entryId: string): Promise<boolean> {
+    return this.cronScheduler.runNow(entryId);
+  }
+
   public async start(): Promise<void> {
     this.heartbeatScheduler?.start();
     this.cronScheduler.start();

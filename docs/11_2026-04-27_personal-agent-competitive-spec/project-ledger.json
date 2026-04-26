@@ -2,9 +2,9 @@
   "schema_version": "1.0.0",
   "project": "personal-agent-competitive-spec",
   "meta": {
-    "current_task": "PA2-P0-07",
+    "current_task": "PA2-P0-08",
     "phase": "Phase 4",
-    "updated_at": "2026-04-27T02:39:42+08:00",
+    "updated_at": "2026-04-27T02:42:49+08:00",
     "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
   },
   "phases": [
@@ -298,7 +298,9 @@
       "id": "PA2-P0-07",
       "phase": "Phase 4",
       "title": "Minimum cron and delivery",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-04-27T02:42:49+08:00",
+      "acceptance_last_run": "npm run pa:accept -- PA2-P0-07",
       "depends_on": [
         "PA2-P0-06"
       ],
@@ -319,7 +321,8 @@
         "examples/personal-assistant/",
         "tests/personal-assistant-proactive.test.mjs",
         "docs/11_2026-04-27_personal-agent-competitive-spec/"
-      ]
+      ],
+      "started_at": "2026-04-26T18:41:04.795Z"
     },
     {
       "id": "PA2-P0-08",
