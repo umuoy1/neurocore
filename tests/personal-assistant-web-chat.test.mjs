@@ -444,15 +444,45 @@ function createHandoffReasoner() {
         typeof ctx.runtime_state.current_input_metadata === "object"
         ? ctx.runtime_state.current_input_metadata
         : {};
-      const handoffText = JSON.stringify(metadata.conversation_handoff ?? {});
-      const hasPreviousModel = handoffText.includes("ChatGPT") && handoffText.includes("5.5");
+      const handoff = metadata.conversation_handoff && typeof metadata.conversation_handoff === "object"
+        ? metadata.conversation_handoff
+        : {};
+      const recentMessages = Array.isArray(handoff.recent_messages) ? handoff.recent_messages : [];
+      const recentTurns = Array.isArray(handoff.recent_turns) ? handoff.recent_turns : [];
+      const shortReferenceContext = handoff.short_reference_context &&
+        typeof handoff.short_reference_context === "object"
+        ? handoff.short_reference_context
+        : {};
+      const topLevelShortReferenceContext = metadata.short_reference_context &&
+        typeof metadata.short_reference_context === "object"
+        ? metadata.short_reference_context
+        : {};
+      const hasPreviousUser = recentMessages.some((message) =>
+        message.role === "user" && /ChatGPT/.test(message.content) && /5\.5/.test(message.content)
+      );
+      const hasPreviousAssistant = recentMessages.some((message) =>
+        message.role === "assistant" && /ChatGPT 5\.5/.test(message.content)
+      );
+      const hasTurnBundle = recentTurns.some((turn) =>
+        turn.user?.content?.includes("ChatGPT") && turn.assistant?.content?.includes("ChatGPT 5.5")
+      );
+      const hasShortReferenceContext =
+        /ChatGPT/.test(shortReferenceContext.last_user_message ?? "") &&
+        /ChatGPT 5\.5/.test(shortReferenceContext.last_assistant_message ?? "") &&
+        Array.isArray(shortReferenceContext.recent_entities) &&
+        shortReferenceContext.recent_entities.some((entity) => /ChatGPT/i.test(entity)) &&
+        /ChatGPT 5\.5/.test(topLevelShortReferenceContext.last_assistant_message ?? "");
 
       return [
         {
           action_id: ctx.services.generateId("act"),
           action_type: "respond",
           title: "Respond",
-          description: input.includes("less than one hour") && hasPreviousModel
+          description: input.includes("less than one hour") &&
+            hasPreviousUser &&
+            hasPreviousAssistant &&
+            hasTurnBundle &&
+            hasShortReferenceContext
             ? "You mean ChatGPT 5.5. I will continue using that model context."
             : "I will look up the latest information about ChatGPT 5.5.",
           side_effect_level: "none"

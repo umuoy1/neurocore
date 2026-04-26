@@ -104,11 +104,29 @@ export interface ConversationHandoffMessage {
   source_id?: string;
 }
 
+export interface ConversationHandoffTurn {
+  cycle_id?: string;
+  user?: ConversationHandoffMessage;
+  assistant?: ConversationHandoffMessage;
+}
+
+export interface ConversationShortReferenceContext {
+  instruction: string;
+  last_user_message?: string;
+  last_assistant_message?: string;
+  recent_entities: string[];
+  source_message_count: number;
+}
+
 export interface ConversationHandoff {
   previous_session_id: string;
   reason: "terminal" | "idle";
   summary: string;
   recent_messages: ConversationHandoffMessage[];
+  recent_turns: ConversationHandoffTurn[];
+  last_user_message?: ConversationHandoffMessage;
+  last_assistant_message?: ConversationHandoffMessage;
+  short_reference_context: ConversationShortReferenceContext;
   created_at: string;
 }
 

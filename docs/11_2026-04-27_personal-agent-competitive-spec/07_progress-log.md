@@ -89,3 +89,31 @@
 |---|---|
 | Ledger | `PA2-P0-01` 已标记 completed |
 | 下一项 | `PA2-P0-02` Conversation handoff and short-reference continuity |
+
+### PA2-P0-02 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Handoff bundle | `ConversationHandoff` 扩展为 recent messages、recent turns、last user/assistant、short reference context |
+| 短指代上下文 | 新 session 的 metadata 同时包含 `conversation_handoff`、`previous_conversation_summary`、`short_reference_context` |
+| 同 chat 连续性 | 非终态 session 继续复用原 route；终态/idle session 重开时带上同 chat 历史 |
+| 测试强化 | WebChat handoff 测试必须验证 user turn、assistant turn、turn bundle 和 top-level short reference context |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-web-chat.test.mjs tests/personal-assistant-e2e.test.mjs` | 通过，6 项测试 |
+| `node --test tests/personal-assistant-gateway.test.mjs` | 通过，7 项测试 |
+| `npm run pa:task-check -- PA2-P0-02` | 通过 |
+| `npm run pa:accept -- PA2-P0-02` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P0-02` 已标记 completed |
+| 下一项 | `PA2-P0-03` Explicit personal memory in recall bundle |

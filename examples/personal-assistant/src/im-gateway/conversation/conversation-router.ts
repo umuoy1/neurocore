@@ -1,6 +1,13 @@
 import type { AgentSessionHandle, AgentBuilder } from "@neurocore/sdk-core";
 import type { CycleTraceRecord, UserInput, SessionState } from "@neurocore/protocol";
-import type { ConversationHandoff, ConversationHandoffMessage, SessionRoute, UnifiedMessage } from "../types.js";
+import type {
+  ConversationHandoff,
+  ConversationHandoffMessage,
+  ConversationHandoffTurn,
+  ConversationShortReferenceContext,
+  SessionRoute,
+  UnifiedMessage
+} from "../types.js";
 import type { SessionMappingStore } from "./session-mapping-store.js";
 import type { PlatformUserLinkStore } from "./platform-user-link-store.js";
 
@@ -155,7 +162,9 @@ function attachConversationHandoff(input: UserInput, handoff: ConversationHandof
     ...input,
     metadata: {
       ...(input.metadata ?? {}),
-      conversation_handoff: handoff
+      conversation_handoff: handoff,
+      previous_conversation_summary: handoff.summary,
+      short_reference_context: handoff.short_reference_context
     }
   };
 }
@@ -166,16 +175,24 @@ function buildConversationHandoff(
   reason: ConversationHandoff["reason"],
   createdAt: string
 ): ConversationHandoff | undefined {
-  const messages = flattenTraceMessages(handle.getTraceRecords()).slice(-8);
+  const messages = flattenTraceMessages(handle.getTraceRecords()).slice(-12);
   if (messages.length === 0) {
     return undefined;
   }
+  const recentTurns = buildRecentTurns(messages).slice(-6);
+  const lastUserMessage = findLastMessage(messages, "user");
+  const lastAssistantMessage = findLastMessage(messages, "assistant");
+  const shortReferenceContext = buildShortReferenceContext(messages, lastUserMessage, lastAssistantMessage);
 
   return {
     previous_session_id: previousSessionId,
     reason,
     summary: summarizeMessages(previousSessionId, messages),
     recent_messages: messages,
+    recent_turns: recentTurns,
+    last_user_message: lastUserMessage,
+    last_assistant_message: lastAssistantMessage,
+    short_reference_context: shortReferenceContext,
     created_at: createdAt
   };
 }
@@ -222,6 +239,94 @@ function summarizeMessages(previousSessionId: string, messages: ConversationHand
     .map((message) => `${message.role}: ${message.content.trim().replace(/\s+/g, " ")}`)
     .join(" | ");
   return trimContent(`Previous same-chat session ${previousSessionId}: ${body}`, 1600);
+}
+
+function buildRecentTurns(messages: ConversationHandoffMessage[]): ConversationHandoffTurn[] {
+  const turns: ConversationHandoffTurn[] = [];
+  for (const message of messages) {
+    const last = turns.at(-1);
+    if (message.role === "user") {
+      turns.push({
+        cycle_id: message.cycle_id,
+        user: message
+      });
+      continue;
+    }
+
+    if (last && !last.assistant) {
+      last.assistant = message;
+      last.cycle_id = last.cycle_id ?? message.cycle_id;
+      continue;
+    }
+
+    turns.push({
+      cycle_id: message.cycle_id,
+      assistant: message
+    });
+  }
+  return turns;
+}
+
+function findLastMessage(
+  messages: ConversationHandoffMessage[],
+  role: ConversationHandoffMessage["role"]
+): ConversationHandoffMessage | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === role) {
+      return messages[index];
+    }
+  }
+  return undefined;
+}
+
+function buildShortReferenceContext(
+  messages: ConversationHandoffMessage[],
+  lastUserMessage: ConversationHandoffMessage | undefined,
+  lastAssistantMessage: ConversationHandoffMessage | undefined
+): ConversationShortReferenceContext {
+  return {
+    instruction: "Resolve short references in the next user message against the latest same-chat user and assistant turns before asking what the user means.",
+    last_user_message: lastUserMessage?.content,
+    last_assistant_message: lastAssistantMessage?.content,
+    recent_entities: extractReferenceCandidates(messages),
+    source_message_count: messages.length
+  };
+}
+
+function extractReferenceCandidates(messages: ConversationHandoffMessage[]): string[] {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+
+  for (const message of messages.slice().reverse()) {
+    const content = message.content;
+    for (const match of content.matchAll(/\b(?:ChatGPT|GPT|OpenAI|Claude|Gemini|Qwen|Llama|DeepSeek)(?:[-\s]?[0-9]+(?:\.[0-9]+)?[A-Za-z-]*)?\b/gi)) {
+      addCandidate(candidates, seen, match[0]);
+    }
+    for (const match of content.matchAll(/["“]([^"”]{2,80})["”]/g)) {
+      addCandidate(candidates, seen, match[1]);
+    }
+    for (const match of content.matchAll(/\b[A-Z][A-Za-z0-9]*(?:[ .-][A-Z0-9][A-Za-z0-9]*){0,4}\b/g)) {
+      addCandidate(candidates, seen, match[0]);
+    }
+    if (candidates.length >= 8) {
+      break;
+    }
+  }
+
+  return candidates.slice(0, 8);
+}
+
+function addCandidate(candidates: string[], seen: Set<string>, raw: string): void {
+  const candidate = raw.trim().replace(/\s+/g, " ").replace(/[.,;:!?]+$/g, "");
+  if (candidate.length < 2 || candidate.length > 80) {
+    return;
+  }
+  const key = candidate.toLowerCase();
+  if (seen.has(key)) {
+    return;
+  }
+  seen.add(key);
+  candidates.push(candidate);
 }
 
 function trimContent(content: string, maxLength: number): string {
