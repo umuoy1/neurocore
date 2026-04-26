@@ -464,3 +464,30 @@
 |---|---|
 | Ledger | `PA2-P1-06` 已标记 completed |
 | 下一项 | `PA2-P1-07` Subagent lifecycle and task panel |
+
+### PA2-P1-07 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Subagent manager | 新增 `SubagentManager`，支持 spawn、list、get、cancel、cancelByParentSession |
+| Ledger integration | child session 创建后写入 `BackgroundTaskLedger`，记录 parent_session_id、subagent 标记、session_id、result_text |
+| Lifecycle | auto-run 子任务完成后标记 succeeded；失败标记 failed；手动取消标记 cancelled |
+| Cascade stop | parent session cancellation 可级联取消同 parent_session_id 的所有 active child tasks |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-subagents.test.mjs` | 通过，2 项测试 |
+| `npm run pa:task-check -- PA2-P1-07` | 通过 |
+| `npm run pa:accept -- PA2-P1-07` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P1-07` 已标记 completed |
+| 下一项 | `PA2-P1-08` Hybrid memory search and session search |
