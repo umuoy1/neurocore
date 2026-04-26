@@ -133,7 +133,14 @@ export async function startPersonalAssistantApp(
     router,
     dispatcher,
     memoryStore,
-    resolveUserId
+    resolveUserId,
+    model: config.openai
+      ? {
+          provider: "openai-compatible",
+          model: config.openai.model,
+          apiUrl: config.openai.apiUrl
+        }
+      : undefined
   });
 
   const gateway = new IMGateway({

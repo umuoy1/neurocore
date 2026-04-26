@@ -145,3 +145,32 @@
 |---|---|
 | Ledger | `PA2-P0-03` 已标记 completed |
 | 下一项 | `PA2-P0-04` Command registry and baseline slash commands |
+
+### PA2-P0-04 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Command registry | `CommandHandler` 从 switch 改为 schema-registered command definitions，并暴露 `listCommandSchemas()` |
+| 基线命令 | `/new`、`/status`、`/stop`、`/model`、`/usage`、`/compact` 均已注册并可执行 |
+| 兼容命令 | 保留 `/reset`、`/history`、`/remember`、`/memories`、`/memory`、`/forget`、`/correct`、`/skills` |
+| 结构化错误 | 未知命令返回 `Command error`，包含 `code`、`command`、`message`、`available_commands` |
+| 跨入口一致性 | E2E 覆盖 WebChat/CLI normalized ingress 下 `/model`、`/usage`、`/compact`、`/stop`、未知命令输出一致 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-e2e.test.mjs` | 通过，4 项测试 |
+| `node --test tests/personal-assistant-gateway.test.mjs` | 通过，7 项测试 |
+| `npm run pa:task-check -- PA2-P0-04` | 通过 |
+| `npm run pa:accept -- PA2-P0-04` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P0-04` 已标记 completed |
+| 下一项 | `PA2-P0-05` Tool approval and command risk classification |

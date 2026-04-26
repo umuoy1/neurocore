@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createPersonalAssistantAgent } from "../examples/personal-assistant/dist/app/create-personal-assistant.js";
+import { CommandHandler } from "../examples/personal-assistant/dist/im-gateway/command/command-handler.js";
+import { normalizePersonalIngressMessage } from "../examples/personal-assistant/dist/im-gateway/ingress.js";
 import { SqlitePersonalMemoryStore } from "../examples/personal-assistant/dist/memory/sqlite-personal-memory-store.js";
 
 test("personal assistant can call web_search and answer with the observation", { concurrency: false }, async () => {
@@ -54,6 +56,38 @@ test("personal assistant can call web_search and answer with the observation", {
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
+});
+
+test("personal assistant baseline slash commands are schema registered", () => {
+  const harness = createCommandHarness("web");
+  const schemas = harness.handler.listCommandSchemas();
+  const names = new Set(schemas.map((schema) => schema.name));
+
+  for (const name of ["/new", "/status", "/stop", "/model", "/usage", "/compact"]) {
+    assert.ok(names.has(name), `${name} should be schema registered`);
+  }
+
+  const compact = schemas.find((schema) => schema.name === "/compact");
+  assert.equal(compact.usage, "/compact [instructions]");
+  assert.equal(compact.risk_level, "low");
+  assert.ok(compact.parameters.some((parameter) => parameter.name === "instructions"));
+});
+
+test("personal assistant slash commands behave consistently for web and cli ingress", async () => {
+  for (const command of ["/model", "/usage", "/compact preserve identifiers", "/stop", "/unknown"]) {
+    const web = createCommandHarness("web");
+    const cli = createCommandHarness("cli");
+    const webText = await web.send(command);
+    const cliText = await cli.send(command);
+
+    assert.equal(cliText, webText, `${command} should return the same result across web and cli`);
+  }
+
+  const unknown = createCommandHarness("web");
+  const errorText = await unknown.send("/does-not-exist");
+  assert.match(errorText, /Command error:/);
+  assert.match(errorText, /code: unknown_command/);
+  assert.match(errorText, /available_commands: .*\/new/);
 });
 
 test("personal assistant recalls corrected explicit memories through the recall bundle", { concurrency: false }, async () => {
@@ -203,6 +237,86 @@ function createPersonalMemoryReasoner() {
     },
     async *streamText(_ctx, action) {
       yield action.description ?? action.title;
+    }
+  };
+}
+
+function createCommandHarness(platform) {
+  const sent = [];
+  const session = {
+    session_id: "ses-command",
+    state: "running",
+    current_cycle_id: "cyc-command",
+    budget_state: {
+      cycle_used: 2,
+      cycle_limit: 8,
+      tool_call_used: 1,
+      tool_call_limit: 5,
+      token_budget_used: 120,
+      token_budget_total: 1000
+    },
+    last_active_at: "2026-04-27T00:00:00.000Z"
+  };
+  let route = {
+    platform,
+    chat_id: "chat-command",
+    session_id: session.session_id,
+    sender_id: "user-command",
+    canonical_user_id: "user-command",
+    created_at: "2026-04-27T00:00:00.000Z",
+    updated_at: "2026-04-27T00:00:00.000Z",
+    last_active_at: "2026-04-27T00:00:00.000Z"
+  };
+  const router = {
+    clearRoute() {
+      route = undefined;
+    },
+    listRoutesForUser() {
+      return route ? [route] : [];
+    },
+    connect() {
+      return {
+        getSession() {
+          return session;
+        },
+        checkpoint() {
+          return {
+            checkpoint_id: "chk-command"
+          };
+        },
+        cancel() {
+          session.state = "aborted";
+          return session;
+        }
+      };
+    }
+  };
+  const dispatcher = {
+    async sendToChat(messagePlatform, chatId, content) {
+      sent.push({ platform: messagePlatform, chatId, content });
+      return { message_id: `sent-${sent.length}` };
+    }
+  };
+  const handler = new CommandHandler({
+    router,
+    dispatcher,
+    model: {
+      provider: "openai-compatible",
+      model: "test-model",
+      apiUrl: "https://example.test/v1"
+    }
+  });
+
+  return {
+    handler,
+    async send(text) {
+      await handler.tryHandle(normalizePersonalIngressMessage({
+        platform,
+        chat_id: "chat-command",
+        sender_id: "user-command",
+        content: text
+      }));
+      return sent.at(-1)?.content.text ?? "";
     }
   };
 }
