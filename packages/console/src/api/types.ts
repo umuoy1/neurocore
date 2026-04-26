@@ -1,15 +1,21 @@
 import type {
   AgentSession,
   ApprovalRequest,
+  BudgetAssessment,
+  CandidateAction,
+  CompetitionEntry,
+  ConfidenceAssessment,
   CycleTrace,
   CycleTraceRecord,
   Episode,
   Goal,
+  GoalStatus,
   MemoryRecallBundle,
   MemoryRetrievalPlan,
   MemoryWarning,
   NeuroCoreEvent,
   PolicyDecision,
+  RiskAssessment,
   WorkspaceSnapshot
 } from "@neurocore/protocol";
 import type { AgentDescriptor, DelegationStatusRecord } from "@neurocore/multi-agent";
@@ -20,15 +26,21 @@ import type { ConfigApiKeyEntry, PolicyTemplate } from "@neurocore/runtime-serve
 export type {
   AgentSession,
   ApprovalRequest,
+  BudgetAssessment,
+  CandidateAction,
+  CompetitionEntry,
+  ConfidenceAssessment,
   CycleTrace,
   CycleTraceRecord,
   Episode,
   Goal,
+  GoalStatus,
   MemoryRecallBundle,
   MemoryRetrievalPlan,
   MemoryWarning,
   NeuroCoreEvent,
   PolicyDecision,
+  RiskAssessment,
   WorkspaceSnapshot,
   AgentDescriptor,
   DelegationStatusRecord,
@@ -142,4 +154,161 @@ export interface AuditLogEntry {
   target_id: string;
   details?: Record<string, unknown>;
   created_at: string;
+}
+
+export type PersonalAssistantGovernanceSessionState =
+  | "created"
+  | "running"
+  | "waiting_for_approval"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface PersonalAssistantGovernanceSession {
+  session_id: string;
+  agent_id: string;
+  user_id?: string;
+  state: PersonalAssistantGovernanceSessionState;
+  route?: {
+    platform?: string;
+    chat_id?: string;
+    thread_id?: string;
+    profile_id?: string;
+  };
+  created_at: string;
+  updated_at: string;
+  metadata?: Record<string, unknown>;
+}
+
+export type PersonalAssistantGovernanceTaskStatus = "created" | "running" | "succeeded" | "failed" | "cancelled";
+
+export interface PersonalAssistantGovernanceBackgroundTask {
+  task_id: string;
+  source: "heartbeat" | "schedule" | "manual" | "webhook";
+  status: PersonalAssistantGovernanceTaskStatus;
+  description: string;
+  target_user: string;
+  target_platform?: string;
+  priority?: string;
+  session_id?: string;
+  approval_id?: string;
+  result_text?: string;
+  error_message?: string;
+  created_at: string;
+  updated_at: string;
+  started_at?: string;
+  completed_at?: string;
+  cancelled_at?: string;
+  metadata: Record<string, unknown>;
+}
+
+export type PersonalAssistantGovernanceApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
+
+export interface PersonalAssistantGovernanceApproval {
+  approval_id: string;
+  session_id: string;
+  status: PersonalAssistantGovernanceApprovalStatus;
+  action_title: string;
+  action_type?: string;
+  risk_level?: string;
+  requested_at: string;
+  decided_at?: string;
+  approver_id?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export type PersonalAssistantGovernanceScheduleStatus = "active" | "paused" | "disabled";
+
+export interface PersonalAssistantGovernanceSchedule {
+  id: string;
+  cron: string;
+  task_description: string;
+  target_user: string;
+  target_platform?: string;
+  enabled: boolean;
+  mode?: "recurring" | "one_shot";
+  run_at?: string;
+  status: PersonalAssistantGovernanceScheduleStatus;
+  next_run_at?: string;
+  last_run_at?: string;
+  created_at: string;
+  updated_at: string;
+  metadata?: Record<string, unknown>;
+}
+
+export type PersonalAssistantGovernanceChildAgentStatus =
+  | "created"
+  | "running"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface PersonalAssistantGovernanceChildAgent {
+  child_agent_id: string;
+  parent_session_id: string;
+  task_id?: string;
+  agent_id: string;
+  status: PersonalAssistantGovernanceChildAgentStatus;
+  goal: string;
+  created_at: string;
+  updated_at: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface PersonalAssistantGovernanceMemoryRecord {
+  memory_id: string;
+  subject: string;
+  claim: string;
+  lifecycle: "candidate" | "active" | "retired";
+  confidence?: number;
+  source_session_ids?: string[];
+  updated_at: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface PersonalAssistantGovernanceToolAction {
+  tool_action_id: string;
+  session_id?: string;
+  task_id?: string;
+  tool_name: string;
+  status: "requested" | "approved" | "rejected" | "running" | "succeeded" | "failed" | "cancelled";
+  risk_level?: string;
+  created_at: string;
+  updated_at: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface PersonalAssistantGovernanceAuditRecord {
+  audit_id: string;
+  action: string;
+  target_type: "approval" | "background_task" | "schedule" | "child_agent" | "session" | "memory" | "tool_action";
+  target_id: string;
+  actor_id: string;
+  created_at: string;
+  before?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+  details?: Record<string, unknown>;
+}
+
+export interface PersonalAssistantGovernanceSnapshot {
+  sessions: PersonalAssistantGovernanceSession[];
+  background_tasks: PersonalAssistantGovernanceBackgroundTask[];
+  approvals: PersonalAssistantGovernanceApproval[];
+  schedules: PersonalAssistantGovernanceSchedule[];
+  child_agents: PersonalAssistantGovernanceChildAgent[];
+  memories: PersonalAssistantGovernanceMemoryRecord[];
+  tool_actions: PersonalAssistantGovernanceToolAction[];
+  audit_records: PersonalAssistantGovernanceAuditRecord[];
+  summary: {
+    total_sessions: number;
+    active_sessions: number;
+    running_background_tasks: number;
+    pending_approvals: number;
+    active_schedules: number;
+    active_child_agents: number;
+    memory_records: number;
+    tool_actions: number;
+    audit_records: number;
+  };
 }

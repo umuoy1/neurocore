@@ -132,7 +132,8 @@ export function EvalDashboardPage() {
               <span className="text-zinc-500">Duration</span>
               <div className="text-zinc-300">
                 {(() => {
-                  const ms = new Date(currentRun.ended_at).getTime() - new Date(currentRun.started_at).getTime();
+                  const endedAt = currentRun.ended_at ?? currentRun.started_at;
+                  const ms = new Date(endedAt).getTime() - new Date(currentRun.started_at).getTime();
                   return ms > 60000 ? `${(ms / 60000).toFixed(1)}m` : `${(ms / 1000).toFixed(1)}s`;
                 })()}
               </div>

@@ -26,6 +26,7 @@
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-04` 已完成多 Agent profile + channel binding。当前新增 profile registry、profile-scoped session route store、profile-aware router 和 profile policy audit；同一 chat 可按 user/channel/workspace 路由到不同 builder、tenant、memory/tool/policy scope。
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-05` 已完成轨迹数据、脱敏和 benchmark artifact。当前可从个人助理 session replay 导出 trace/memory/tool provenance，经稳定脱敏后转换为可确定性 replay 的 eval artifact。
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-06` 已完成全渠道媒体和语音基础层。当前 image/file/audio/voice 输入会归一化为 channel attachments，带 provenance/sensitivity 进入 runtime metadata 和 `content_parts`，audio/voice 输出具备富内容投递与文本 fallback。
+> - 2026-04-27 个人助理 P2 补充：`PA2-P2-07` 已完成 Console 统一治理视图。当前新增个人助理治理控制器、Console governance store/page，支持 session、background task、approval、cron、subagent、memory、tool、audit 统一查看，并可对 approval/task/cron/subagent 执行 approve/reject/pause/resume/cancel，所有治理动作写入 audit before/after 记录。
 
 ## 交付总结
 

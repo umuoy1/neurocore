@@ -299,19 +299,20 @@ function BudgetBar({ label, used, total }: { label: string; used: number; total:
 }
 
 function summarizeEvent(ev: NeuroCoreEvent): string {
-  const p = (ev.payload ?? {}) as Record<string, unknown>;
-  if (ev.event_type === "session.state_changed") return `→ ${p.state ?? ""}`;
-  if (ev.event_type === "cycle.started") return `cycle ${String(p.cycle_id ?? "").slice(0, 8)}`;
-  if (ev.event_type === "cycle.completed") return `cycle ${String(p.cycle_id ?? "").slice(0, 8)} done`;
-  if (ev.event_type === "action.executed") return `${p.action_type ?? ""} ${p.status ?? ""}`;
-  if (ev.event_type === "goal.status_changed") return `${p.title ?? ""} → ${p.status ?? ""}`;
-  if (ev.event_type === "runtime.status") return `${p.phase ?? "runtime"} ${p.summary ?? ""}`;
-  if (ev.event_type === "runtime.output") return `${p.action_type ?? "output"} ${String(p.text ?? "").slice(0, 48)}`;
+  const p = (ev.payload ?? {}) as unknown as Record<string, unknown>;
+  const eventType = ev.event_type as string;
+  if (eventType === "session.state_changed") return `→ ${p.state ?? ""}`;
+  if (eventType === "cycle.started") return `cycle ${String(p.cycle_id ?? "").slice(0, 8)}`;
+  if (eventType === "cycle.completed") return `cycle ${String(p.cycle_id ?? "").slice(0, 8)} done`;
+  if (eventType === "action.executed") return `${p.action_type ?? ""} ${p.status ?? ""}`;
+  if (eventType === "goal.status_changed") return `${p.title ?? ""} → ${p.status ?? ""}`;
+  if (eventType === "runtime.status") return `${p.phase ?? "runtime"} ${p.summary ?? ""}`;
+  if (eventType === "runtime.output") return `${p.action_type ?? "output"} ${String(p.text ?? "").slice(0, 48)}`;
   return String(p.summary ?? p.message ?? "").slice(0, 50);
 }
 
 function getRuntimePhase(ev: NeuroCoreEvent): string {
-  const payload = (ev.payload ?? {}) as Record<string, unknown>;
+  const payload = (ev.payload ?? {}) as unknown as Record<string, unknown>;
   if (ev.event_type === "runtime.output") {
     return String(payload.action_type ?? "output");
   }
@@ -319,12 +320,12 @@ function getRuntimePhase(ev: NeuroCoreEvent): string {
 }
 
 function getRuntimeState(ev: NeuroCoreEvent): string {
-  const payload = (ev.payload ?? {}) as Record<string, unknown>;
+  const payload = (ev.payload ?? {}) as unknown as Record<string, unknown>;
   return String(payload.state ?? "delta");
 }
 
 function summarizeRuntimeDetail(ev: NeuroCoreEvent): string {
-  const payload = (ev.payload ?? {}) as Record<string, unknown>;
+  const payload = (ev.payload ?? {}) as unknown as Record<string, unknown>;
   if (ev.event_type === "runtime.output") {
     return String(payload.text ?? "");
   }
@@ -332,7 +333,7 @@ function summarizeRuntimeDetail(ev: NeuroCoreEvent): string {
 }
 
 function extractRuntimeFacts(ev: NeuroCoreEvent): Array<{ key: string; value: string }> {
-  const payload = (ev.payload ?? {}) as Record<string, unknown>;
+  const payload = (ev.payload ?? {}) as unknown as Record<string, unknown>;
   const facts: Array<{ key: string; value: string }> = [];
 
   for (const key of ["cycle_id", "action_id", "action_type", "status"]) {

@@ -765,3 +765,35 @@
 |---|---|
 | Ledger | `PA2-P2-06` 已标记 completed |
 | 下一项 | `PA2-P2-07` Console unified governance view |
+
+### PA2-P2-07 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Governance controller | 新增 `PersonalAssistantGovernanceConsole`，统一聚合 sessions、background tasks、approvals、schedules、child agents、memory records 和 tool actions |
+| Governed actions | 支持 approval approve/reject、schedule pause/resume、background task cancel、child agent pause/resume/cancel |
+| Audit trace | 每个治理动作写入 audit record，保留 actor、target、before/after 和 details |
+| Console store | 新增 `usePersonalAssistantGovernanceStore`，接入 `/v1/personal-assistant/governance` 及治理动作端点 |
+| Console page | 新增 Assistant Governance 统一视图，展示 session/task/approval/cron/subagent/memory/tool/audit，并提供 approve/reject/pause/resume/cancel 操作 |
+| Console typing | 修正既有 Console API 类型 re-export、audit 字段和事件 payload 类型漂移，Console typecheck/build 重新通过 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-console-governance.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-proactive.test.mjs tests/personal-assistant-subagents.test.mjs` | 通过，6 项回归 |
+| `npm --workspace @neurocore/console run typecheck` | 通过 |
+| `npm --workspace @neurocore/console run build` | 通过 |
+| `npm run pa:task-check -- PA2-P2-07` | 通过 |
+| `npm run pa:accept -- PA2-P2-07` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P2-07` 已标记 completed |
+| 下一项 | `PA2` OpenClaw/Hermes 对标个人助理任务链已完成，等待 `pa:next-task` 确认无剩余任务 |

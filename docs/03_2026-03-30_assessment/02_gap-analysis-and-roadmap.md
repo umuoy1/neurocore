@@ -29,6 +29,7 @@
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-04` 已收口多 Agent profile + channel binding。当前 personal assistant 已具备 profile registry、SQLite channel binding、profile-scoped route、profile-aware router 与 profile policy audit；同一用户/渠道/workspace 可隔离到不同 agent builder、tenant、memory scope、tool scope 和 policy scope。
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-05` 已收口轨迹导出、脱敏与 benchmark artifact。当前 `@neurocore/eval-core` 已提供 personal-agent trajectory export、redaction、benchmark artifact builder 和 deterministic replay report，个人助理可直接从 `AgentSessionHandle.replay()` 生成可评测轨迹。
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-06` 已收口全渠道媒体和语音基础层。当前 Gateway 已支持 image/file/audio/voice attachment 规范化、媒体提取 provenance/sensitivity、runtime `content_parts` 注入，以及音频/语音内容的跨渠道投递 fallback。
+> - 2026-04-27 个人助理 P2 补充：`PA2-P2-07` 已收口 Console 统一治理视图。当前 PersonalOps governance controller 和 Console 页面已覆盖 session、background task、approval、cron、subagent、memory、tool、audit 统一查看，并支持 approve/reject/pause/resume/cancel 治理动作，动作结果写入 audit before/after 记录；OpenClaw/Hermes 对标个人助理任务链完成度更新为 100%。
 
 ## 完成度
 
@@ -37,6 +38,7 @@
 | MVP 定义（`06_mvp-implementation-plan.md`） | ~100% |
 | 第一阶段 FR 清单（`01_requirements.md`） | ~98% |
 | 六模块完整目标（`04_neurocore-agent-architecture-full.md`） | ~85%~90% |
+| OpenClaw/Hermes 对标个人助理任务链（`docs/11_2026-04-27_personal-agent-competitive-spec/`） | 100% |
 
 ## 已完成或主体已实现的里程碑
 
@@ -60,6 +62,7 @@
 | 已完成 | Meta 后半段 | 当前阶段已完成 `provider-level calibration -> verifier isolation / budget -> provider reliability -> online meta eval -> curve export -> ReflectionLearner`，后续转入持续趋势分析与策略演进 |
 | 已完成 | Operational Maturity | 当前阶段已完成 webhook retry/DLQ/HMAC/timeout、batch session creation、eval parallelism、agent versioning、session sharing、logger/tracer SPI 与 observability gating |
 | 已完成 | M10 / Skill RL | 当前阶段已 100% 完成，已覆盖 reward/policy/exploration/evaluation/transfer/online learner 全链路、基于真实 `cycle / latency / token` 的效率奖励、reward metrics/baseline persistence、FR-45 分层上下文 bandit，以及 FR-47/48 闭环细节；后续只保留更长期的训练运营与策略演进 |
+| 已完成 | Personal Agent OpenClaw/Hermes parity+ | 当前 `PA2-P0-00` ~ `PA2-P2-07` 已全部完成，覆盖 gateway、连续性、显式记忆、命令治理、后台任务、cron、多渠道、skills、MCP、subagents、sandbox、standing orders、memory wiki、dreaming、自动技能、profile、trajectory、media/voice 和 Console governance；后续转入真实渠道联调、生产化持久治理 API 与更大规模验收 |
 
 ## 已实现核心能力
 
@@ -77,11 +80,11 @@
 - **世界模型与设备**：Perception Pipeline、Device Registry、WorldStateGraph、ForwardSimulator、SimulationBasedPredictor、ActiveInferenceEvaluator、SensorFusionStrategy、ActuatorOrchestrator
 - **多 Agent**：Agent Registry、Inter-Agent Bus、Task Delegator（含状态跟踪）、Coordination Strategies + Registry、Shared State（含 conflict records）、Lifecycle Manager（含 child-process/remote mode）
 - **技能强化学习**：`RewardSignal / RewardStore / RewardComputer`、`BanditSkillPolicy`、`rl_config`、`epsilon-greedy / UCB / Thompson Sampling`、`SkillEvaluator`、deprecated/pruned 生命周期、`SkillTransferEngine`、`SkillOnlineLearner` 与 prioritized replay
-- **运营控制台产品实现**：Dashboard / Session / Trace / Goal / Memory / Workspace / Eval / Approval / Multi-Agent / World Model / Device / Config 页面及对应 Zustand store，配套 REST/WS/鉴权链路已接通
+- **运营控制台产品实现**：Dashboard / Session / Trace / Goal / Memory / Workspace / Eval / Approval / Multi-Agent / World Model / Device / Config / Assistant Governance 页面及对应 Zustand store，配套 REST/WS/鉴权链路已接通
 
 ## 当前收尾项（截至 2026-04-02）
 
-- 个人助理 Phase A 已落地 IM Gateway、Web Chat、飞书 Adapter、搜索/浏览器连接器和 Agent 组装；当前 Web Chat / Feishu / Hosted Runtime / Console 已完成原生 `streamText -> runtime.output` 文本流和 `runtime.status` 活动流对齐，Web Chat 已补终态 runtime session 重开的 `conversation_handoff`，显式个人偏好记忆已补 `/remember` / `/forget` / `/correct` / `/memories` 与 runtime metadata 注入，Focused 回归已覆盖审批恢复、`auto_approve`、proactive、Web Chat、终态 session 上下文 handoff、个人记忆命令、个人记忆注入、飞书消息转发与 Hosted Runtime SSE；收口重点转向飞书真实平台联调、文档知识库与更大范围端到端稳定性验证。
+- 个人助理 OpenClaw/Hermes 对标任务链已完成 `PA2-P0-00` ~ `PA2-P2-07`：当前已落地 IM/Web/CLI Gateway、会话连续性、显式记忆、命令与审批治理、后台任务、cron、搜索/浏览、Telegram/Slack/Discord/Email、skills、MCP、subagents、session search、sandbox、standing orders、memory wiki、dreaming、自动技能、profile 隔离、trajectory benchmark、全渠道媒体/语音基础层和 Console 统一治理视图；后续收口重点转向真实渠道联调、生产化持久治理 API、文档知识库和更大范围端到端稳定性验证。
 - Console API 基础层、鉴权与 WS 订阅链路当前阶段已收口：`/v1/v1/*` 路径重复、`auth/me` 缺失、未鉴权 WS 连接、若干 response shape 错位，以及 `world-state / memory / memory observability / skills / devices / delegations / goals` 端点缺口均已修正。
 - `runtime-server` 现在可聚合持久会话和历史审批，Console 不再只依赖当前进程的内存态 session。
 - 多 Agent 的 `delegate` 结果回流已与 runtime 主链收口；后续仅保留远程/多实例调度层增强，不再影响当前阶段 M9 完成口径。

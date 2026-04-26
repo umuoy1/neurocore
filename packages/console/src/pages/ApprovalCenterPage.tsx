@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useApprovalsStore } from "../stores/approvals.store";
 import type { ApprovalListItem } from "../stores/approvals.store";
+import type { AuditLogEntry } from "../api/types";
 
 export function ApprovalCenterPage() {
   const { pending, history, audit, fetchPending, fetchHistory, fetchAudit, decide } = useApprovalsStore();
@@ -136,17 +137,17 @@ function ApprovalCard({ item, isQueue, comment, onCommentChange, onDecision }: {
   );
 }
 
-function AuditLogView({ audit }: { audit: Array<{ entry_id: string; action: string; user_id: string; target_id: string; timestamp: string }> }) {
+function AuditLogView({ audit }: { audit: AuditLogEntry[] }) {
   if (audit.length === 0) {
     return <div className="text-zinc-600 text-xs py-8 text-center">No approval audit records</div>;
   }
   return (
     <div className="space-y-2">
       {audit.map((entry) => (
-        <div key={entry.entry_id} className="rounded border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs">
+        <div key={entry.audit_id} className="rounded border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs">
           <div className="flex items-center justify-between gap-3">
             <span className="text-zinc-300">{entry.action}</span>
-            <span className="text-zinc-500">{new Date(entry.timestamp).toLocaleString()}</span>
+            <span className="text-zinc-500">{new Date(entry.created_at).toLocaleString()}</span>
           </div>
           <div className="mt-1 text-zinc-500">
             {entry.user_id} · {entry.target_id}

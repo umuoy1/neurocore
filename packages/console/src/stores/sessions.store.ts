@@ -109,7 +109,18 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     if (event.event_type === "session.created") {
       const idx = sessions.findIndex((s) => s.session_id === event.session_id);
       if (idx === -1) {
-        set({ sessions: [event.payload as SessionListItem, ...sessions] });
+        const session = event.payload as AgentSession;
+        set({
+          sessions: [
+            {
+              session_id: event.session_id ?? session.session_id,
+              agent_id: session.agent_id,
+              session,
+              active_run: false,
+            },
+            ...sessions,
+          ],
+        });
       }
     }
     if (event.event_type === "session.state_changed") {

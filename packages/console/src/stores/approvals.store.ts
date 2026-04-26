@@ -45,7 +45,7 @@ export const useApprovalsStore = create<ApprovalsState>((set, get) => ({
       apiFetch<{ entries: AuditLogEntry[] }>("/v1/audit-logs?action=approval.rejected&limit=100").catch(() => ({ entries: [] }))
     ]);
     const audit = [...approved.entries, ...rejected.entries].sort((left, right) =>
-      Date.parse(right.timestamp) - Date.parse(left.timestamp)
+      Date.parse(right.created_at) - Date.parse(left.created_at)
     );
     set({ audit });
   },

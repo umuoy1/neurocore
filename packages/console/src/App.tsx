@@ -15,6 +15,7 @@ import { EvalDashboardPage } from "./pages/EvalDashboardPage";
 import { EvalComparePage } from "./pages/EvalComparePage";
 import { ApprovalCenterPage } from "./pages/ApprovalCenterPage";
 import { ConfigEditorPage } from "./pages/ConfigEditorPage";
+import { PersonalAssistantGovernancePage } from "./pages/PersonalAssistantGovernancePage";
 import { initAuth, useAuthStore } from "./stores/auth.store";
 
 export function App() {
@@ -79,6 +80,7 @@ export function App() {
           <Route path="/evals" element={<EvalDashboardPage />} />
           <Route path="/evals/compare" element={<EvalComparePage />} />
           <Route path="/approvals" element={<ApprovalCenterPage />} />
+          <Route path="/personal-assistant/governance" element={<PersonalAssistantGovernancePage />} />
           <Route path="/config" element={<ConfigEditorPage />} />
         </Route>
       </Routes>

@@ -25,6 +25,7 @@ const navSections = [
     items: [
       { path: "/evals", label: "Eval Runs" },
       { path: "/approvals", label: "Approvals" },
+      { path: "/personal-assistant/governance", label: "Assistant Governance" },
       { path: "/config", label: "Configuration" },
     ],
   },

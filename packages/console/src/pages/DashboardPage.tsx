@@ -425,11 +425,12 @@ function getEventColor(eventType: string): string {
 }
 
 function summarizeEvent(ev: NeuroCoreEvent): string {
-  const p = (ev.payload ?? {}) as Record<string, unknown>;
-  if (ev.event_type === "session.state_changed") return `state → ${p.state ?? ""}`;
-  if (ev.event_type === "cycle.started") return `cycle ${String(p.cycle_id ?? "").slice(0, 8)}`;
-  if (ev.event_type === "cycle.completed") return `cycle ${String(p.cycle_id ?? "").slice(0, 8)} done`;
-  if (ev.event_type === "action.executed") return `${p.action_type ?? ""} ${p.status ?? ""}`;
-  if (ev.event_type === "goal.status_changed") return `${p.title ?? ""} → ${p.status ?? ""}`;
+  const p = (ev.payload ?? {}) as unknown as Record<string, unknown>;
+  const eventType = ev.event_type as string;
+  if (eventType === "session.state_changed") return `state → ${p.state ?? ""}`;
+  if (eventType === "cycle.started") return `cycle ${String(p.cycle_id ?? "").slice(0, 8)}`;
+  if (eventType === "cycle.completed") return `cycle ${String(p.cycle_id ?? "").slice(0, 8)} done`;
+  if (eventType === "action.executed") return `${p.action_type ?? ""} ${p.status ?? ""}`;
+  if (eventType === "goal.status_changed") return `${p.title ?? ""} → ${p.status ?? ""}`;
   return String(p.summary ?? p.message ?? "").slice(0, 60);
 }
