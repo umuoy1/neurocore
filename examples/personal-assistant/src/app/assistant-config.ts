@@ -29,6 +29,11 @@ export interface PersonalAssistantAppConfig {
     required_approval_tools?: string[];
   };
   connectors?: ServiceConnectorConfig;
+  cli?: {
+    enabled?: boolean;
+    user_id?: string;
+    chat_id?: string;
+  };
   web_chat?: {
     enabled?: boolean;
     host?: string;
@@ -101,6 +106,11 @@ export function createPersonalAssistantConfigFromEnv(
       browser: appConfig.connectors?.browser ?? {},
       email: appConfig.connectors?.email,
       calendar: appConfig.connectors?.calendar
+    },
+    cli: {
+      enabled: parseOptionalBoolean(env.CLI_ENABLED) ?? appConfig.cli?.enabled ?? false,
+      user_id: env.CLI_USER_ID ?? appConfig.cli?.user_id,
+      chat_id: env.CLI_CHAT_ID ?? appConfig.cli?.chat_id
     },
     web_chat: {
       enabled: parseOptionalBoolean(env.WEB_CHAT_ENABLED) ?? appConfig.web_chat?.enabled ?? true,

@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { IMPlatform } from "../../im-gateway/types.js";
+import { isIMPlatform } from "../../im-gateway/types.js";
 import type { ScheduleEntry } from "../types.js";
 
 export interface SqliteScheduleStoreOptions {
@@ -74,7 +75,7 @@ function normalizePlatform(value: unknown): IMPlatform | undefined {
   if (value === undefined || value === null || value === "") {
     return undefined;
   }
-  if (value === "feishu" || value === "web") {
+  if (isIMPlatform(value)) {
     return value;
   }
   throw new Error(`Unsupported IM platform value: ${String(value)}`);

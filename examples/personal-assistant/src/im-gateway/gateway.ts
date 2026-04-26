@@ -1,6 +1,7 @@
 import type { AgentBuilder, AgentSessionHandle } from "@neurocore/sdk-core";
 import type { ApprovalRequest, NeuroCoreEvent, RuntimeOutput, RuntimeStatus } from "@neurocore/protocol";
 import { createUserInput } from "./input/input-factory.js";
+import { normalizePersonalIngressMessage } from "./ingress.js";
 import type { ApprovalBindingStore } from "./approval/approval-binding-store.js";
 import type { IMAdapter } from "./adapter/im-adapter.js";
 import type { CommandHandler } from "./command/command-handler.js";
@@ -93,7 +94,9 @@ export class IMGateway {
     return this.adapters.get(platform)?.adapter;
   }
 
-  private async handleMessage(message: UnifiedMessage): Promise<void> {
+  private async handleMessage(rawMessage: UnifiedMessage): Promise<void> {
+    const message = normalizePersonalIngressMessage(rawMessage);
+
     if (await this.handleActionMessage(message)) {
       return;
     }
@@ -113,6 +116,22 @@ export class IMGateway {
 
     const userId = this.resolveUserId(message);
     const personalMemories = this.options.memoryStore?.listActive(userId, 12) ?? [];
+    const channel = {
+      platform: message.platform,
+      kind: message.channel?.kind,
+      chat_id: message.chat_id,
+      route_key: message.channel?.route_key,
+      capabilities: message.channel?.capabilities,
+      thread_id: message.channel?.thread_id,
+      metadata: message.channel?.metadata ?? {}
+    };
+    const identity = {
+      sender_id: message.sender_id,
+      canonical_user_id: userId,
+      display_name: message.identity?.display_name,
+      trust_level: message.identity?.trust_level ?? "unknown",
+      metadata: message.identity?.metadata ?? {}
+    };
     const input = createUserInput(prompt, {
       platform: message.platform,
       chat_id: message.chat_id,
@@ -120,6 +139,11 @@ export class IMGateway {
       message_id: message.message_id,
       reply_to: message.reply_to,
       canonical_user_id: userId,
+      channel_kind: message.channel?.kind,
+      channel_capabilities: message.channel?.capabilities,
+      channel,
+      identity,
+      source_metadata: message.metadata,
       personal_memory: personalMemories.length > 0
         ? {
             user_id: userId,

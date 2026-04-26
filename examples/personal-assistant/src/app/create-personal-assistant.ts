@@ -1,6 +1,7 @@
 import { defineAgent, type AgentBuilder } from "@neurocore/sdk-core";
 import { OpenAICompatibleReasoner } from "@neurocore/sdk-node";
 import type { Reasoner } from "@neurocore/protocol";
+import { CliAdapter } from "../im-gateway/adapter/cli.js";
 import { FeishuAdapter } from "../im-gateway/adapter/feishu.js";
 import { WebChatAdapter } from "../im-gateway/adapter/web-chat.js";
 import { SqliteApprovalBindingStore } from "../im-gateway/approval/sqlite-approval-binding-store.js";
@@ -11,6 +12,7 @@ import { SqliteSessionMappingStore } from "../im-gateway/conversation/sqlite-ses
 import { IMGateway } from "../im-gateway/gateway.js";
 import { NotificationDispatcher } from "../im-gateway/notification/notification-dispatcher.js";
 import { AssistantRuntimeFactory } from "../im-gateway/runtime/assistant-runtime-factory.js";
+import type { IMPlatform } from "../im-gateway/types.js";
 import { SqlitePersonalMemoryStore } from "../memory/sqlite-personal-memory-store.js";
 import { createWebBrowserTool } from "../connectors/browser/web-browser.js";
 import { createCalendarReadTool } from "../connectors/calendar/calendar-read.js";
@@ -99,7 +101,7 @@ export async function startPersonalAssistantApp(
   const userLinkStore = new SqlitePlatformUserLinkStore({ filename: config.db_path });
   const approvalBindingStore = new SqliteApprovalBindingStore({ filename: config.db_path });
   const memoryStore = new SqlitePersonalMemoryStore({ filename: config.db_path });
-  const resolveUserId = (message: { platform: "feishu" | "web"; sender_id: string }) =>
+  const resolveUserId = (message: { platform: IMPlatform; sender_id: string }) =>
     userLinkStore.resolveCanonicalUserId(message.platform, message.sender_id) ?? message.sender_id;
   const router = new ConversationRouter({
     builder,
@@ -131,6 +133,15 @@ export async function startPersonalAssistantApp(
     resolveUserId
   });
   gatewayRef = gateway;
+
+  if (config.cli?.enabled) {
+    gateway.registerAdapter(new CliAdapter(), {
+      auth: compactAuth({
+        user_id: config.cli.user_id,
+        chat_id: config.cli.chat_id
+      })
+    });
+  }
 
   if (config.web_chat?.enabled !== false) {
     gateway.registerAdapter(new WebChatAdapter(), {
@@ -208,4 +219,10 @@ function resolveReasoner(
     timeoutMs: openai.timeoutMs,
     headers: openai.headers
   });
+}
+
+function compactAuth(input: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(input).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+  );
 }

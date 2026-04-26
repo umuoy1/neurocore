@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { IMPlatform, PlatformUserLink } from "../types.js";
+import { isIMPlatform } from "../types.js";
 import type { PlatformUserLinkStore } from "./platform-user-link-store.js";
 
 export interface SqlitePlatformUserLinkStoreOptions {
@@ -80,7 +81,7 @@ export class SqlitePlatformUserLinkStore implements PlatformUserLinkStore {
 }
 
 function normalizePlatform(value: unknown): IMPlatform {
-  if (value === "feishu" || value === "web") {
+  if (isIMPlatform(value)) {
     return value;
   }
   throw new Error(`Unsupported IM platform value: ${String(value)}`);

@@ -8,6 +8,7 @@ import type {
   PersonalMemoryStore,
   RememberPersonalMemoryInput
 } from "./personal-memory-store.js";
+import { isIMPlatform } from "../im-gateway/types.js";
 
 export interface SqlitePersonalMemoryStoreOptions {
   filename: string;
@@ -198,7 +199,7 @@ interface PersonalMemoryRow {
 }
 
 function toRecord(row: PersonalMemoryRow): PersonalMemoryRecord {
-  const platform = row.source_platform === "feishu" || row.source_platform === "web"
+  const platform = isIMPlatform(row.source_platform)
     ? row.source_platform
     : undefined;
   const source: PersonalMemorySource | undefined = row.source_platform || row.source_chat_id || row.source_message_id

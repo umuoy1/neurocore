@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { randomUUID } from "node:crypto";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import type { IMAdapter } from "./im-adapter.js";
+import { normalizePersonalIngressMessage } from "../ingress.js";
 import type { IMAdapterConfig, IMPlatform, MessageContent, UnifiedMessage } from "../types.js";
 import { WEB_CHAT_PAGE_HTML } from "./web-chat-page.js";
 
@@ -16,12 +17,12 @@ export class WebChatAdapter implements IMAdapter {
 
   private httpServer?: Server;
   private server?: WebSocketServer;
-  private handler?: (msg: UnifiedMessage) => void;
+  private handler?: (msg: UnifiedMessage) => void | Promise<void>;
   private readonly socketsByChatId = new Map<string, WebSocket>();
   private readonly chatIdBySocket = new Map<WebSocket, string>();
   private readonly socketWaitersByChatId = new Map<string, Array<(socket: WebSocket) => void>>();
 
-  public onMessage(handler: (msg: UnifiedMessage) => void): void {
+  public onMessage(handler: (msg: UnifiedMessage) => void | Promise<void>): void {
     this.handler = handler;
   }
 
@@ -184,15 +185,23 @@ export class WebChatAdapter implements IMAdapter {
     const payload = this.parsePayload(raw);
 
     if (typeof payload === "string") {
-      return {
+      return normalizePersonalIngressMessage({
         message_id: randomUUID(),
         platform: "web",
         chat_id: chatId,
         sender_id: senderId,
         timestamp,
         content: { type: "text", text: payload },
-        metadata: {}
-      };
+        metadata: {},
+        channel: {
+          metadata: {
+            transport: "websocket"
+          }
+        },
+        identity: {
+          trust_level: "paired"
+        }
+      });
     }
 
     const record = payload as Record<string, unknown>;
@@ -218,7 +227,7 @@ export class WebChatAdapter implements IMAdapter {
         break;
     }
 
-    return {
+    return normalizePersonalIngressMessage({
       message_id: asRequiredString(record.message_id, randomUUID()),
       platform: "web",
       chat_id: chatId,
@@ -226,8 +235,19 @@ export class WebChatAdapter implements IMAdapter {
       timestamp,
       content,
       reply_to: asOptionalString(record.reply_to),
-      metadata: isRecord(record.metadata) ? record.metadata : {}
-    };
+      metadata: isRecord(record.metadata) ? record.metadata : {},
+      channel: {
+        thread_id: asOptionalString(record.thread_id),
+        metadata: {
+          transport: "websocket"
+        }
+      },
+      identity: {
+        display_name: asOptionalString(record.display_name),
+        trust_level: "paired",
+        metadata: isRecord(record.identity_metadata) ? record.identity_metadata : {}
+      }
+    });
   }
 
   private parsePayload(raw: RawData): string | Record<string, unknown> {

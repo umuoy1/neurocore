@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import type { IMAdapter } from "./im-adapter.js";
+import { normalizePersonalIngressMessage } from "../ingress.js";
 import type { IMAdapterConfig, IMPlatform, MessageContent, UnifiedMessage } from "../types.js";
 
 interface FeishuTokenResponse {
@@ -13,11 +14,11 @@ export class FeishuAdapter implements IMAdapter {
   public readonly platform: IMPlatform = "feishu";
 
   private config?: IMAdapterConfig;
-  private handler?: (msg: UnifiedMessage) => void;
+  private handler?: (msg: UnifiedMessage) => void | Promise<void>;
   private accessToken?: { value: string; expiresAt: number };
   private socket?: WebSocket;
 
-  public onMessage(handler: (msg: UnifiedMessage) => void): void {
+  public onMessage(handler: (msg: UnifiedMessage) => void | Promise<void>): void {
     this.handler = handler;
   }
 
@@ -166,15 +167,29 @@ export class FeishuAdapter implements IMAdapter {
     const sender = pickRecord(event, "sender");
     const senderId = pickRecord(sender, "sender_id");
     const contentText = this.extractTextContent(asString(message.content));
-    return {
+    return normalizePersonalIngressMessage({
       message_id: asString(message.message_id) ?? randomUUID(),
       platform: "feishu",
       chat_id: asString(message.chat_id) ?? "",
       sender_id: asString(senderId?.open_id) ?? asString(senderId?.user_id) ?? "unknown",
       timestamp: new Date().toISOString(),
       content: { type: "text", text: contentText ?? "" },
-      metadata: payload
-    };
+      metadata: payload,
+      channel: {
+        thread_id: asString(message.thread_id) ?? asString(message.root_id),
+        metadata: {
+          tenant_key: asString(sender?.tenant_key)
+        }
+      },
+      identity: {
+        trust_level: "paired",
+        metadata: {
+          user_id: asString(senderId?.user_id),
+          open_id: asString(senderId?.open_id),
+          union_id: asString(senderId?.union_id)
+        }
+      }
+    });
   }
 
   private normalizeCardAction(payload: Record<string, unknown>): UnifiedMessage | null {
@@ -191,7 +206,7 @@ export class FeishuAdapter implements IMAdapter {
       return null;
     }
 
-    return {
+    return normalizePersonalIngressMessage({
       message_id: randomUUID(),
       platform: "feishu",
       chat_id: chatId,
@@ -203,8 +218,18 @@ export class FeishuAdapter implements IMAdapter {
         params: approvalId ? { approval_id: approvalId } : undefined
       },
       reply_to: openMessageId,
-      metadata: payload
-    };
+      metadata: payload,
+      channel: {
+        metadata: {}
+      },
+      identity: {
+        trust_level: "paired",
+        metadata: {
+          open_id: asString(operator?.open_id),
+          user_id: asString(operator?.user_id)
+        }
+      }
+    });
   }
 
   private toFeishuMessageType(content: MessageContent): string {

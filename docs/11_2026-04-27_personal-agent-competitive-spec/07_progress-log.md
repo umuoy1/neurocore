@@ -59,3 +59,33 @@
 | 风险 | 处理 |
 |---|---|
 | `pa:accept` 通过后 ledger 状态会变化 | 收口后额外运行 `pa:plan-check` 和 `pa:next-task` 验证下一个任务 |
+
+### PA2-P0-01 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| 统一入口 | `normalizePersonalIngressMessage` 作为 WebChat、CLI、Feishu/IM 的统一 ingress envelope |
+| 渠道能力 | `ChannelCapabilities` 明确表达 text、markdown、status、actions、approval、typing、streaming、edits、threads 等能力 |
+| 身份上下文 | `PersonalIdentityContext` 随 envelope 进入 Gateway，并写入 runtime input metadata |
+| CLI 入口 | 新增 `CliAdapter`，支持程序化 `receiveText` 输入并归一化为个人助理消息 |
+| Gateway 透传 | `IMGateway` 在调用 `ConversationRouter` 前补齐 channel、identity、source metadata |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-gateway.test.mjs` | 通过，7 项测试 |
+| `node --test tests/personal-assistant-config.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-web-chat.test.mjs tests/personal-assistant-e2e.test.mjs` | 通过，6 项测试 |
+| `npm run pa:task-check -- PA2-P0-01` | 通过 |
+| `npm run pa:accept -- PA2-P0-01` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P0-01` 已标记 completed |
+| 下一项 | `PA2-P0-02` Conversation handoff and short-reference continuity |

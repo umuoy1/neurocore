@@ -10,6 +10,6 @@ export interface IMAdapter {
   stop(): Promise<void>;
   sendMessage(chatId: string, content: MessageContent): Promise<AdapterSendResult>;
   editMessage(chatId: string, messageId: string, content: MessageContent): Promise<void>;
-  onMessage(handler: (msg: UnifiedMessage) => void): void;
+  onMessage(handler: (msg: UnifiedMessage) => void | Promise<void>): void;
   typingIndicator?(chatId: string): Promise<void>;
 }

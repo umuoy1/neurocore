@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { IMGateway } from "../examples/personal-assistant/dist/im-gateway/gateway.js";
+import { CliAdapter } from "../examples/personal-assistant/dist/im-gateway/adapter/cli.js";
+import { normalizePersonalIngressMessage } from "../examples/personal-assistant/dist/im-gateway/ingress.js";
 import { CommandHandler } from "../examples/personal-assistant/dist/im-gateway/command/command-handler.js";
 import { createUserInput } from "../examples/personal-assistant/dist/im-gateway/input/input-factory.js";
 import { ConversationRouter } from "../examples/personal-assistant/dist/im-gateway/conversation/conversation-router.js";
@@ -13,6 +15,72 @@ import { NotificationDispatcher } from "../examples/personal-assistant/dist/im-g
 import { AssistantRuntimeFactory } from "../examples/personal-assistant/dist/im-gateway/runtime/assistant-runtime-factory.js";
 import { createPersonalAssistantAgent } from "../examples/personal-assistant/dist/app/create-personal-assistant.js";
 import { SqlitePersonalMemoryStore } from "../examples/personal-assistant/dist/memory/sqlite-personal-memory-store.js";
+
+test("personal assistant normalizes web, feishu, and cli ingress envelopes", () => {
+  const web = normalizePersonalIngressMessage({
+    message_id: "web-msg",
+    platform: "web",
+    chat_id: "web-chat",
+    sender_id: "web-user",
+    content: "hello from web"
+  });
+  const feishu = normalizePersonalIngressMessage({
+    message_id: "feishu-msg",
+    platform: "feishu",
+    chat_id: "feishu-chat",
+    sender_id: "feishu-user",
+    content: { type: "text", text: "hello from im" },
+    channel: {
+      thread_id: "thread-1"
+    }
+  });
+  const cli = normalizePersonalIngressMessage({
+    message_id: "cli-msg",
+    platform: "cli",
+    chat_id: "terminal-1",
+    sender_id: "local-user",
+    content: "hello from cli",
+    identity: {
+      trust_level: "trusted",
+      display_name: "Local User"
+    }
+  });
+
+  assert.equal(web.channel.kind, "web");
+  assert.equal(web.channel.capabilities.streaming, true);
+  assert.equal(web.identity.trust_level, "unknown");
+  assert.equal(feishu.channel.kind, "im");
+  assert.equal(feishu.channel.thread_id, "thread-1");
+  assert.equal(feishu.channel.capabilities.threads, true);
+  assert.equal(cli.channel.kind, "cli");
+  assert.equal(cli.channel.route_key, "cli:terminal-1");
+  assert.equal(cli.channel.capabilities.streaming, false);
+  assert.equal(cli.identity.display_name, "Local User");
+});
+
+test("personal assistant cli adapter emits normalized cli messages", async () => {
+  const adapter = new CliAdapter();
+  let observed;
+
+  adapter.onMessage((message) => {
+    observed = message;
+  });
+  await adapter.start({
+    auth: {
+      user_id: "local-user",
+      chat_id: "terminal-1"
+    }
+  });
+  await adapter.receiveText("hello cli", { source: "test" });
+
+  assert.equal(observed.platform, "cli");
+  assert.equal(observed.chat_id, "terminal-1");
+  assert.equal(observed.sender_id, "local-user");
+  assert.equal(observed.content.text, "hello cli");
+  assert.equal(observed.channel.kind, "cli");
+  assert.equal(observed.channel.capabilities.typing, false);
+  assert.equal(observed.metadata.source, "test");
+});
 
 test("personal assistant router reconnects to waiting sessions for the same chat", { concurrency: false }, async () => {
   const tempDir = mkdtempSync(join(tmpdir(), "personal-assistant-router-"));
@@ -56,6 +124,67 @@ test("personal assistant router reconnects to waiting sessions for the same chat
 
     assert.equal(second.is_new, false);
     assert.equal(second.session_id, first.session_id);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("personal assistant gateway passes channel and identity metadata to runtime input", { concurrency: false }, async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "personal-assistant-cli-gateway-"));
+  const dbPath = join(tempDir, "assistant.sqlite");
+
+  try {
+    const runtimeFactory = new AssistantRuntimeFactory({
+      dbPath,
+      buildAgent: () => createPersonalAssistantAgent({
+        db_path: dbPath,
+        tenant_id: "test-tenant",
+        reasoner: createChannelMetadataReasoner()
+      })
+    });
+    const builder = runtimeFactory.getBuilder();
+    const mappingStore = new SqliteSessionMappingStore({ filename: dbPath });
+    const router = new ConversationRouter({
+      builder,
+      tenantId: "test-tenant",
+      mappingStore
+    });
+    const approvalBindingStore = new SqliteApprovalBindingStore({ filename: dbPath });
+    const adapter = new FakeAdapter("cli");
+    const dispatcher = new NotificationDispatcher({
+      getAdapter: () => adapter,
+      mappingStore
+    });
+    const gateway = new IMGateway({
+      builder,
+      router,
+      dispatcher,
+      approvalBindingStore,
+      resolveUserId: () => "canonical-user"
+    });
+    gateway.registerAdapter(adapter, { auth: {} });
+
+    await gateway.handleMessage(normalizePersonalIngressMessage({
+      message_id: "cli-msg-1",
+      platform: "cli",
+      chat_id: "terminal-1",
+      sender_id: "local-user",
+      content: "metadata please",
+      metadata: {
+        source: "test"
+      },
+      identity: {
+        trust_level: "trusted",
+        display_name: "Local User"
+      }
+    }));
+
+    const textMessages = adapter.messages.filter((message) => message.content.type === "text");
+    assert.ok(textMessages.some((message) => /kind=cli/.test(message.content.text)));
+    assert.ok(textMessages.some((message) => /streaming=false/.test(message.content.text)));
+    assert.ok(textMessages.some((message) => /canonical=canonical-user/.test(message.content.text)));
+    assert.ok(textMessages.some((message) => /display=Local User/.test(message.content.text)));
+    assert.ok(textMessages.some((message) => /source=test/.test(message.content.text)));
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -293,6 +422,53 @@ function createStreamingRespondReasoner() {
       const midpoint = Math.max(1, Math.floor(text.length / 2));
       yield text.slice(0, midpoint);
       yield text.slice(midpoint);
+    }
+  };
+}
+
+function createChannelMetadataReasoner() {
+  return {
+    name: "channel-metadata-reasoner",
+    async plan(ctx) {
+      return [
+        {
+          proposal_id: ctx.services.generateId("prp"),
+          schema_version: ctx.profile.schema_version,
+          session_id: ctx.session.session_id,
+          cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+          module_name: "channel-metadata-reasoner",
+          proposal_type: "plan",
+          salience_score: 0.8,
+          confidence: 0.9,
+          risk: 0,
+          payload: { summary: "Respond with channel metadata." }
+        }
+      ];
+    },
+    async respond(ctx) {
+      const metadata = ctx.runtime_state.current_input_metadata ?? {};
+      const channel = metadata.channel ?? {};
+      const identity = metadata.identity ?? {};
+      const capabilities = metadata.channel_capabilities ?? {};
+      const sourceMetadata = metadata.source_metadata ?? {};
+      return [
+        {
+          action_id: ctx.services.generateId("act"),
+          action_type: "respond",
+          title: "Respond with metadata",
+          description: [
+            `kind=${channel.kind}`,
+            `streaming=${capabilities.streaming}`,
+            `canonical=${identity.canonical_user_id}`,
+            `display=${identity.display_name}`,
+            `source=${sourceMetadata.source}`
+          ].join(";"),
+          side_effect_level: "none"
+        }
+      ];
+    },
+    async *streamText(_ctx, action) {
+      yield action.description ?? action.title;
     }
   };
 }
