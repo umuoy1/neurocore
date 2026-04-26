@@ -79,7 +79,7 @@ export class CommandHandler {
         code: "unknown_command",
         command,
         message: `Unknown command: ${command}`,
-        available: this.commands.map((item) => item.name)
+        available: this.commands.map((item) => formatCommandRisk(item))
       }));
       return true;
     }
@@ -449,6 +449,10 @@ function formatCommandError(input: {
     `message: ${input.message}`,
     `available_commands: ${input.available.join(", ")}`
   ].join("\n");
+}
+
+function formatCommandRisk(command: CommandSchema): string {
+  return `${command.name}(${command.risk_level})`;
 }
 
 function formatSessionStatus(session: AgentSession | undefined): string {

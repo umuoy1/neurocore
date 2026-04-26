@@ -1,5 +1,18 @@
 import type { CandidateAction, ModuleContext, PolicyDecision, PolicyProvider, SideEffectLevel } from "@neurocore/protocol";
 
+const DEFAULT_REQUIRED_APPROVAL_TOOLS = [
+  "bash",
+  "exec",
+  "message",
+  "send_message",
+  "shell",
+  "sh",
+  "terminal",
+  "webhook",
+  "webhook_post",
+  "zsh"
+] as const;
+
 export interface ToolPolicyOptions {
   blockedTools?: string[];
   requiredApprovalTools?: string[];
@@ -20,7 +33,10 @@ export class ToolPolicyProvider implements PolicyProvider {
 
   public constructor(options: ToolPolicyOptions) {
     this.blockedTools = new Set(options.blockedTools ?? []);
-    this.requiredApprovalTools = new Set(options.requiredApprovalTools ?? []);
+    this.requiredApprovalTools = new Set([
+      ...DEFAULT_REQUIRED_APPROVAL_TOOLS,
+      ...(options.requiredApprovalTools ?? [])
+    ]);
     this.requiredApprovalRiskLevels = new Set(options.requiredApprovalRiskLevels ?? []);
     this.tenantPolicies = options.tenantPolicies;
   }

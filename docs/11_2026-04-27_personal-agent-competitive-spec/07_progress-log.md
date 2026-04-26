@@ -174,3 +174,31 @@
 |---|---|
 | Ledger | `PA2-P0-04` 已标记 completed |
 | 下一项 | `PA2-P0-05` Tool approval and command risk classification |
+
+### PA2-P0-05 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| 默认高风险工具 | `ToolPolicyProvider` 默认将 `shell`、`exec`、`send_message`、`message`、`webhook*` 等工具纳入 approval |
+| 默认策略说明 | `DefaultPolicyProvider` 对同类工具名生成高风险 approval warning |
+| 审批审计 | approval/rejection 测试断言 `status`、`approver_id`、`decided_at` 可从 runtime approval record 查询 |
+| 风险可见 | 未知命令输出的 `available_commands` 包含命令风险等级，如 `/stop(medium)`、`/compact(low)` |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-approval.test.mjs tests/policy-governance.test.mjs` | 通过，11 项测试 |
+| `node --test tests/personal-assistant-e2e.test.mjs` | 通过，4 项测试 |
+| `npm run pa:task-check -- PA2-P0-05` | 通过 |
+| `npm run pa:accept -- PA2-P0-05` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA2-P0-05` 已标记 completed |
+| 下一项 | `PA2-P0-06` Minimum background task ledger |

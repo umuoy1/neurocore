@@ -154,6 +154,38 @@ test("configurePolicy can require approval by tenant and risk level", async () =
   assert.equal(normalSession.getPendingApproval(), undefined);
 });
 
+test("default policy requires approval for shell messaging and webhook tool names", async () => {
+  for (const toolName of ["shell", "send_message", "webhook_post"]) {
+    const agent = defineAgent({
+      id: `default-risk-${toolName.replace(/_/g, "-")}`,
+      role: "Default high-risk tool policy test agent."
+    })
+      .useReasoner(createToolCallReasoner(toolName))
+      .registerTool({
+        name: toolName,
+        description: `${toolName} test tool.`,
+        sideEffectLevel: "low",
+        inputSchema: { type: "object", properties: {} },
+        async invoke() {
+          return { summary: "should not execute without approval", payload: {} };
+        }
+      })
+      .configurePolicy({});
+
+    const session = agent.createSession({
+      tenant_id: "tenant-default-risk",
+      initial_input: { content: `run ${toolName}`, created_at: ts() }
+    });
+    const result = await session.runOnce();
+    const approval = session.getPendingApproval();
+
+    assert.equal(result.sessionState, "escalated", `${toolName} should escalate`);
+    assert.ok(approval, `${toolName} should create a pending approval`);
+    assert.equal(approval.action.tool_name, toolName);
+    assert.match(approval.review_reason ?? "", /requires human approval|approval/i);
+  }
+});
+
 test("ToolGateway enforces per-tenant and per-tool rate limits", async () => {
   const gateway = new ToolGateway();
   gateway.register({
@@ -226,6 +258,39 @@ test("ToolGateway enforces per-tenant and per-tool rate limits", async () => {
   assert.equal(fifth.execution.status, "failed");
   assert.match(fifth.observation.summary, /rate limit exceeded/i);
 });
+
+function createToolCallReasoner(toolName) {
+  return {
+    name: `${toolName}-reasoner`,
+    async plan(ctx) {
+      return [{
+        proposal_id: ctx.services.generateId("prp"),
+        schema_version: ctx.profile.schema_version,
+        session_id: ctx.session.session_id,
+        cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+        module_name: this.name,
+        proposal_type: "plan",
+        salience_score: 0.9,
+        confidence: 0.95,
+        risk: 0,
+        payload: { summary: `Call ${toolName}.` }
+      }];
+    },
+    async respond(ctx) {
+      return [{
+        action_id: ctx.services.generateId("act"),
+        action_type: "call_tool",
+        title: `Run ${toolName}`,
+        tool_name: toolName,
+        tool_args: {},
+        side_effect_level: "low"
+      }];
+    },
+    async *streamText() {
+      yield "done";
+    }
+  };
+}
 
 test("policy provider can block input before reasoner execution", async () => {
   let respondCalls = 0;

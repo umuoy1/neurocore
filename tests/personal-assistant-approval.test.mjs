@@ -35,6 +35,11 @@ test("personal assistant persists approval binding and resumes execution after a
     assert.equal(finalMessage.content.type, "text");
     assert.match(finalMessage.content.text, /Email sent with id email-1/i);
     assert.equal(harness.emailSendCalls.length, 1);
+    const approvals = harness.builder.connectSession(binding.session_id).listApprovals();
+    const decidedApproval = approvals.find((approval) => approval.approval_id === approvalMessage.content.approval_id);
+    assert.equal(decidedApproval.status, "approved");
+    assert.equal(decidedApproval.approver_id, "approved-user");
+    assert.ok(decidedApproval.decided_at);
     assert.equal(
       harness.approvalBindingStore.getBindingByApprovalId(approvalMessage.content.approval_id),
       undefined
@@ -66,9 +71,14 @@ test("personal assistant keeps session resumable after approval rejection", { co
       approvalMessage.content.approval_id
     );
     assert.equal(binding, undefined);
-
     const activeRoute = harness.mappingStore.getRoute("web", "chat-1");
     assert.ok(activeRoute, "chat route should still exist");
+    const approvals = harness.builder.connectSession(activeRoute.session_id).listApprovals();
+    const decidedApproval = approvals.find((approval) => approval.approval_id === approvalMessage.content.approval_id);
+    assert.equal(decidedApproval.status, "rejected");
+    assert.equal(decidedApproval.approver_id, "approved-user");
+    assert.ok(decidedApproval.decided_at);
+
     const session = harness.builder.connectSession(activeRoute.session_id).getSession();
     assert.equal(session?.state, "waiting");
   } finally {
@@ -123,6 +133,34 @@ test("personal assistant can skip approval when auto_approve is enabled at start
   } finally {
     harness.close();
   }
+});
+
+test("personal assistant command errors expose command risk classifications", async () => {
+  const sent = [];
+  const handler = new CommandHandler({
+    router: {
+      clearRoute() {},
+      listRoutesForUser() {
+        return [];
+      },
+      connect() {
+        throw new Error("not expected");
+      }
+    },
+    dispatcher: {
+      async sendToChat(platform, chatId, content) {
+        sent.push({ platform, chatId, content });
+        return { message_id: `sent-${sent.length}` };
+      }
+    }
+  });
+
+  await handler.tryHandle(createTextMessage("msg-risk", "/does-not-exist"));
+
+  const text = sent.at(-1)?.content.text ?? "";
+  assert.match(text, /code: unknown_command/);
+  assert.match(text, /\/stop\(medium\)/);
+  assert.match(text, /\/compact\(low\)/);
 });
 
 function createApprovalHarness(overrides = {}) {
