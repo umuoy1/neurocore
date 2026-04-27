@@ -1095,3 +1095,35 @@
 |---|---|
 | Ledger | `PA-GAP-007` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-008` Credential vault and least-secret privilege |
+
+### PA-GAP-008 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Credential vault | 新增 `InMemoryCredentialVault`，支持 secret ref、scope allowlist、短期 lease、lease/deny audit |
+| Scoped refs | 个人助理启动链路把 model、web search、IM channel secret 注册为 `personal-assistant://...` ref，并按 `model:*`、`tool:web_search`、`channel:*` scope lease |
+| Tool lease | `web_search` 支持 `apiKeyRef + credentialVault`，工具调用时按 `tool:web_search` scope 获取临时凭据 |
+| Model/channel lease | model provider registry 与 Telegram/Slack/Discord/Feishu adapter auth 在启动时从 vault 按 scope lease，而不是把 secret 放进 artifact-facing metadata |
+| Artifact redactor | baseline artifact 写入复用统一 credential redactor，覆盖 secret-key 字段、known secret、Bearer token、常见 API key token |
+| Sandbox deny-by-default | sandbox execution 在进入 provider runner 前过滤 secret-like env key，默认不注入 `*_TOKEN`、`*_SECRET`、`*_API_KEY` 等环境变量 |
+| Tests | 新增 `tests/personal-assistant-credential-vault.test.mjs`，覆盖授权 lease、拒绝越权 scope、web_search lease、sandbox env 过滤和 artifact redaction |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-credential-vault.test.mjs` | 通过，4 项测试 |
+| `node --test tests/personal-assistant-config.test.mjs` | 通过，4 项测试 |
+| `node --test tests/personal-assistant-e2e.test.mjs` | 通过，7 项测试 |
+| `node --test tests/personal-assistant-model-router.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-008` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-009` Product-level file tools |

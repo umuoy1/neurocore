@@ -39,6 +39,7 @@ export * from "./skills/auto-skill-manager.js";
 export * from "./subagents/subagent-manager.js";
 export * from "./sandbox/sandbox-provider.js";
 export * from "./sandbox/sandbox-tools.js";
+export * from "./security/credential-vault.js";
 export * from "./trajectory/trajectory-exporter.js";
 export * from "./governance/governance-console.js";
 export * from "./baseline/assertions.js";

@@ -15,6 +15,12 @@ export interface PersonalAssistantAppConfig {
   reasoner?: Reasoner;
   openai?: PersonalAssistantOpenAIConfig;
   models?: PersonalAssistantModelRegistryConfig;
+  security?: {
+    credential_vault?: {
+      enabled?: boolean;
+      deny_sandbox_env_by_default?: boolean;
+    };
+  };
   agent?: {
     id?: string;
     name?: string;
@@ -47,25 +53,31 @@ export interface PersonalAssistantAppConfig {
     enabled?: boolean;
     app_id?: string;
     app_secret?: string;
+    app_secret_ref?: string;
     ws_url?: string;
   };
   telegram?: {
     enabled?: boolean;
     bot_token?: string;
+    bot_token_ref?: string;
     api_base_url?: string;
     webhook_secret?: string;
+    webhook_secret_ref?: string;
     allowed_senders?: string[];
   };
   slack?: {
     enabled?: boolean;
     bot_token?: string;
+    bot_token_ref?: string;
     signing_secret?: string;
+    signing_secret_ref?: string;
     api_base_url?: string;
     allowed_senders?: string[];
   };
   discord?: {
     enabled?: boolean;
     bot_token?: string;
+    bot_token_ref?: string;
     api_base_url?: string;
     allowed_senders?: string[];
   };
@@ -90,6 +102,7 @@ export interface PersonalAssistantAppConfig {
 export interface PersonalAssistantOpenAIConfig {
   apiUrl: string;
   bearerToken: string;
+  bearerTokenRef?: string;
   model: string;
   timeoutMs?: number;
   jsonTimeoutMs?: number;
@@ -160,6 +173,7 @@ export function createPersonalAssistantConfigFromEnv(
     },
     openai: defaultOpenAIConfig,
     models: modelsConfig,
+    security: appConfig.security,
     identity: {
       require_pairing: parseOptionalBoolean(env.PERSONAL_ASSISTANT_REQUIRE_PAIRING) ?? appConfig.identity?.require_pairing,
       require_pairing_platforms: parseOptionalPlatformList(env.PERSONAL_ASSISTANT_REQUIRE_PAIRING_PLATFORMS) ?? appConfig.identity?.require_pairing_platforms,
@@ -190,25 +204,31 @@ export function createPersonalAssistantConfigFromEnv(
       enabled: parseOptionalBoolean(env.FEISHU_ENABLED) ?? appConfig.feishu?.enabled ?? Boolean(feishuAppId && feishuAppSecret),
       app_id: feishuAppId,
       app_secret: feishuAppSecret,
+      app_secret_ref: appConfig.feishu?.app_secret_ref,
       ws_url: env.FEISHU_WS_URL ?? appConfig.feishu?.ws_url
     },
     telegram: {
       enabled: parseOptionalBoolean(env.TELEGRAM_ENABLED) ?? appConfig.telegram?.enabled ?? Boolean(telegramBotToken),
       bot_token: telegramBotToken,
+      bot_token_ref: appConfig.telegram?.bot_token_ref,
       api_base_url: env.TELEGRAM_API_BASE_URL ?? appConfig.telegram?.api_base_url,
       webhook_secret: env.TELEGRAM_WEBHOOK_SECRET ?? appConfig.telegram?.webhook_secret,
+      webhook_secret_ref: appConfig.telegram?.webhook_secret_ref,
       allowed_senders: parseOptionalList(env.TELEGRAM_ALLOWED_SENDERS) ?? appConfig.telegram?.allowed_senders
     },
     slack: {
       enabled: parseOptionalBoolean(env.SLACK_ENABLED) ?? appConfig.slack?.enabled ?? Boolean(slackBotToken),
       bot_token: slackBotToken,
+      bot_token_ref: appConfig.slack?.bot_token_ref,
       signing_secret: env.SLACK_SIGNING_SECRET ?? appConfig.slack?.signing_secret,
+      signing_secret_ref: appConfig.slack?.signing_secret_ref,
       api_base_url: env.SLACK_API_BASE_URL ?? appConfig.slack?.api_base_url,
       allowed_senders: parseOptionalList(env.SLACK_ALLOWED_SENDERS) ?? appConfig.slack?.allowed_senders
     },
     discord: {
       enabled: parseOptionalBoolean(env.DISCORD_ENABLED) ?? appConfig.discord?.enabled ?? Boolean(discordBotToken),
       bot_token: discordBotToken,
+      bot_token_ref: appConfig.discord?.bot_token_ref,
       api_base_url: env.DISCORD_API_BASE_URL ?? appConfig.discord?.api_base_url,
       allowed_senders: parseOptionalList(env.DISCORD_ALLOWED_SENDERS) ?? appConfig.discord?.allowed_senders
     },
@@ -254,6 +274,7 @@ function resolveOpenAIConfig(
   return {
     apiUrl,
     bearerToken,
+    bearerTokenRef: fallback?.bearerTokenRef,
     model,
     timeoutMs,
     jsonTimeoutMs:
@@ -277,6 +298,7 @@ function mergeOpenAIConfig(
   return {
     apiUrl: override?.apiUrl ?? base?.apiUrl ?? "",
     bearerToken: override?.bearerToken ?? base?.bearerToken ?? "",
+    bearerTokenRef: override?.bearerTokenRef ?? base?.bearerTokenRef,
     model: override?.model ?? base?.model ?? "",
     timeoutMs: override?.timeoutMs ?? base?.timeoutMs,
     jsonTimeoutMs: override?.jsonTimeoutMs ?? base?.jsonTimeoutMs,
@@ -359,6 +381,7 @@ function readOpenAICompatibleConfig(filePath: string): PersonalAssistantOpenAICo
   return {
     apiUrl: parsed.apiUrl,
     bearerToken: parsed.bearerToken,
+    bearerTokenRef: "bearerTokenRef" in parsed && typeof parsed.bearerTokenRef === "string" ? parsed.bearerTokenRef : undefined,
     model: parsed.model,
     timeoutMs: parsed.timeoutMs,
     jsonTimeoutMs: parsed.jsonTimeoutMs,
@@ -379,6 +402,7 @@ function resolveModelRegistryConfig(
       provider: "openai-compatible",
       apiUrl: openaiConfig.apiUrl,
       bearerToken: openaiConfig.bearerToken,
+      bearerTokenRef: openaiConfig.bearerTokenRef,
       model: openaiConfig.model,
       timeoutMs: openaiConfig.timeoutMs,
       jsonTimeoutMs: openaiConfig.jsonTimeoutMs,
@@ -428,6 +452,7 @@ function normalizeModelProviderConfig(
     provider: "openai-compatible",
     apiUrl: provider.apiUrl,
     bearerToken: provider.bearerToken,
+    bearerTokenRef: provider.bearerTokenRef,
     model: provider.model,
     timeoutMs: provider.timeoutMs,
     jsonTimeoutMs: provider.jsonTimeoutMs,
@@ -453,6 +478,7 @@ function openAIConfigFromModelRegistry(
   return {
     apiUrl: provider.apiUrl,
     bearerToken: provider.bearerToken,
+    bearerTokenRef: provider.bearerTokenRef,
     model: provider.model,
     timeoutMs: provider.timeoutMs,
     jsonTimeoutMs: provider.jsonTimeoutMs,

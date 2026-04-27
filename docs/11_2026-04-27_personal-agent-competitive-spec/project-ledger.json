@@ -2,9 +2,9 @@
   "schema_version": "1.0.0",
   "project": "personal-agent-competitive-spec",
   "meta": {
-    "current_task": "PA-GAP-007",
+    "current_task": "PA-GAP-008",
     "phase": "PA-GAP-B",
-    "updated_at": "2026-04-27T16:37:35.674Z",
+    "updated_at": "2026-04-27T16:51:14.040Z",
     "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
   },
   "phases": [
@@ -1189,7 +1189,9 @@
       "id": "PA-GAP-008",
       "phase": "PA-GAP-B",
       "title": "Credential vault and least-secret privilege",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-04-28T00:59:04+08:00",
+      "acceptance_last_run": "npm run pa:accept -- PA-GAP-008",
       "depends_on": [
         "PA-GAP-007"
       ],
@@ -1203,14 +1205,20 @@
       ],
       "tests": [
         "npm run build",
-        "npm run pa:plan-check"
+        "npm run pa:plan-check",
+        "node --test tests/personal-assistant-credential-vault.test.mjs",
+        "node --test tests/personal-assistant-config.test.mjs",
+        "node --test tests/personal-assistant-e2e.test.mjs",
+        "node --test tests/personal-assistant-model-router.test.mjs",
+        "node --test tests/personal-assistant-baseline.test.mjs"
       ],
       "write_paths": [
         "examples/personal-assistant/",
         "packages/",
         "tests/",
         "docs/"
-      ]
+      ],
+      "started_at": "2026-04-27T16:51:14.039Z"
     },
     {
       "id": "PA-GAP-009",

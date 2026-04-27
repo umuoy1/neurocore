@@ -8,6 +8,7 @@ import { WebSocket } from "ws";
 import { PersonalAssistantGovernanceConsole } from "../governance/governance-console.js";
 import { startPersonalAssistantApp, type RunningPersonalAssistantApp } from "../app/create-personal-assistant.js";
 import type { PersonalAssistantAppConfig } from "../app/assistant-config.js";
+import { redactCredentialSecrets } from "../security/credential-vault.js";
 import { BaselineVerdictBuilder, type BaselineVerdict } from "./assertions.js";
 import {
   createApprovalOnlyReasoner,
@@ -808,27 +809,11 @@ function writeJson(filePath: string, value: unknown): void {
 }
 
 function redact(value: unknown): unknown {
-  if (typeof value === "string") {
-    return redactText(value);
-  }
-  if (Array.isArray(value)) {
-    return value.map(redact);
-  }
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, nested]) => [
-        key,
-        /token|secret|bearer|api[_-]?key/i.test(key) ? "[redacted]" : redact(nested)
-      ])
-    );
-  }
-  return value;
+  return redactCredentialSecrets(value);
 }
 
 function redactText(text: string): string {
-  return text
-    .replace(/Bearer\s+[A-Za-z0-9._-]+/g, "Bearer [redacted]")
-    .replace(/sk-[A-Za-z0-9._-]+/g, "sk-[redacted]");
+  return redactCredentialSecrets(text);
 }
 
 function readContentRecord(payload: Record<string, unknown>): Record<string, any> {

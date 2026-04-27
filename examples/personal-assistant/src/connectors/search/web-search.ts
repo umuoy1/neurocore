@@ -96,8 +96,9 @@ export function createWebSearchTool(config: WebSearchConfig): Tool {
         count: String(maxResults)
       });
       const headers: Record<string, string> = {};
-      if (config.apiKey) {
-        headers["X-Subscription-Token"] = config.apiKey;
+      const apiKey = resolveApiKey(config);
+      if (apiKey) {
+        headers["X-Subscription-Token"] = apiKey;
       }
 
       const response = await fetchJson<BraveSearchResponse>(`${baseUrl}?${params.toString()}`, {
@@ -140,6 +141,17 @@ export function createWebSearchTool(config: WebSearchConfig): Tool {
       };
     }
   };
+}
+
+function resolveApiKey(config: WebSearchConfig): string | undefined {
+  if (config.apiKeyRef && config.credentialVault) {
+    return config.credentialVault.leaseSecret(
+      config.apiKeyRef,
+      config.credentialScope ?? "tool:web_search",
+      { reason: "web_search" }
+    ).value;
+  }
+  return config.apiKey;
 }
 
 function formatSearchSummary(

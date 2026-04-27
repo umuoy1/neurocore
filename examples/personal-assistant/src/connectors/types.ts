@@ -1,5 +1,10 @@
+import type { CredentialVault } from "../security/credential-vault.js";
+
 export interface WebSearchConfig {
   apiKey?: string;
+  apiKeyRef?: string;
+  credentialVault?: CredentialVault;
+  credentialScope?: string;
   baseUrl?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;

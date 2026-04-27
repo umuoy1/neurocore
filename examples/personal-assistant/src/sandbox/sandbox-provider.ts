@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
+import { filterSecretEnv } from "../security/credential-vault.js";
 
 export type SandboxTarget = "local" | "docker" | "ssh";
 export type SandboxOperation = "exec" | "file_read" | "file_write" | "browser";
@@ -380,7 +381,7 @@ function runWithTrace(input: {
     executable: input.executable,
     args: input.args,
     cwd: input.cwd,
-    env: input.env,
+    env: filterSecretEnv(input.env),
     stdin: input.stdin,
     timeout_ms: input.timeoutMs,
     signal: input.signal

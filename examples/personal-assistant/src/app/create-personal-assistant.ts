@@ -48,6 +48,14 @@ import {
 } from "../sandbox/sandbox-provider.js";
 import { createSandboxTools } from "../sandbox/sandbox-tools.js";
 import type { PersonalAssistantAppConfig } from "./assistant-config.js";
+import type { CredentialVault } from "../security/credential-vault.js";
+import {
+  channelSecretRef,
+  createPersonalAssistantCredentialVault,
+  leaseChannelSecret,
+  resolveModelBearerToken,
+  resolveWebSearchConfig
+} from "./personal-assistant-credentials.js";
 
 export interface RunningPersonalAssistantApp {
   builder: AgentBuilder;
@@ -63,13 +71,15 @@ export interface PersonalAssistantAgentOptions {
   skillRegistry?: AgentSkillRegistry;
   sandboxManager?: SandboxManager;
   mcpTools?: Tool[];
+  credentialVault?: CredentialVault;
 }
 
 export function createPersonalAssistantAgent(
   config: PersonalAssistantAppConfig,
   options: PersonalAssistantAgentOptions = {}
 ): AgentBuilder {
-  const reasoner = resolveReasoner(config);
+  const credentialVault = options.credentialVault ?? createPersonalAssistantCredentialVault(config);
+  const reasoner = resolveReasoner(config, credentialVault);
   const skillRegistry = options.skillRegistry ?? createAgentSkillRegistryFromConfig(config.skills);
   const agent = defineAgent({
     id: config.agent?.id ?? "personal-assistant",
@@ -100,7 +110,7 @@ export function createPersonalAssistantAgent(
   }
 
   if (config.connectors?.search) {
-    agent.registerTool(createWebSearchTool(config.connectors.search));
+    agent.registerTool(createWebSearchTool(resolveWebSearchConfig(config.connectors.search, credentialVault)));
   }
 
   agent.registerTool(createWebBrowserTool(config.connectors?.browser));
@@ -166,9 +176,10 @@ export async function startPersonalAssistantApp(
   const memoryStore = new SqlitePersonalMemoryStore({ filename: config.db_path });
   const sessionSearchStore = new SqliteSessionSearchStore({ filename: config.db_path });
   const skillRegistry = createAgentSkillRegistryFromConfig(config.skills);
+  const credentialVault = createPersonalAssistantCredentialVault(config);
   const runtimeFactory = new AssistantRuntimeFactory({
     dbPath: config.db_path,
-    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, skillRegistry })
+    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, skillRegistry, credentialVault })
   });
   const builder = runtimeFactory.getBuilder();
 
@@ -182,7 +193,7 @@ export async function startPersonalAssistantApp(
     codeTtlMs: config.identity?.pairing_code_ttl_ms
   });
   const approvalBindingStore = new SqliteApprovalBindingStore({ filename: config.db_path });
-  const modelRegistry = createOpenAIProviderRegistry(config);
+  const modelRegistry = createOpenAIProviderRegistry(config, credentialVault);
   const resolveUserId = (message: { platform: IMPlatform; sender_id: string }) =>
     userLinkStore.resolveCanonicalUserId(message.platform, message.sender_id) ?? message.sender_id;
   const router = new ConversationRouter({
@@ -256,7 +267,12 @@ export async function startPersonalAssistantApp(
     gateway.registerAdapter(new FeishuAdapter(), {
       auth: {
         app_id: config.feishu.app_id,
-        app_secret: config.feishu.app_secret,
+        app_secret: leaseChannelSecret(
+          credentialVault,
+          config.feishu.app_secret_ref ?? channelSecretRef("feishu", "app_secret"),
+          "channel:feishu",
+          config.feishu.app_secret
+        ) ?? "",
         ws_url: config.feishu.ws_url ?? ""
       }
     });
@@ -265,9 +281,19 @@ export async function startPersonalAssistantApp(
   if (config.telegram?.enabled && config.telegram.bot_token) {
     gateway.registerAdapter(new TelegramAdapter(), {
       auth: compactAuth({
-        bot_token: config.telegram.bot_token,
+        bot_token: leaseChannelSecret(
+          credentialVault,
+          config.telegram.bot_token_ref ?? channelSecretRef("telegram", "bot_token"),
+          "channel:telegram",
+          config.telegram.bot_token
+        ),
         api_base_url: config.telegram.api_base_url,
-        webhook_secret: config.telegram.webhook_secret
+        webhook_secret: leaseChannelSecret(
+          credentialVault,
+          config.telegram.webhook_secret_ref ?? channelSecretRef("telegram", "webhook_secret"),
+          "channel:telegram",
+          config.telegram.webhook_secret
+        )
       }),
       allowed_senders: config.telegram.allowed_senders
     });
@@ -276,8 +302,18 @@ export async function startPersonalAssistantApp(
   if (config.slack?.enabled && config.slack.bot_token) {
     gateway.registerAdapter(new SlackAdapter(), {
       auth: compactAuth({
-        bot_token: config.slack.bot_token,
-        signing_secret: config.slack.signing_secret,
+        bot_token: leaseChannelSecret(
+          credentialVault,
+          config.slack.bot_token_ref ?? channelSecretRef("slack", "bot_token"),
+          "channel:slack",
+          config.slack.bot_token
+        ),
+        signing_secret: leaseChannelSecret(
+          credentialVault,
+          config.slack.signing_secret_ref ?? channelSecretRef("slack", "signing_secret"),
+          "channel:slack",
+          config.slack.signing_secret
+        ),
         api_base_url: config.slack.api_base_url
       }),
       allowed_senders: config.slack.allowed_senders
@@ -287,7 +323,12 @@ export async function startPersonalAssistantApp(
   if (config.discord?.enabled && config.discord.bot_token) {
     gateway.registerAdapter(new DiscordAdapter(), {
       auth: compactAuth({
-        bot_token: config.discord.bot_token,
+        bot_token: leaseChannelSecret(
+          credentialVault,
+          config.discord.bot_token_ref ?? channelSecretRef("discord", "bot_token"),
+          "channel:discord",
+          config.discord.bot_token
+        ),
         api_base_url: config.discord.api_base_url
       }),
       allowed_senders: config.discord.allowed_senders
@@ -344,12 +385,15 @@ export async function startPersonalAssistantApp(
   };
 }
 
-function resolveReasoner(config: PersonalAssistantAppConfig): Reasoner {
+function resolveReasoner(
+  config: PersonalAssistantAppConfig,
+  credentialVault?: CredentialVault
+): Reasoner {
   if (config.reasoner) {
     return config.reasoner;
   }
 
-  const registry = createOpenAIProviderRegistry(config);
+  const registry = createOpenAIProviderRegistry(config, credentialVault);
   if (registry) {
     return new OpenAICompatibleModelRouterReasoner({
       registry
@@ -365,7 +409,7 @@ function resolveReasoner(config: PersonalAssistantAppConfig): Reasoner {
   return new OpenAICompatibleReasoner({
     provider: "openai-compatible",
     apiUrl: config.openai.apiUrl,
-    bearerToken: config.openai.bearerToken,
+    bearerToken: resolveModelBearerToken(credentialVault, config.openai, "default"),
     model: config.openai.model,
     timeoutMs: config.openai.timeoutMs,
     jsonTimeoutMs: config.openai.jsonTimeoutMs,
@@ -376,15 +420,16 @@ function resolveReasoner(config: PersonalAssistantAppConfig): Reasoner {
 }
 
 function createOpenAIProviderRegistry(
-  config: PersonalAssistantAppConfig
+  config: PersonalAssistantAppConfig,
+  credentialVault?: CredentialVault
 ): OpenAICompatibleProviderRegistry | undefined {
-  const providers = config.models?.providers.map(toOpenAIModelProviderConfig)
+  const providers = config.models?.providers.map((provider) => toOpenAIModelProviderConfig(provider, credentialVault))
     ?? (config.openai
       ? [{
           id: "default",
           provider: "openai-compatible" as const,
           apiUrl: config.openai.apiUrl,
-          bearerToken: config.openai.bearerToken,
+          bearerToken: resolveModelBearerToken(credentialVault, config.openai, "default"),
           model: config.openai.model,
           timeoutMs: config.openai.timeoutMs,
           jsonTimeoutMs: config.openai.jsonTimeoutMs,
@@ -405,14 +450,15 @@ function createOpenAIProviderRegistry(
 }
 
 function toOpenAIModelProviderConfig(
-  provider: NonNullable<PersonalAssistantAppConfig["models"]>["providers"][number]
+  provider: NonNullable<PersonalAssistantAppConfig["models"]>["providers"][number],
+  credentialVault?: CredentialVault
 ): OpenAICompatibleModelProviderConfig {
   return {
     id: provider.id,
     label: provider.label,
     provider: "openai-compatible",
     apiUrl: provider.apiUrl,
-    bearerToken: provider.bearerToken,
+    bearerToken: resolveModelBearerToken(credentialVault, provider, provider.id),
     model: provider.model,
     timeoutMs: provider.timeoutMs,
     jsonTimeoutMs: provider.jsonTimeoutMs,
