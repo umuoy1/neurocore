@@ -3,6 +3,7 @@
 > 日期：2026-04-27
 > 目标：把个人助理竞争规格拆成可长期执行的阶段、任务、依赖和交付边界。
 > 机器可读真相源：[`project-ledger.json`](./project-ledger.json)
+> 下一轮产品化路线：[`10_gap-requirements-and-execution-plan.md`](./10_gap-requirements-and-execution-plan.md)
 
 ---
 
@@ -32,6 +33,8 @@
 | Phase 5 | Channels | Telegram、Slack、Discord、Email、Feishu 收口 | 多渠道 E2E smoke 通过 |
 | Phase 6 | Extensibility | Skills、MCP、browser、web search、subagents、sandbox | 插件/技能/MCP 权限和回归通过 |
 | Phase 7 | Beyond | memory wiki、dreaming、自动技能生成、Console 治理面、benchmark | 个人助理 benchmark 和治理面完整 |
+
+PA2 任务链已完成后，下一轮按 [`10_gap-requirements-and-execution-plan.md`](./10_gap-requirements-and-execution-plan.md) 中的 `PA-GAP-001` ~ `PA-GAP-030` 继续推进。新的执行单位仍沿用本文的 phase gate、acceptance-first、progress log 和 git checkpoint 规则。
 
 ---
 

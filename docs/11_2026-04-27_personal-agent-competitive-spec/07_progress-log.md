@@ -840,3 +840,21 @@
 |---|---|
 | 已完成 | Baseline 设计与验收标准 |
 | 待实现 | dedicated baseline runner、`tests/personal-assistant-baseline.test.mjs`、accepted deterministic baseline artifact |
+
+### Personal assistant gap requirements and execution plan completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Gap requirement table | 新增 `10_gap-requirements-and-execution-plan.md`，把 OpenClaw/Hermes 对标缺口和个人助理应有能力整理为 `PA-GAP-001` ~ `PA-GAP-030` |
+| Execution phases | 定义 Phase A ~ G：Baseline/产品外壳、会话身份安全模型、执行工具外部事件、数据记忆知识库隐私、渠道语音端侧 Canvas、生态迁移沙箱自学习、长期数据训练和 IoT |
+| Per-feature process | 每个 `PA-GAP-*` 都固定“分析 / 执行 / 验收”三段，要求先核对现状，再做入口/状态/持久化/权限/可观测/测试闭环，最后用真实 runner 或产品入口验收 |
+| Acceptance matrix | 汇总每项任务的基础命令、focused 回归、baseline 收口和 live provider 收口命令 |
+
+当前状态：
+
+| 项 | 内容 |
+|---|---|
+| 已完成 | 文档级需求表、完整计划和真实验收过程 |
+| 下一项 | 将 `PA-GAP-001` ~ `PA-GAP-030` 导入机器可读 ledger，并先实现 `PA-GAP-001` 产品级 Baseline Runner |

@@ -29,6 +29,7 @@
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-07` 已完成 Console 统一治理视图。当前新增个人助理治理控制器、Console governance store/page，支持 session、background task、approval、cron、subagent、memory、tool、audit 统一查看，并可对 approval/task/cron/subagent 执行 approve/reject/pause/resume/cancel，所有治理动作写入 audit before/after 记录。
 > - 2026-04-27 个人助理硅基流动超时补充：OpenAI-compatible reasoner 已拆分 `jsonTimeoutMs / streamTimeoutMs`，个人助理配置链路已透传 `extraBody`，response generation 超时会返回可见兜底而非进程崩溃；同时过滤自然语言 preconditions 并让 `complete` 动作直接终态输出。真实硅基流动 WebChat 两轮验证通过，第二轮可保持相邻上下文并回答 `GPT-5.5`。
 > - 2026-04-27 个人助理 Baseline 设计补充：新增 `docs/11_2026-04-27_personal-agent-competitive-spec/09_personal-assistant-baseline-test.md`，定义 `PA-BL-001` 产品级完整 Baseline，包括完整调用流程、12 轮问答链路、场景矩阵、artifact、延迟/安全/可观测指标和阻断级回归验收标准。当前为设计规格，后续缺口是 dedicated runner 与 `tests/personal-assistant-baseline.test.mjs`。
+> - 2026-04-27 个人助理缺口计划补充：新增 `docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md`，把 PA2 完成后的下一轮个人助理能力整理为 `PA-GAP-001` ~ `PA-GAP-030`，并为每项固定“分析 / 执行 / 验收”过程。下一步从 `PA-GAP-001` 产品级 Baseline Runner 开始。
 
 ## 交付总结
 
