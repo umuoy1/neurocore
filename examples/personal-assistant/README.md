@@ -10,7 +10,20 @@
 - Web Search / Web Browser 工具
 - Proactive Engine 最小骨架
 
-推荐启动方式：
+推荐产品化启动方式：
+
+1. `npm run build`
+2. `node scripts/neurocore.mjs assistant setup --home "$HOME" --port 3301`
+3. `node scripts/neurocore.mjs assistant start --home "$HOME"`
+4. 打开 `http://127.0.0.1:3301/`
+
+常用管理命令：
+
+- `node scripts/neurocore.mjs assistant status --home "$HOME"`
+- `node scripts/neurocore.mjs assistant stop --home "$HOME"`
+- `node scripts/neurocore.mjs assistant install-daemon --home "$HOME"`
+
+兼容的本地开发启动方式：
 
 1. `npm run build`
 2. `node examples/personal-assistant/scripts/dev-web-chat.mjs`

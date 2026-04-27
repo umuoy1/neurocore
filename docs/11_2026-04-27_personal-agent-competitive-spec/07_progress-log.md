@@ -904,3 +904,35 @@
 |---|---|
 | Ledger | `PA-GAP-001` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-002` Install, onboarding, daemon and autostart |
+
+### PA-GAP-002 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Root CLI | 新增 `scripts/neurocore.mjs`，支持 `neurocore assistant <command>` 产品入口 |
+| Assistant CLI | 新增 `examples/personal-assistant/scripts/assistant.mjs`，提供 `setup/start/serve/stop/status/install-daemon` |
+| Setup | 在指定 `--home` 下生成 `.neurocore/.personal-assistant/app.local.json`、SQLite 路径、WebChat 配置和 proactive 默认配置 |
+| Daemon start | `start` 会自动补齐缺失配置、启动 detached `serve` 进程、写 pid/log，并等待 `/health` 通过 |
+| Stop/status | `status` 查询 pid 和 WebChat health；`stop` 发送 SIGTERM 并清理 pid |
+| Autostart | `install-daemon` 可生成 launchd plist 或 systemd user service 文件 |
+| Bootstrap reasoner | 无外部 OpenAI-compatible token 时可用本地 bootstrap reasoner 完成安装链路 health 验收 |
+| Test | 新增 `tests/personal-assistant-onboarding.test.mjs`，在临时 HOME 中验证 setup/start/status/stop/install-daemon 和 start 自动 setup |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `node --check scripts/neurocore.mjs && node --check examples/personal-assistant/scripts/assistant.mjs` | 通过 |
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-onboarding.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-002` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-002` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-003` Doctor, health and config dry-run |

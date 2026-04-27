@@ -34,6 +34,7 @@
 > - 2026-04-27 个人助理 Baseline 设计补充：已新增 `PA-BL-001` 产品级 Baseline 测试规格，覆盖新模型发布核查、上下文连续性、显式记忆、审批发送、自动提醒、新会话恢复、provider timeout、安全注入和 artifact 回归门禁；当前后续实施项是 baseline runner、deterministic accepted artifact 和 CI/nightly lane 接入。
 > - 2026-04-27 个人助理缺口计划补充：已新增 `PA-GAP-001` ~ `PA-GAP-030` 需求表和 Phase A ~ G 执行计划，每一项都绑定“分析 / 执行 / 验收”过程，作为 PA2 对标任务链完成后的下一轮产品化路线入口。
 > - 2026-04-27 个人助理 Baseline Runner 补充：`PA-GAP-001` 已完成，当前 dedicated deterministic runner 可通过真实 WebChat 服务执行 `PA-BL-001` 12 轮主链路和 S1~S12 场景矩阵，并输出 transcript/events/trace/memory/tools/approvals/tasks/metrics/verdict artifact；最新 accepted run 66/66 assertions passed。
+> - 2026-04-27 个人助理安装入口补充：`PA-GAP-002` 已完成，当前 root `neurocore` CLI 可执行 `assistant setup/start/status/stop/install-daemon`，并通过临时 HOME 完整验证配置生成、daemon 启动、health 查询、停止、重复 setup 和 launchd/systemd user service 文件生成。
 
 ## 完成度
 
@@ -67,7 +68,7 @@
 | 已完成 | Operational Maturity | 当前阶段已完成 webhook retry/DLQ/HMAC/timeout、batch session creation、eval parallelism、agent versioning、session sharing、logger/tracer SPI 与 observability gating |
 | 已完成 | M10 / Skill RL | 当前阶段已 100% 完成，已覆盖 reward/policy/exploration/evaluation/transfer/online learner 全链路、基于真实 `cycle / latency / token` 的效率奖励、reward metrics/baseline persistence、FR-45 分层上下文 bandit，以及 FR-47/48 闭环细节；后续只保留更长期的训练运营与策略演进 |
 | 已完成 | Personal Agent OpenClaw/Hermes parity+ | 当前 `PA2-P0-00` ~ `PA2-P2-07` 已全部完成，覆盖 gateway、连续性、显式记忆、命令治理、后台任务、cron、多渠道、skills、MCP、subagents、sandbox、standing orders、memory wiki、dreaming、自动技能、profile、trajectory、media/voice 和 Console governance；后续转入真实渠道联调、生产化持久治理 API 与更大规模验收 |
-| 下一轮 | Personal Assistant PA-GAP 产品化路线 | 已形成 `PA-GAP-001` ~ `PA-GAP-030` 需求表和 Phase A ~ G 计划；`PA-GAP-001` 产品级 Baseline Runner 已完成，下一步实现 `PA-GAP-002` 安装、onboarding、daemon、自启动，并把 baseline 作为后续所有功能门禁 |
+| 下一轮 | Personal Assistant PA-GAP 产品化路线 | 已形成 `PA-GAP-001` ~ `PA-GAP-030` 需求表和 Phase A ~ G 计划；`PA-GAP-001` 产品级 Baseline Runner 与 `PA-GAP-002` 安装/onboarding/daemon 已完成，下一步实现 `PA-GAP-003` doctor / health / config dry-run，并把 baseline 作为后续所有功能门禁 |
 
 ## 已实现核心能力
 

@@ -2,6 +2,9 @@
   "name": "neurocore",
   "private": true,
   "version": "0.1.0",
+  "bin": {
+    "neurocore": "scripts/neurocore.mjs"
+  },
   "workspaces": [
     "packages/*"
   ],
@@ -19,6 +22,7 @@
     "pa:start": "node scripts/personal-agent-plan.mjs start",
     "pa:task-check": "node scripts/personal-agent-plan.mjs task-check",
     "pa:accept": "node scripts/personal-agent-plan.mjs accept",
+    "assistant": "node scripts/neurocore.mjs assistant",
     "changeset": "changeset",
     "version": "changeset version",
     "release": "npm run build && changeset publish",
