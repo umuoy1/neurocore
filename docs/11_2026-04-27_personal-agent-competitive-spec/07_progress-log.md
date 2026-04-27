@@ -965,3 +965,35 @@
 |---|---|
 | Ledger | `PA-GAP-003` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-004` Real CLI/TUI product entry |
+
+### PA-GAP-004 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| CLI/TUI entry | `neurocore assistant chat` 和 `neurocore assistant tui` 可进入交互式个人助理 shell |
+| Gateway reuse | CLI shell 通过 `CliAdapter.receiveText()` 进入同一套 `IMGateway`、`ConversationRouter`、`CommandHandler` 和 runtime |
+| Streaming output | CLI channel capabilities 升级为 `streaming=true`、`edits=true`，Gateway 对 CLI 转发 runtime status 和 token stream edit |
+| Multiline input | 支持 triple quotes 和 trailing backslash 两种多行输入 |
+| Slash autocomplete | shell completer 从 `CommandHandler.listCommandSchemas()` 生成 `/status`、`/stop` 等补全，不复制命令业务逻辑 |
+| Interrupt | Ctrl+C 在空闲输入时取消当前输入，在运行中请求 `/stop` |
+| Test | 新增 `tests/personal-assistant-cli-shell.test.mjs`，覆盖 shell 多行、status stream、slash completion 和伪终端 Ctrl+C |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `node --check scripts/neurocore.mjs && node --check examples/personal-assistant/scripts/assistant.mjs` | 通过 |
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-cli-shell.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-gateway.test.mjs` | 通过，8 项测试 |
+| `node --test tests/personal-assistant-onboarding.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-004` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-005` Session UX commands |

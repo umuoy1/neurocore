@@ -46,6 +46,7 @@ import type { PersonalAssistantAppConfig } from "./assistant-config.js";
 export interface RunningPersonalAssistantApp {
   builder: AgentBuilder;
   gateway: IMGateway;
+  commandHandler: CommandHandler;
   proactive?: ProactiveEngine;
   close(): Promise<void>;
 }
@@ -309,6 +310,7 @@ export async function startPersonalAssistantApp(
   return {
     builder,
     gateway,
+    commandHandler,
     proactive,
     async close() {
       await proactive?.stop();

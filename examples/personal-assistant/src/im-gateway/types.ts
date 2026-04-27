@@ -224,8 +224,8 @@ export function getDefaultChannelCapabilities(platform: IMPlatform): ChannelCapa
         actions: true,
         approval_requests: true,
         typing: false,
-        streaming: false,
-        edits: false,
+        streaming: true,
+        edits: true,
         threads: false,
         reactions: false,
         voice: false

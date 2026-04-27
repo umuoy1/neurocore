@@ -50,9 +50,7 @@ export class IMGateway {
 
   public async start(): Promise<void> {
     for (const { adapter, config } of this.adapters.values()) {
-      adapter.onMessage((msg) => {
-        void this.handleMessage(msg);
-      });
+      adapter.onMessage((msg) => this.handleMessage(msg));
       await adapter.start(config);
     }
   }
@@ -453,11 +451,11 @@ function toMemoryMetadata(memory: PersonalMemoryRecord): Record<string, unknown>
 }
 
 function shouldForwardProgress(platform: IMPlatform): boolean {
-  return platform === "web" || platform === "feishu";
+  return platform === "web" || platform === "feishu" || platform === "cli";
 }
 
 function shouldStreamAssistantOutput(platform: IMPlatform): boolean {
-  return platform === "web" || platform === "feishu";
+  return platform === "web" || platform === "feishu" || platform === "cli";
 }
 
 function messageToPrompt(message: UnifiedMessage, mediaExtractions: PersonalMediaExtraction[] = []): string | undefined {

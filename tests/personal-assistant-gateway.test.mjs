@@ -54,7 +54,8 @@ test("personal assistant normalizes web, feishu, and cli ingress envelopes", () 
   assert.equal(feishu.channel.capabilities.threads, true);
   assert.equal(cli.channel.kind, "cli");
   assert.equal(cli.channel.route_key, "cli:terminal-1");
-  assert.equal(cli.channel.capabilities.streaming, false);
+  assert.equal(cli.channel.capabilities.streaming, true);
+  assert.equal(cli.channel.capabilities.edits, true);
   assert.equal(cli.identity.display_name, "Local User");
 });
 
@@ -80,6 +81,24 @@ test("personal assistant cli adapter emits normalized cli messages", async () =>
   assert.equal(observed.channel.kind, "cli");
   assert.equal(observed.channel.capabilities.typing, false);
   assert.equal(observed.metadata.source, "test");
+});
+
+test("personal assistant cli adapter forwards output events", async () => {
+  const events = [];
+  const adapter = new CliAdapter({
+    output: (event) => events.push(event)
+  });
+
+  const sent = await adapter.sendMessage("terminal-1", { type: "text", text: "hello" });
+  await adapter.editMessage("terminal-1", sent.message_id, { type: "text", text: "hello again" });
+  await adapter.typingIndicator("terminal-1");
+
+  assert.equal(events.length, 3);
+  assert.equal(events[0].type, "send");
+  assert.equal(events[0].content.text, "hello");
+  assert.equal(events[1].type, "edit");
+  assert.equal(events[1].content.text, "hello again");
+  assert.equal(events[2].type, "typing");
 });
 
 test("personal assistant router reconnects to waiting sessions for the same chat", { concurrency: false }, async () => {
@@ -181,7 +200,7 @@ test("personal assistant gateway passes channel and identity metadata to runtime
 
     const textMessages = adapter.messages.filter((message) => message.content.type === "text");
     assert.ok(textMessages.some((message) => /kind=cli/.test(message.content.text)));
-    assert.ok(textMessages.some((message) => /streaming=false/.test(message.content.text)));
+    assert.ok(textMessages.some((message) => /streaming=true/.test(message.content.text)));
     assert.ok(textMessages.some((message) => /canonical=canonical-user/.test(message.content.text)));
     assert.ok(textMessages.some((message) => /display=Local User/.test(message.content.text)));
     assert.ok(textMessages.some((message) => /source=test/.test(message.content.text)));
