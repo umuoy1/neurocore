@@ -73,6 +73,7 @@
 | `pa-safety` | approval / sandbox / injection tests | 工具、消息、MCP、browser 相关路径 |
 | `pa-benchmark-smoke` | LongMemEval sample + memory benchmark smoke | memory 相关路径 |
 | `pa-e2e-local` | WebChat/CLI local E2E | 手动或 nightly |
+| `pa-baseline` | `PA-BL-001` 个人助理完整 Baseline：12 轮主链路、场景矩阵、artifact 和安全门禁 | milestone 收口、provider/runtime/assistant 关键改动 |
 | `pa-full-benchmark` | LongMemEval full + personal agent benchmark | milestone 收口 |
 
 ---
@@ -86,3 +87,19 @@
 | 外部凭证缺失 | 提供 skip 条件和本地 deterministic substitute |
 | benchmark 退化 | 停止功能推进，先定位退化或更新设计 |
 | 安全测试失败 | 不得降级验收，必须修复 |
+
+---
+
+## 7. 产品级 Baseline
+
+个人助理完整 Baseline 见 [`09_personal-assistant-baseline-test.md`](./09_personal-assistant-baseline-test.md)。
+
+Baseline 必须作为阶段收口门禁，而不是普通 smoke：
+
+| 项 | 要求 |
+|---|---|
+| 主链路 | 固定执行 `PA-BL-001` 12 轮问答，覆盖搜索、上下文、记忆、审批、发送、提醒、新会话恢复 |
+| 场景矩阵 | deterministic 模式必须覆盖 S1~S12 |
+| Artifact | 每次 run 输出 transcript、events、trace、memory、tools、approvals、tasks、metrics、verdict |
+| 阻断项 | 上下文反问、审批绕过、旧记忆误召回、provider timeout 崩溃、token 泄漏均为 blocker |
+| Live provider | OpenAI-compatible/provider 改动必须跑 live-provider 模式；provider 不可用不得覆盖 accepted baseline |

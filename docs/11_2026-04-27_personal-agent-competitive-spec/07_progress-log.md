@@ -820,3 +820,23 @@
 | `node --test tests/personal-assistant-web-chat.test.mjs` | 通过，7 项测试 |
 | `node --test tests/runtime.test.mjs` | 通过，14 项测试 |
 | 硅基流动真实 WebChat 两轮验证 | 通过，第一轮 `15508ms`，第二轮 `24838ms`，无 `Preconditions not met`，第二轮正确回答 `GPT-5.5` |
+
+### Personal assistant baseline design completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Baseline spec | 新增 `09_personal-assistant-baseline-test.md`，定义 `PA-BL-001` 产品级完整 Baseline |
+| Full call flow | 覆盖 WebChat ingress、Gateway、Router、Runtime、Memory、Reasoner、Policy、Tool、Output、Trace、Governance、Cleanup |
+| QA chain | 固定 12 轮问答链路，覆盖新模型核查、相邻上下文、分析、显式记忆、记忆纠错、邮件草稿、审批发送、自动提醒、新会话恢复 |
+| Scenario matrix | 定义 S1~S12，包括可信/不可信搜索、provider timeout、streaming timeout、natural-language precondition、complete action、prompt injection、approval rejection、memory correction、多渠道命令、后台任务取消、媒体 fallback |
+| Regression oracle | 定义 artifact、功能、延迟、安全、可观测、质量门槛和 blocker 规则 |
+| Docs wiring | 更新 acceptance oracle、test strategy 和 docs README 导航 |
+
+当前状态：
+
+| 项 | 内容 |
+|---|---|
+| 已完成 | Baseline 设计与验收标准 |
+| 待实现 | dedicated baseline runner、`tests/personal-assistant-baseline.test.mjs`、accepted deterministic baseline artifact |

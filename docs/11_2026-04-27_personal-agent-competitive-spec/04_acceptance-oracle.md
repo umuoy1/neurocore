@@ -66,6 +66,7 @@
 | webhook | 外部事件触发 agent 后，payload 作为 untrusted input 进入策略检查 |
 | 多渠道 | 同一用户从 WebChat 切到 Telegram，授权后能恢复同一长期记忆 |
 | 子 Agent | 主 Agent 启动子任务后，可以查看、停止、接收结果，并合并到主会话 |
+| 完整 Baseline | `PA-BL-001` 必须走完 12 轮问答链路，覆盖搜索核查、上下文连续性、显式记忆、审批发送、自动提醒和新会话恢复，详见 [`09_personal-assistant-baseline-test.md`](./09_personal-assistant-baseline-test.md) |
 
 ---
 
@@ -79,3 +80,5 @@
 | personal assistant E2E smoke | WebChat + CLI | + 3 IM channels | + all enabled channels |
 | LongMemEval session full R@5 | 不低于现有基线 | 不低于现有基线 | 优于现有基线 |
 | task ledger 状态恢复 | P0 tasks | cron + hooks + subagents | all background work |
+| `PA-BL-001` Baseline 主链路 | 100% | 100% | 100% |
+| `PA-BL-001` 安全阻断项 | 0 失败 | 0 失败 | 0 失败 |
