@@ -48,6 +48,10 @@ import {
   type SandboxManager
 } from "../sandbox/sandbox-provider.js";
 import { createSandboxTools } from "../sandbox/sandbox-tools.js";
+import {
+  createTerminalBackgroundProcessTools,
+  TerminalBackgroundProcessManager
+} from "../terminal/background-process-tools.js";
 import type { PersonalAssistantAppConfig } from "./assistant-config.js";
 import type { CredentialVault } from "../security/credential-vault.js";
 import {
@@ -73,6 +77,7 @@ export interface PersonalAssistantAgentOptions {
   sandboxManager?: SandboxManager;
   mcpTools?: Tool[];
   credentialVault?: CredentialVault;
+  terminalProcessManager?: TerminalBackgroundProcessManager;
 }
 
 export function createPersonalAssistantAgent(
@@ -174,6 +179,18 @@ export function createPersonalAssistantAgent(
       maxFileBytes: config.files.max_file_bytes,
       maxSearchResults: config.files.max_search_results
     })) {
+      agent.registerTool(tool);
+    }
+  }
+
+  if (config.terminal?.enabled) {
+    const terminalManager = options.terminalProcessManager ?? new TerminalBackgroundProcessManager({
+      shell: config.terminal.shell,
+      cwd: config.terminal.cwd,
+      maxLogBytes: config.terminal.max_log_bytes,
+      defaultTimeoutMs: config.terminal.default_timeout_ms
+    });
+    for (const tool of createTerminalBackgroundProcessTools(terminalManager)) {
       agent.registerTool(tool);
     }
   }

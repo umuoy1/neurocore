@@ -42,6 +42,7 @@
 > - 2026-04-27 个人助理模型治理补充：`PA-GAP-007` 已完成，当前 SDK 层已有 OpenAI-compatible provider registry、fallback chain 和 health probe；个人助理 `/model` 支持当前 session 可见切换、reset、health 和 audit，provider 429/timeout 会自动 fallback 且写入 session metadata 审计。
 > - 2026-04-27 个人助理凭据治理补充：`PA-GAP-008` 已完成，当前新增 credential vault、secret ref、scope lease/audit、统一 credential redactor、web search 按 scope 获取 API key，以及 sandbox 执行前默认过滤 secret-like env。
 > - 2026-04-28 个人助理文件工具补充：`PA-GAP-009` 已完成，当前个人助理可在受控 workspace 内执行 read/list/search/diff/write/edit/apply_patch/rollback；写入、编辑、补丁和回滚均为 high side effect，真实 session 验证已覆盖审批前不落盘、审批后写入、diff/hash artifact 和 rollback。
+> - 2026-04-28 个人助理终端后台进程补充：`PA-GAP-010` 已完成，当前个人助理可启动、轮询、读取增量日志、写 stdin、等待和 kill 后台终端进程；进程生命周期写入 BackgroundTaskLedger，失败和 kill 分别归档为 failed/cancelled，POSIX kill 使用进程组降低 orphan 风险。
 
 ## 完成度
 
@@ -75,7 +76,7 @@
 | 已完成 | Operational Maturity | 当前阶段已完成 webhook retry/DLQ/HMAC/timeout、batch session creation、eval parallelism、agent versioning、session sharing、logger/tracer SPI 与 observability gating |
 | 已完成 | M10 / Skill RL | 当前阶段已 100% 完成，已覆盖 reward/policy/exploration/evaluation/transfer/online learner 全链路、基于真实 `cycle / latency / token` 的效率奖励、reward metrics/baseline persistence、FR-45 分层上下文 bandit，以及 FR-47/48 闭环细节；后续只保留更长期的训练运营与策略演进 |
 | 已完成 | Personal Agent OpenClaw/Hermes parity+ | 当前 `PA2-P0-00` ~ `PA2-P2-07` 已全部完成，覆盖 gateway、连续性、显式记忆、命令治理、后台任务、cron、多渠道、skills、MCP、subagents、sandbox、standing orders、memory wiki、dreaming、自动技能、profile、trajectory、media/voice 和 Console governance；后续转入真实渠道联调、生产化持久治理 API 与更大规模验收 |
-| 下一轮 | Personal Assistant PA-GAP 产品化路线 | 已形成 `PA-GAP-001` ~ `PA-GAP-030` 需求表和 Phase A ~ G 计划；`PA-GAP-001` 产品级 Baseline Runner、`PA-GAP-002` 安装/onboarding/daemon、`PA-GAP-003` doctor / health / config dry-run、`PA-GAP-004` 真实 CLI/TUI 产品、`PA-GAP-005` 会话 UX 命令、`PA-GAP-006` DM pairing / allowlist / home channel、`PA-GAP-007` 模型选择/fallback/health check、`PA-GAP-008` credential vault / least-secret privilege、`PA-GAP-009` 产品级文件工具已完成，下一步实现 `PA-GAP-010` 终端后台进程管理，并把 baseline 作为后续所有功能门禁 |
+| 下一轮 | Personal Assistant PA-GAP 产品化路线 | 已形成 `PA-GAP-001` ~ `PA-GAP-030` 需求表和 Phase A ~ G 计划；`PA-GAP-001` 产品级 Baseline Runner、`PA-GAP-002` 安装/onboarding/daemon、`PA-GAP-003` doctor / health / config dry-run、`PA-GAP-004` 真实 CLI/TUI 产品、`PA-GAP-005` 会话 UX 命令、`PA-GAP-006` DM pairing / allowlist / home channel、`PA-GAP-007` 模型选择/fallback/health check、`PA-GAP-008` credential vault / least-secret privilege、`PA-GAP-009` 产品级文件工具、`PA-GAP-010` 终端后台进程管理已完成，下一步实现 `PA-GAP-011` 真实浏览器 profile，并把 baseline 作为后续所有功能门禁 |
 
 ## 已实现核心能力
 

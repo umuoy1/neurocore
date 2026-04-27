@@ -39,6 +39,7 @@
 > - 2026-04-27 个人助理模型治理补充：`PA-GAP-007` 已落地 OpenAI-compatible provider registry、session-level `/model use/reset/audit/health`、provider health probe 和 fallback reasoner；主 provider 429/timeout 时可自动切换 fallback provider，切换和自动 fallback 均写入 session metadata 审计。下一项为 `PA-GAP-008` credential vault / least-secret privilege。
 > - 2026-04-27 个人助理凭据治理补充：`PA-GAP-008` 已落地 `CredentialVault`、secret ref、scoped lease、统一 artifact redactor、`web_search` 工具按 scope lease API key，以及 sandbox secret-like env deny-by-default。下一项为 `PA-GAP-009` 产品级文件工具。
 > - 2026-04-28 个人助理文件工具补充：`PA-GAP-009` 已落地 governed workspace file tools，支持 read/list/search/diff/write/edit/apply_patch/rollback，所有路径限定在 workspace root，写入类操作 high side effect 审批前不落盘，并返回 diff、hash、bytes 与 rollback_id。下一项为 `PA-GAP-010` 终端后台进程管理。
+> - 2026-04-28 个人助理终端后台进程补充：`PA-GAP-010` 已落地 `TerminalBackgroundProcessManager` 和 `terminal_process_start/poll/log/write/wait/kill` 工具，支持增量日志、stdin、wait、进程组 kill、timeout、task ledger 成功/失败/取消归档，以及 high-risk start/write/kill 审批前不 spawn。下一项为 `PA-GAP-011` 真实浏览器 profile。
 
 ## 交付总结
 

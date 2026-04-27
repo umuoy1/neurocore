@@ -1158,3 +1158,34 @@
 |---|---|
 | Ledger | `PA-GAP-009` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-010` Terminal background process management |
+
+### PA-GAP-010 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Process manager | 新增 `TerminalBackgroundProcessManager`，支持 start/poll/log/write/wait/kill，维护 process_id、pid、状态、exit_code、signal、stdout/stderr offset 和时间戳 |
+| No-orphan kill | 本地命令在 POSIX 进入独立进程组，kill/timeout 对进程组发送 SIGTERM/SIGKILL，避免只杀 shell 父进程 |
+| Task ledger | 每个后台进程创建 `BackgroundTaskLedger` 记录，启动标记 running，成功标记 succeeded，失败标记 failed，kill 标记 cancelled |
+| Tool governance | 新增 `terminal_process_start/poll/log/write/wait/kill` 工具；start/write/kill 为 high side effect，真实 session 验证覆盖审批前不 spawn |
+| Config | 个人助理配置新增 `terminal.enabled/shell/cwd/max_log_bytes/default_timeout_ms` 及对应环境变量 |
+| Tests | 新增 `tests/personal-assistant-terminal-process.test.mjs` 覆盖长进程、增量日志、stdin、wait、kill、失败 exit、task ledger 和审批链路 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-terminal-process.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-sandbox.test.mjs` | 通过，4 项测试 |
+| `node --test tests/personal-assistant-approval.test.mjs` | 通过，5 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-010` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-010` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-011` Real browser profile |

@@ -96,6 +96,13 @@ export interface PersonalAssistantAppConfig {
     max_file_bytes?: number;
     max_search_results?: number;
   };
+  terminal?: {
+    enabled?: boolean;
+    shell?: string;
+    cwd?: string;
+    max_log_bytes?: number;
+    default_timeout_ms?: number;
+  };
   proactive?: {
     enabled?: boolean;
     heartbeat_interval_ms?: number;
@@ -249,6 +256,13 @@ export function createPersonalAssistantConfigFromEnv(
       workspace_root: env.PERSONAL_ASSISTANT_WORKSPACE_ROOT ?? appConfig.files?.workspace_root,
       max_file_bytes: parseOptionalInt(env.PERSONAL_ASSISTANT_MAX_FILE_BYTES) ?? appConfig.files?.max_file_bytes,
       max_search_results: parseOptionalInt(env.PERSONAL_ASSISTANT_FILE_SEARCH_RESULTS) ?? appConfig.files?.max_search_results
+    },
+    terminal: {
+      enabled: parseOptionalBoolean(env.PERSONAL_ASSISTANT_TERMINAL_ENABLED) ?? appConfig.terminal?.enabled,
+      shell: env.PERSONAL_ASSISTANT_TERMINAL_SHELL ?? appConfig.terminal?.shell,
+      cwd: env.PERSONAL_ASSISTANT_TERMINAL_CWD ?? appConfig.terminal?.cwd,
+      max_log_bytes: parseOptionalInt(env.PERSONAL_ASSISTANT_TERMINAL_MAX_LOG_BYTES) ?? appConfig.terminal?.max_log_bytes,
+      default_timeout_ms: parseOptionalInt(env.PERSONAL_ASSISTANT_TERMINAL_DEFAULT_TIMEOUT_MS) ?? appConfig.terminal?.default_timeout_ms
     },
     proactive: appConfig.proactive
   };

@@ -2,9 +2,9 @@
   "schema_version": "1.0.0",
   "project": "personal-agent-competitive-spec",
   "meta": {
-    "current_task": "PA-GAP-009",
+    "current_task": "PA-GAP-010",
     "phase": "PA-GAP-C",
-    "updated_at": "2026-04-28T01:08:53+08:00",
+    "updated_at": "2026-04-28T01:15:48+08:00",
     "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
   },
   "phases": [
@@ -1257,7 +1257,9 @@
       "id": "PA-GAP-010",
       "phase": "PA-GAP-C",
       "title": "Terminal background process management",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-04-28T01:15:48+08:00",
+      "acceptance_last_run": "npm run pa:accept -- PA-GAP-010",
       "depends_on": [
         "PA-GAP-009"
       ],
@@ -1271,13 +1273,18 @@
       ],
       "tests": [
         "npm run build",
-        "npm run pa:plan-check"
+        "npm run pa:plan-check",
+        "node --test tests/personal-assistant-terminal-process.test.mjs",
+        "node --test tests/personal-assistant-sandbox.test.mjs",
+        "node --test tests/personal-assistant-approval.test.mjs",
+        "node --test tests/personal-assistant-baseline.test.mjs"
       ],
       "write_paths": [
         "examples/personal-assistant/",
         "tests/",
         "docs/"
-      ]
+      ],
+      "started_at": "2026-04-27T17:10:25.928Z"
     },
     {
       "id": "PA-GAP-011",
