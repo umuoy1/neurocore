@@ -36,6 +36,7 @@ import { createCalendarWriteTool } from "../connectors/calendar/calendar-write.j
 import { createEmailReadTool } from "../connectors/email/email-read.js";
 import { createEmailSendTool } from "../connectors/email/email-send.js";
 import { createWebSearchTool } from "../connectors/search/web-search.js";
+import { createWorkspaceFileTools } from "../files/workspace-file-tools.js";
 import { ProactiveEngine } from "../proactive/proactive-engine.js";
 import { SqliteStandingOrderStore } from "../proactive/store/sqlite-standing-order-store.js";
 import { createAgentSkillRegistryFromConfig, type AgentSkillRegistry } from "../skills/agent-skill-registry.js";
@@ -165,6 +166,16 @@ export function createPersonalAssistantAgent(
 
   for (const tool of options.mcpTools ?? []) {
     agent.registerTool(tool);
+  }
+
+  if (config.files?.enabled && config.files.workspace_root) {
+    for (const tool of createWorkspaceFileTools({
+      workspaceRoot: config.files.workspace_root,
+      maxFileBytes: config.files.max_file_bytes,
+      maxSearchResults: config.files.max_search_results
+    })) {
+      agent.registerTool(tool);
+    }
   }
 
   return agent;

@@ -2,9 +2,9 @@
   "schema_version": "1.0.0",
   "project": "personal-agent-competitive-spec",
   "meta": {
-    "current_task": "PA-GAP-008",
-    "phase": "PA-GAP-B",
-    "updated_at": "2026-04-27T16:51:14.040Z",
+    "current_task": "PA-GAP-009",
+    "phase": "PA-GAP-C",
+    "updated_at": "2026-04-28T01:08:53+08:00",
     "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
   },
   "phases": [
@@ -1224,7 +1224,9 @@
       "id": "PA-GAP-009",
       "phase": "PA-GAP-C",
       "title": "Product-level file tools",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-04-28T01:08:53+08:00",
+      "acceptance_last_run": "npm run pa:accept -- PA-GAP-009",
       "depends_on": [
         "PA-GAP-008"
       ],
@@ -1238,13 +1240,18 @@
       ],
       "tests": [
         "npm run build",
-        "npm run pa:plan-check"
+        "npm run pa:plan-check",
+        "node --test tests/personal-assistant-file-tools.test.mjs",
+        "node --test tests/personal-assistant-approval.test.mjs",
+        "node --test tests/personal-assistant-e2e.test.mjs",
+        "node --test tests/personal-assistant-baseline.test.mjs"
       ],
       "write_paths": [
         "examples/personal-assistant/",
         "tests/",
         "docs/"
-      ]
+      ],
+      "started_at": "2026-04-27T17:00:02.955Z"
     },
     {
       "id": "PA-GAP-010",

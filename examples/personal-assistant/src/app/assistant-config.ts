@@ -90,6 +90,12 @@ export interface PersonalAssistantAppConfig {
     servers?: PersonalMcpServerConfig[];
   };
   sandbox?: PersonalAssistantSandboxConfig;
+  files?: {
+    enabled?: boolean;
+    workspace_root?: string;
+    max_file_bytes?: number;
+    max_search_results?: number;
+  };
   proactive?: {
     enabled?: boolean;
     heartbeat_interval_ms?: number;
@@ -238,6 +244,12 @@ export function createPersonalAssistantConfigFromEnv(
     },
     mcp: appConfig.mcp,
     sandbox: resolveSandboxConfig(env, appConfig.sandbox),
+    files: {
+      enabled: parseOptionalBoolean(env.PERSONAL_ASSISTANT_FILES_ENABLED) ?? appConfig.files?.enabled,
+      workspace_root: env.PERSONAL_ASSISTANT_WORKSPACE_ROOT ?? appConfig.files?.workspace_root,
+      max_file_bytes: parseOptionalInt(env.PERSONAL_ASSISTANT_MAX_FILE_BYTES) ?? appConfig.files?.max_file_bytes,
+      max_search_results: parseOptionalInt(env.PERSONAL_ASSISTANT_FILE_SEARCH_RESULTS) ?? appConfig.files?.max_search_results
+    },
     proactive: appConfig.proactive
   };
 }

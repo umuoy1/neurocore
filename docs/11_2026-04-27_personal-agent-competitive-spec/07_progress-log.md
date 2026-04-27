@@ -1127,3 +1127,34 @@
 |---|---|
 | Ledger | `PA-GAP-008` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-009` Product-level file tools |
+
+### PA-GAP-009 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Workspace boundary | 新增 governed workspace file toolset，所有路径解析到配置的 workspace root 内，阻断 `../` 越界访问 |
+| File operations | 支持 `workspace_file_read/list/search/diff/write/edit/apply_patch/rollback`，写入类操作返回 diff、hash、bytes 和 rollback_id |
+| Rollback | 每次 mutation 记录内存 rollback record，rollback 可恢复旧内容或删除新建文件，并返回恢复 diff 与 hash |
+| Approval | `write/edit/apply_patch/rollback` 标记为 high side effect，真实 session 链路在写文件前进入 pending approval，审批后才落盘 |
+| Config | 个人助理配置新增 `files.enabled/workspace_root/max_file_bytes/max_search_results` 及对应环境变量 |
+| Tests | 新增 `tests/personal-assistant-file-tools.test.mjs` 覆盖临时 workspace 读改查 diff 回滚、越界阻断和审批前不落盘 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-file-tools.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-approval.test.mjs` | 通过，5 项测试 |
+| `node --test tests/personal-assistant-e2e.test.mjs` | 通过，7 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-009` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-009` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-010` Terminal background process management |
