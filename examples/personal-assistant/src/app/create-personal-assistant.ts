@@ -45,6 +45,7 @@ import { createWebSearchTool } from "../connectors/search/web-search.js";
 import { createWorkspaceFileTools } from "../files/workspace-file-tools.js";
 import { ProactiveEngine } from "../proactive/proactive-engine.js";
 import { SqliteStandingOrderStore } from "../proactive/store/sqlite-standing-order-store.js";
+import { PersonalAssistantTaskBoard } from "../proactive/task-board.js";
 import { createAgentSkillRegistryFromConfig, type AgentSkillRegistry } from "../skills/agent-skill-registry.js";
 import { createPersonalSkillTools } from "../skills/skill-tools.js";
 import {
@@ -77,6 +78,7 @@ export interface RunningPersonalAssistantApp {
   gateway: IMGateway;
   commandHandler: CommandHandler;
   proactive?: ProactiveEngine;
+  taskBoard?: PersonalAssistantTaskBoard;
   webhookIngress?: PersonalWebhookIngress;
   gmailPubSubWebhook?: GmailPubSubWebhookAdapter;
   close(): Promise<void>;
@@ -444,12 +446,14 @@ export async function startPersonalAssistantApp(
         sender_id: config.webhooks.gmail_pubsub.sender_id
       })
     : undefined;
+  const taskBoard = proactive ? new PersonalAssistantTaskBoard({ ledger: proactive.taskLedger }) : undefined;
 
   return {
     builder,
     gateway,
     commandHandler,
     proactive,
+    taskBoard,
     webhookIngress,
     gmailPubSubWebhook,
     async close() {

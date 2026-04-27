@@ -1281,3 +1281,36 @@
 |---|---|
 | Ledger | `PA-GAP-013` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-015` Task board productization |
+
+### PA-GAP-015 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Task board model | 新增 `PersonalAssistantTaskBoard`，把 `BackgroundTaskLedger` 转换为用户可见任务列表和详情 |
+| Details | task detail 暴露 status、timeline、trace_ids、goal_ids、artifacts、error_message、retry provenance 和原始 task |
+| Actions | 支持 `cancel(task_id)` 和 `retry(task_id)`，cancel 写 cancelled 状态，retry 创建 linked retry task |
+| Audit | task board 动作写入 `task.cancelled` / `task.retried` audit records，保留 before/after/details |
+| App wiring | `startPersonalAssistantApp()` 在 proactive 启用时暴露 `taskBoard` |
+| Tests | 新增 `tests/personal-assistant-task-board.test.mjs` 覆盖 cron/subagent/webhook 三类任务、trace/artifact、cancel、retry 和失败保留 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-task-board.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-proactive.test.mjs` | 通过，4 项测试 |
+| `node --test tests/personal-assistant-subagents.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-webhook-ingress.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-console-governance.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-015` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-015` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-014` User data and privacy console |

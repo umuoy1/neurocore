@@ -53,5 +53,6 @@ export * from "./baseline/runner.js";
 export * from "./proactive/types.js";
 export * from "./proactive/background-task-ledger.js";
 export * from "./proactive/proactive-engine.js";
+export * from "./proactive/task-board.js";
 export * from "./proactive/standing-order-store.js";
 export * from "./proactive/store/sqlite-standing-order-store.js";
