@@ -2,9 +2,9 @@
   "schema_version": "1.0.0",
   "project": "personal-agent-competitive-spec",
   "meta": {
-    "current_task": "PA-GAP-019",
+    "current_task": "PA-GAP-020",
     "phase": "PA-GAP-E",
-    "updated_at": "2026-04-28T02:32:57+08:00",
+    "updated_at": "2026-04-27T18:46:54.535Z",
     "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
   },
   "phases": [
@@ -1591,7 +1591,9 @@
       "id": "PA-GAP-019",
       "phase": "PA-GAP-E",
       "title": "STT/TTS and push-to-talk",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-04-27T18:46:54.535Z",
+      "acceptance_last_run": "npm run pa:accept -- PA-GAP-019",
       "depends_on": [
         "PA-GAP-018"
       ],
@@ -1605,13 +1607,17 @@
       ],
       "tests": [
         "npm run build",
-        "npm run pa:plan-check"
+        "npm run pa:plan-check",
+        "node --test tests/personal-assistant-voice-io.test.mjs",
+        "node --test tests/personal-assistant-media.test.mjs",
+        "node --test tests/personal-assistant-baseline.test.mjs"
       ],
       "write_paths": [
         "examples/personal-assistant/",
         "tests/",
         "docs/"
-      ]
+      ],
+      "started_at": "2026-04-27T18:35:08.729Z"
     },
     {
       "id": "PA-GAP-020",

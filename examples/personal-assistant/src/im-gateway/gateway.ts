@@ -1,5 +1,5 @@
 import type { AgentBuilder, AgentSessionHandle } from "@neurocore/sdk-core";
-import type { ApprovalRequest, NeuroCoreEvent, RuntimeOutput, RuntimeStatus } from "@neurocore/protocol";
+import type { AgentSession, ApprovalRequest, NeuroCoreEvent, RuntimeOutput, RuntimeStatus } from "@neurocore/protocol";
 import { createUserInput } from "./input/input-factory.js";
 import { normalizePersonalIngressMessage } from "./ingress.js";
 import type { ApprovalBindingStore } from "./approval/approval-binding-store.js";
@@ -12,6 +12,7 @@ import type { NotificationDispatcher } from "./notification/notification-dispatc
 import type { PersonalMemoryRecord, PersonalMemoryStore } from "../memory/personal-memory-store.js";
 import type { AddSessionSearchEntryInput, SessionSearchStore } from "../memory/session-search-store.js";
 import type { IMAdapterConfig, IMPlatform, MessageContent, PushNotificationOptions, UnifiedMessage } from "./types.js";
+import type { VoiceIOService } from "../voice/voice-io.js";
 
 interface RegisteredAdapter {
   adapter: IMAdapter;
@@ -38,6 +39,7 @@ export interface IMGatewayOptions {
   pairingManager?: PairingManager;
   memoryStore?: PersonalMemoryStore;
   sessionSearchStore?: SessionSearchStore;
+  voiceIO?: VoiceIOService;
   resolveUserId?: (message: UnifiedMessage) => string;
 }
 
@@ -98,7 +100,11 @@ export class IMGateway {
   }
 
   public async handleMessage(rawMessage: UnifiedMessage): Promise<void> {
-    const message = normalizePersonalIngressMessage(rawMessage);
+    let message = normalizePersonalIngressMessage(rawMessage);
+    const voiceReport = await this.options.voiceIO?.transcribeMessage(message);
+    if (voiceReport) {
+      message = voiceReport.message;
+    }
 
     if (this.options.pairingManager?.shouldBlock(message)) {
       if (
@@ -178,6 +184,7 @@ export class IMGateway {
         sensitivity: item.sensitivity,
         provenance: item.provenance
       })),
+      voice_io: voiceReport?.metadata,
       personal_memory: personalMemories.length > 0
         ? {
             user_id: userId,
@@ -255,10 +262,8 @@ export class IMGateway {
 
       const output = result.outputText ?? "The assistant completed without emitting a textual response.";
       if (!shouldStreamAssistantOutput(message.platform) || !progress?.hasOutput) {
-        const sent = await this.options.dispatcher.sendToChat(message.platform, message.chat_id, {
-          type: "text",
-          text: output
-        });
+        const assistantOutput = await this.resolveAssistantOutputContent(message, output, resolved.handle.getSession());
+        const sent = await this.options.dispatcher.sendToChat(message.platform, message.chat_id, assistantOutput.content);
         this.recordSessionSearchEntry({
           tenant_id: tenantId,
           user_id: userId,
@@ -271,7 +276,8 @@ export class IMGateway {
           source_chat_id: message.chat_id,
           source_message_id: sent.message_id,
           metadata: {
-            reply_to_user_message_id: message.message_id
+            reply_to_user_message_id: message.message_id,
+            voice_io: assistantOutput.voiceMetadata
           }
         });
       } else {
@@ -294,6 +300,40 @@ export class IMGateway {
       await progress?.chain;
       progress?.dispose();
     }
+  }
+
+  private async resolveAssistantOutputContent(
+    message: UnifiedMessage,
+    output: string,
+    session: AgentSession | undefined
+  ): Promise<{ content: MessageContent; voiceMetadata?: Record<string, unknown> }> {
+    const sessionMetadata = readPersonalAssistantSessionMetadata(session);
+    if (!this.options.voiceIO?.shouldSynthesize(message, sessionMetadata)) {
+      return {
+        content: {
+          type: "text",
+          text: output
+        }
+      };
+    }
+
+    const synthesis = await this.options.voiceIO.synthesizeResponse(message, output);
+    if (synthesis.content) {
+      return {
+        content: synthesis.content,
+        voiceMetadata: synthesis.metadata
+      };
+    }
+    return {
+      content: {
+        type: "text",
+        text: output
+      },
+      voiceMetadata: {
+        ...synthesis.metadata,
+        error: synthesis.error
+      }
+    };
   }
 
   private async handleActionMessage(message: UnifiedMessage): Promise<boolean> {
@@ -462,6 +502,17 @@ function toMemoryMetadata(memory: PersonalMemoryRecord): Record<string, unknown>
     updated_at: memory.updated_at,
     correction_of: memory.correction_of
   };
+}
+
+function readPersonalAssistantSessionMetadata(session: AgentSession | undefined): Record<string, unknown> | undefined {
+  const metadata = session?.metadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return undefined;
+  }
+  const namespace = metadata.personal_assistant;
+  return namespace && typeof namespace === "object" && !Array.isArray(namespace)
+    ? namespace as Record<string, unknown>
+    : undefined;
 }
 
 function shouldForwardProgress(platform: IMPlatform): boolean {

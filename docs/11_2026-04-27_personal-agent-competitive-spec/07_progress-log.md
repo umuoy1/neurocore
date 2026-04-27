@@ -1482,3 +1482,34 @@
 |---|---|
 | Ledger | `PA-GAP-018` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-019` Voice STT/TTS and push-to-talk |
+
+### PA-GAP-019 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Voice IO | 新增 `VoiceIOService`，统一 STT 转写、TTS 合成、push-to-talk 标记和失败 metadata |
+| STT path | audio/voice attachment 无 transcript 时通过 STT provider 补 transcript，并进入 runtime prompt、media extraction 和 input metadata |
+| TTS path | 支持按消息、会话偏好和渠道能力决定 assistant voice 输出；合成失败时按配置回退文本 |
+| Command | `/voice on/off/status` 写入渠道+用户维度语音输出偏好，避免写入 runtime session 副本导致状态丢失 |
+| Config | 个人助理配置/env 支持 fixture voice provider、默认语音输出、fallback、voice_id、STT/TTS 失败注入 |
+| Tests | 新增 `tests/personal-assistant-voice-io.test.mjs` 覆盖 push-to-talk 转写、语音回复、STT/TTS 失败文本回退和 `/voice` 状态 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `npm run pa:plan-check` | 通过 |
+| `node --test tests/personal-assistant-voice-io.test.mjs` | 通过，4 项测试 |
+| `node --test tests/personal-assistant-media.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-019` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-019` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-020` Desktop and mobile nodes |

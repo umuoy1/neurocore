@@ -166,6 +166,17 @@ export interface PersonalAssistantAppConfig {
   notifications?: {
     default_policy?: NotificationPolicy;
   };
+  voice?: {
+    enabled?: boolean;
+    provider?: "fixture";
+    default_voice_output?: boolean;
+    fallback_to_text?: boolean;
+    voice_id?: string;
+    fixture_transcript?: string;
+    fixture_audio_url?: string;
+    fixture_stt_fail?: boolean;
+    fixture_tts_fail?: boolean;
+  };
   proactive?: {
     enabled?: boolean;
     heartbeat_interval_ms?: number;
@@ -392,6 +403,17 @@ export function createPersonalAssistantConfigFromEnv(
       }
     },
     notifications: appConfig.notifications,
+    voice: {
+      enabled: parseOptionalBoolean(env.PERSONAL_ASSISTANT_VOICE_ENABLED) ?? appConfig.voice?.enabled,
+      provider: parseVoiceProvider(env.PERSONAL_ASSISTANT_VOICE_PROVIDER) ?? appConfig.voice?.provider,
+      default_voice_output: parseOptionalBoolean(env.PERSONAL_ASSISTANT_VOICE_DEFAULT_OUTPUT) ?? appConfig.voice?.default_voice_output,
+      fallback_to_text: parseOptionalBoolean(env.PERSONAL_ASSISTANT_VOICE_FALLBACK_TO_TEXT) ?? appConfig.voice?.fallback_to_text,
+      voice_id: env.PERSONAL_ASSISTANT_VOICE_ID ?? appConfig.voice?.voice_id,
+      fixture_transcript: env.PERSONAL_ASSISTANT_VOICE_FIXTURE_TRANSCRIPT ?? appConfig.voice?.fixture_transcript,
+      fixture_audio_url: env.PERSONAL_ASSISTANT_VOICE_FIXTURE_AUDIO_URL ?? appConfig.voice?.fixture_audio_url,
+      fixture_stt_fail: parseOptionalBoolean(env.PERSONAL_ASSISTANT_VOICE_FIXTURE_STT_FAIL) ?? appConfig.voice?.fixture_stt_fail,
+      fixture_tts_fail: parseOptionalBoolean(env.PERSONAL_ASSISTANT_VOICE_FIXTURE_TTS_FAIL) ?? appConfig.voice?.fixture_tts_fail
+    },
     proactive: appConfig.proactive
   };
 }
@@ -695,6 +717,10 @@ function parseOptionalPlatform(value: string | undefined): IMPlatform | undefine
 
 function parseBrowserProfileProvider(value: string | undefined): "fetch" | "playwright" | undefined {
   return value === "fetch" || value === "playwright" ? value : undefined;
+}
+
+function parseVoiceProvider(value: string | undefined): "fixture" | undefined {
+  return value === "fixture" ? value : undefined;
 }
 
 function isSupportedPlatform(value: string): value is IMPlatform {

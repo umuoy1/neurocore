@@ -86,6 +86,11 @@ import {
   GmailPubSubWebhookAdapter,
   PersonalWebhookIngress
 } from "../webhook/webhook-ingress.js";
+import {
+  FixtureSpeechToTextProvider,
+  FixtureTextToSpeechProvider,
+  VoiceIOService
+} from "../voice/voice-io.js";
 import type { PersonalAssistantAppConfig } from "./assistant-config.js";
 import type { CredentialVault } from "../security/credential-vault.js";
 import {
@@ -106,6 +111,7 @@ export interface RunningPersonalAssistantApp {
   knowledgeBaseStore: PersonalKnowledgeBaseStore;
   contactGraphStore: ContactGraphStore;
   profileService: PersonalProfileProductService;
+  voiceIO?: VoiceIOService;
   webhookIngress?: PersonalWebhookIngress;
   gmailPubSubWebhook?: GmailPubSubWebhookAdapter;
   close(): Promise<void>;
@@ -122,6 +128,7 @@ export interface PersonalAssistantAgentOptions {
   browserSessionManager?: BrowserSessionManager;
   knowledgeBaseStore?: PersonalKnowledgeBaseStore;
   contactGraphStore?: ContactGraphStore;
+  voiceIO?: VoiceIOService;
 }
 
 export function createPersonalAssistantAgent(
@@ -283,6 +290,7 @@ export async function startPersonalAssistantApp(
   const privacy = new PersonalDataSubjectService({ memoryStore, sessionSearchStore });
   const skillRegistry = createAgentSkillRegistryFromConfig(config.skills);
   const credentialVault = createPersonalAssistantCredentialVault(config);
+  const voiceIO = createVoiceIOServiceFromConfig(config);
   const runtimeFactory = new AssistantRuntimeFactory({
     dbPath: config.db_path,
     buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, knowledgeBaseStore, contactGraphStore, skillRegistry, credentialVault })
@@ -336,6 +344,7 @@ export async function startPersonalAssistantApp(
     skillRegistry,
     pairingManager,
     resolveUserId,
+    voiceIO,
     model: modelRegistry
       ? {
           defaultProviderId: modelRegistry.defaultProviderId,
@@ -360,6 +369,7 @@ export async function startPersonalAssistantApp(
     pairingManager,
     memoryStore,
     sessionSearchStore,
+    voiceIO,
     resolveUserId
   });
   gatewayRef = gateway;
@@ -597,6 +607,7 @@ export async function startPersonalAssistantApp(
     knowledgeBaseStore,
     contactGraphStore,
     profileService,
+    voiceIO,
     webhookIngress,
     gmailPubSubWebhook,
     async close() {
@@ -653,6 +664,29 @@ function createNotificationPolicyStore(config: PersonalAssistantAppConfig): InMe
   const store = new InMemoryNotificationPolicyStore();
   store.setPolicy("default", config.notifications.default_policy);
   return store;
+}
+
+function createVoiceIOServiceFromConfig(config: PersonalAssistantAppConfig): VoiceIOService | undefined {
+  if (!config.voice?.enabled) {
+    return undefined;
+  }
+  const provider = config.voice.provider ?? "fixture";
+  if (provider !== "fixture") {
+    return undefined;
+  }
+  return new VoiceIOService({
+    sttProvider: new FixtureSpeechToTextProvider({
+      transcript: config.voice.fixture_transcript,
+      fail: config.voice.fixture_stt_fail
+    }),
+    ttsProvider: new FixtureTextToSpeechProvider({
+      audioUrl: config.voice.fixture_audio_url,
+      fail: config.voice.fixture_tts_fail
+    }),
+    defaultVoiceOutput: config.voice.default_voice_output,
+    fallbackToText: config.voice.fallback_to_text,
+    voiceId: config.voice.voice_id
+  });
 }
 
 function createOpenAIProviderRegistry(

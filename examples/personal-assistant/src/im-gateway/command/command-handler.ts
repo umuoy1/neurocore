@@ -8,6 +8,7 @@ import type { NotificationDispatcher } from "../notification/notification-dispat
 import type { UnifiedMessage } from "../types.js";
 import type { AgentSkillRecord, AgentSkillRegistry } from "../../skills/agent-skill-registry.js";
 import type { PairingManager } from "../conversation/pairing.js";
+import type { VoiceIOService } from "../../voice/voice-io.js";
 
 export type CommandRiskLevel = "none" | "low" | "medium" | "high";
 
@@ -50,6 +51,7 @@ export interface CommandHandlerOptions {
   pairingManager?: PairingManager;
   resolveUserId?: (message: UnifiedMessage) => string;
   model?: CommandHandlerModelInfo;
+  voiceIO?: VoiceIOService;
 }
 
 interface CommandExecutionContext {
@@ -205,6 +207,21 @@ export class CommandHandler {
           }
         ],
         execute: ({ message, args }) => this.model(message, args)
+      },
+      {
+        name: "/voice",
+        aliases: [],
+        description: "Show or toggle assistant voice output for the current session.",
+        usage: "/voice [on | off | status]",
+        risk_level: "low",
+        parameters: [
+          {
+            name: "mode",
+            required: false,
+            description: "Optional on, off or status."
+          }
+        ],
+        execute: ({ message, args }) => this.voice(message, args)
       },
       {
         name: "/usage",
@@ -677,6 +694,44 @@ export class CommandHandler {
       "Model audit:",
       ...audit.map(formatModelAuditEntry),
       ...routerEvents.map(formatRouterModelEvent)
+    ].join("\n"));
+  }
+
+  private async voice(message: UnifiedMessage, args: string): Promise<void> {
+    const session = this.getCurrentSession(message);
+    if (!session) {
+      await this.reply(message, "No active conversation is mapped to this chat.");
+      return;
+    }
+    const mode = args.trim().toLowerCase();
+    const metadata = ensureSessionMetadata(session);
+    if (mode === "on") {
+      if (this.options.voiceIO) {
+        this.options.voiceIO.setVoiceOutput(message, true);
+      } else {
+        metadata.voice_output_enabled = true;
+      }
+      await this.reply(message, "Voice output enabled for this session.");
+      return;
+    }
+    if (mode === "off") {
+      if (this.options.voiceIO) {
+        this.options.voiceIO.setVoiceOutput(message, false);
+      } else {
+        metadata.voice_output_enabled = false;
+      }
+      await this.reply(message, "Voice output disabled for this session.");
+      return;
+    }
+    if (mode && mode !== "status") {
+      await this.reply(message, "Usage: /voice [on | off | status]");
+      return;
+    }
+    const enabled = this.options.voiceIO?.getVoiceOutput(message) ?? metadata.voice_output_enabled === true;
+    await this.reply(message, [
+      "Voice:",
+      `voice_output_enabled: ${enabled}`,
+      `last_active_at: ${session.last_active_at ?? "n/a"}`
     ].join("\n"));
   }
 
