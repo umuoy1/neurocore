@@ -10,3 +10,4 @@ export * from "./perception/perception-pipeline.js";
 export * from "./perception/default-perception-pipeline.js";
 export * from "./coordination/sensor-fusion-strategy.js";
 export * from "./coordination/actuator-orchestrator.js";
+export * from "./node/device-node-gateway.js";

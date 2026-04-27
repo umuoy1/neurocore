@@ -1513,3 +1513,34 @@
 |---|---|
 | Ledger | `PA-GAP-019` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-020` Desktop and mobile nodes |
+
+### PA-GAP-020 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Node protocol | `@neurocore/device-core` 新增 `DeviceNodeGateway`、manifest、pairing code、permission、audit 和 command result 协议 |
+| Simulator | 新增 `HeadlessDeviceNodeSimulator`，声明 camera/screen/location/canvas 能力，并支持 camera/screen/canvas artifact 与 location payload |
+| Permission gate | camera/screen/location/canvas 命令必须 capability permission 为 `granted` 才执行，否则返回 blocked 并写 audit |
+| Tools | 新增 `device_node_pairing_code_create/device_node_simulator_pair/device_node_list/device_node_permission_set/device_node_execute/device_node_audit` |
+| App wiring | 个人助理配置/env 支持 devices、simulator、auto_grant、pairing TTL 和 simulator node id；`startPersonalAssistantApp()` 可启动已配对 simulator |
+| Tests | 新增 `tests/personal-assistant-device-nodes.test.mjs` 覆盖 gateway、工具层、runtime E2E 和 app config bootstrap |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `npm run pa:plan-check` | 通过 |
+| `node --test tests/personal-assistant-device-nodes.test.mjs` | 通过，4 项测试 |
+| `node --test tests/device-registry.test.mjs tests/device-integration.test.mjs` | 通过，11 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-020` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-020` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-021` Canvas and artifact surface |

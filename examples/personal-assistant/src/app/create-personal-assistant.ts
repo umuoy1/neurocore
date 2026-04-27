@@ -5,6 +5,7 @@ import {
   OpenAICompatibleReasoner,
   type OpenAICompatibleModelProviderConfig
 } from "@neurocore/sdk-node";
+import { DeviceNodeGateway } from "@neurocore/device-core";
 import type { Reasoner, Tool } from "@neurocore/protocol";
 import { SandboxPolicyProvider } from "@neurocore/policy-core";
 import {
@@ -91,6 +92,10 @@ import {
   FixtureTextToSpeechProvider,
   VoiceIOService
 } from "../voice/voice-io.js";
+import {
+  createDeviceNodeTools,
+  pairHeadlessDeviceNodeSimulator
+} from "../devices/device-node-tools.js";
 import type { PersonalAssistantAppConfig } from "./assistant-config.js";
 import type { CredentialVault } from "../security/credential-vault.js";
 import {
@@ -112,6 +117,7 @@ export interface RunningPersonalAssistantApp {
   contactGraphStore: ContactGraphStore;
   profileService: PersonalProfileProductService;
   voiceIO?: VoiceIOService;
+  deviceNodeGateway?: DeviceNodeGateway;
   webhookIngress?: PersonalWebhookIngress;
   gmailPubSubWebhook?: GmailPubSubWebhookAdapter;
   close(): Promise<void>;
@@ -129,6 +135,7 @@ export interface PersonalAssistantAgentOptions {
   knowledgeBaseStore?: PersonalKnowledgeBaseStore;
   contactGraphStore?: ContactGraphStore;
   voiceIO?: VoiceIOService;
+  deviceNodeGateway?: DeviceNodeGateway;
 }
 
 export function createPersonalAssistantAgent(
@@ -277,6 +284,12 @@ export function createPersonalAssistantAgent(
     }
   }
 
+  if (options.deviceNodeGateway) {
+    for (const tool of createDeviceNodeTools(options.deviceNodeGateway)) {
+      agent.registerTool(tool);
+    }
+  }
+
   return agent;
 }
 
@@ -291,9 +304,10 @@ export async function startPersonalAssistantApp(
   const skillRegistry = createAgentSkillRegistryFromConfig(config.skills);
   const credentialVault = createPersonalAssistantCredentialVault(config);
   const voiceIO = createVoiceIOServiceFromConfig(config);
+  const deviceNodeGateway = createDeviceNodeGatewayFromConfig(config);
   const runtimeFactory = new AssistantRuntimeFactory({
     dbPath: config.db_path,
-    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, knowledgeBaseStore, contactGraphStore, skillRegistry, credentialVault })
+    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, knowledgeBaseStore, contactGraphStore, skillRegistry, credentialVault, deviceNodeGateway })
   });
   const builder = runtimeFactory.getBuilder();
 
@@ -608,6 +622,7 @@ export async function startPersonalAssistantApp(
     contactGraphStore,
     profileService,
     voiceIO,
+    deviceNodeGateway,
     webhookIngress,
     gmailPubSubWebhook,
     async close() {
@@ -687,6 +702,25 @@ function createVoiceIOServiceFromConfig(config: PersonalAssistantAppConfig): Voi
     fallbackToText: config.voice.fallback_to_text,
     voiceId: config.voice.voice_id
   });
+}
+
+function createDeviceNodeGatewayFromConfig(config: PersonalAssistantAppConfig): DeviceNodeGateway | undefined {
+  if (!config.devices?.enabled) {
+    return undefined;
+  }
+  const gateway = new DeviceNodeGateway({
+    codeTtlMs: config.devices.pairing_code_ttl_ms
+  });
+  if (config.devices.simulator) {
+    pairHeadlessDeviceNodeSimulator(gateway, {
+      nodeId: config.devices.simulator_node_id,
+      actorId: "system",
+      grant: config.devices.auto_grant_simulator
+        ? ["camera", "screen", "location", "canvas"]
+        : []
+    });
+  }
+  return gateway;
 }
 
 function createOpenAIProviderRegistry(

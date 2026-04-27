@@ -2,9 +2,9 @@
   "schema_version": "1.0.0",
   "project": "personal-agent-competitive-spec",
   "meta": {
-    "current_task": "PA-GAP-020",
+    "current_task": "PA-GAP-021",
     "phase": "PA-GAP-E",
-    "updated_at": "2026-04-27T18:46:54.535Z",
+    "updated_at": "2026-04-27T18:55:08.322Z",
     "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
   },
   "phases": [
@@ -1623,7 +1623,9 @@
       "id": "PA-GAP-020",
       "phase": "PA-GAP-E",
       "title": "Desktop and mobile nodes",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-04-27T18:55:08.322Z",
+      "acceptance_last_run": "npm run pa:accept -- PA-GAP-020",
       "depends_on": [
         "PA-GAP-019"
       ],
@@ -1637,14 +1639,18 @@
       ],
       "tests": [
         "npm run build",
-        "npm run pa:plan-check"
+        "npm run pa:plan-check",
+        "node --test tests/personal-assistant-device-nodes.test.mjs",
+        "node --test tests/device-registry.test.mjs tests/device-integration.test.mjs",
+        "node --test tests/personal-assistant-baseline.test.mjs"
       ],
       "write_paths": [
         "examples/personal-assistant/",
         "packages/device-core/",
         "tests/",
         "docs/"
-      ]
+      ],
+      "started_at": "2026-04-27T18:47:44.984Z"
     },
     {
       "id": "PA-GAP-021",

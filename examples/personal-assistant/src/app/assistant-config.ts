@@ -177,6 +177,13 @@ export interface PersonalAssistantAppConfig {
     fixture_stt_fail?: boolean;
     fixture_tts_fail?: boolean;
   };
+  devices?: {
+    enabled?: boolean;
+    simulator?: boolean;
+    auto_grant_simulator?: boolean;
+    pairing_code_ttl_ms?: number;
+    simulator_node_id?: string;
+  };
   proactive?: {
     enabled?: boolean;
     heartbeat_interval_ms?: number;
@@ -413,6 +420,13 @@ export function createPersonalAssistantConfigFromEnv(
       fixture_audio_url: env.PERSONAL_ASSISTANT_VOICE_FIXTURE_AUDIO_URL ?? appConfig.voice?.fixture_audio_url,
       fixture_stt_fail: parseOptionalBoolean(env.PERSONAL_ASSISTANT_VOICE_FIXTURE_STT_FAIL) ?? appConfig.voice?.fixture_stt_fail,
       fixture_tts_fail: parseOptionalBoolean(env.PERSONAL_ASSISTANT_VOICE_FIXTURE_TTS_FAIL) ?? appConfig.voice?.fixture_tts_fail
+    },
+    devices: {
+      enabled: parseOptionalBoolean(env.PERSONAL_ASSISTANT_DEVICES_ENABLED) ?? appConfig.devices?.enabled,
+      simulator: parseOptionalBoolean(env.PERSONAL_ASSISTANT_DEVICE_SIMULATOR_ENABLED) ?? appConfig.devices?.simulator,
+      auto_grant_simulator: parseOptionalBoolean(env.PERSONAL_ASSISTANT_DEVICE_SIMULATOR_AUTO_GRANT) ?? appConfig.devices?.auto_grant_simulator,
+      pairing_code_ttl_ms: parseOptionalInt(env.PERSONAL_ASSISTANT_DEVICE_PAIRING_CODE_TTL_MS) ?? appConfig.devices?.pairing_code_ttl_ms,
+      simulator_node_id: env.PERSONAL_ASSISTANT_DEVICE_SIMULATOR_NODE_ID ?? appConfig.devices?.simulator_node_id
     },
     proactive: appConfig.proactive
   };
