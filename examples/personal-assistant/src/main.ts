@@ -24,6 +24,7 @@ export * from "./im-gateway/conversation/sqlite-platform-user-link-store.js";
 export * from "./im-gateway/approval/sqlite-approval-binding-store.js";
 export * from "./im-gateway/runtime/assistant-runtime-factory.js";
 export * from "./im-gateway/media/media-attachments.js";
+export * from "./contacts/contact-graph.js";
 export * from "./knowledge/personal-knowledge-base.js";
 export * from "./memory/personal-memory-store.js";
 export * from "./memory/personal-memory-recall-provider.js";

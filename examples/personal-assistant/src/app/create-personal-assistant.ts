@@ -48,6 +48,12 @@ import { createCalendarWriteTool } from "../connectors/calendar/calendar-write.j
 import { createEmailReadTool } from "../connectors/email/email-read.js";
 import { createEmailSendTool } from "../connectors/email/email-send.js";
 import { createWebSearchTool } from "../connectors/search/web-search.js";
+import {
+  createContactAwareEmailSendTool,
+  createContactGraphTools,
+  type ContactGraphStore,
+  SqliteContactGraphStore
+} from "../contacts/contact-graph.js";
 import { createWorkspaceFileTools } from "../files/workspace-file-tools.js";
 import { PersonalDataSubjectService } from "../privacy/data-subject-control.js";
 import { ProactiveEngine } from "../proactive/proactive-engine.js";
@@ -88,6 +94,7 @@ export interface RunningPersonalAssistantApp {
   taskBoard?: PersonalAssistantTaskBoard;
   privacy: PersonalDataSubjectService;
   knowledgeBaseStore: PersonalKnowledgeBaseStore;
+  contactGraphStore: ContactGraphStore;
   webhookIngress?: PersonalWebhookIngress;
   gmailPubSubWebhook?: GmailPubSubWebhookAdapter;
   close(): Promise<void>;
@@ -103,6 +110,7 @@ export interface PersonalAssistantAgentOptions {
   terminalProcessManager?: TerminalBackgroundProcessManager;
   browserSessionManager?: BrowserSessionManager;
   knowledgeBaseStore?: PersonalKnowledgeBaseStore;
+  contactGraphStore?: ContactGraphStore;
 }
 
 export function createPersonalAssistantAgent(
@@ -151,7 +159,9 @@ export function createPersonalAssistantAgent(
     agent.registerTool(createEmailReadTool(config.connectors.email.reader));
   }
   if (config.connectors?.email?.sender) {
-    agent.registerTool(createEmailSendTool(config.connectors.email.sender));
+    agent.registerTool(options.contactGraphStore
+      ? createContactAwareEmailSendTool(config.connectors.email.sender, options.contactGraphStore)
+      : createEmailSendTool(config.connectors.email.sender));
   }
   if (config.connectors?.calendar?.reader) {
     agent.registerTool(createCalendarReadTool(config.connectors.calendar.reader));
@@ -191,6 +201,12 @@ export function createPersonalAssistantAgent(
   if (options.knowledgeBaseStore) {
     agent.registerMemoryProvider(new PersonalKnowledgeBaseRecallProvider(options.knowledgeBaseStore));
     for (const tool of createPersonalKnowledgeBaseTools(options.knowledgeBaseStore)) {
+      agent.registerTool(tool);
+    }
+  }
+
+  if (options.contactGraphStore) {
+    for (const tool of createContactGraphTools(options.contactGraphStore)) {
       agent.registerTool(tool);
     }
   }
@@ -252,12 +268,13 @@ export async function startPersonalAssistantApp(
   const memoryStore = new SqlitePersonalMemoryStore({ filename: config.db_path });
   const sessionSearchStore = new SqliteSessionSearchStore({ filename: config.db_path });
   const knowledgeBaseStore = new SqlitePersonalKnowledgeBaseStore({ filename: config.db_path });
+  const contactGraphStore = new SqliteContactGraphStore({ filename: config.db_path });
   const privacy = new PersonalDataSubjectService({ memoryStore, sessionSearchStore });
   const skillRegistry = createAgentSkillRegistryFromConfig(config.skills);
   const credentialVault = createPersonalAssistantCredentialVault(config);
   const runtimeFactory = new AssistantRuntimeFactory({
     dbPath: config.db_path,
-    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, knowledgeBaseStore, skillRegistry, credentialVault })
+    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, knowledgeBaseStore, contactGraphStore, skillRegistry, credentialVault })
   });
   const builder = runtimeFactory.getBuilder();
 
@@ -475,11 +492,13 @@ export async function startPersonalAssistantApp(
     taskBoard,
     privacy,
     knowledgeBaseStore,
+    contactGraphStore,
     webhookIngress,
     gmailPubSubWebhook,
     async close() {
       await proactive?.stop();
       await gateway.stop();
+      contactGraphStore.close?.();
       knowledgeBaseStore.close();
       memoryStore.close();
       sessionSearchStore.close();

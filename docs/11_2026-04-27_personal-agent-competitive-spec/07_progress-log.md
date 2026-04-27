@@ -1383,3 +1383,36 @@
 |---|---|
 | Ledger | `PA-GAP-022` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-023` Contacts and relationship graph |
+
+### PA-GAP-023 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Contact graph | 新增 `SqliteContactGraphStore`，持久化 contact、organization、channel identity、relationship |
+| Resolver | `ContactResolver` 可解析人名/alias、组织名、渠道 handle、relationship_type/label |
+| Ambiguity | 多联系人匹配同一 query 时返回 `ambiguous`，不直接选择 |
+| Relationship policy | `buildContactMessageConfirmation()` 按 trust_level、confirmation_policy 和 memory_scope 生成发送策略 |
+| Email integration | `createContactAwareEmailSendTool()` 接管非邮箱收件人解析；歧义/未确认/blocked 不发送 |
+| Tools | 新增 `contact_organization_upsert/contact_upsert/contact_relationship_upsert/contact_resolve/contact_list` |
+| App wiring | 个人助理启动时创建 contact graph store，agent 注册联系人工具和 contact-aware email send |
+| Tests | 新增 `tests/personal-assistant-contact-graph.test.mjs` 覆盖人名、组织、渠道、关系、歧义、确认和 memory_scope |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `npm run pa:plan-check` | 通过 |
+| `node --test tests/personal-assistant-contact-graph.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-email-adapter.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-023` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-023` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-024` Multi-profile product entry |

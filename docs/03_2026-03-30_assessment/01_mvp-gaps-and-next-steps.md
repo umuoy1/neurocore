@@ -46,6 +46,7 @@
 > - 2026-04-28 个人助理任务板补充：`PA-GAP-015` 已落地 `PersonalAssistantTaskBoard`，可查看任务状态、timeline、trace_ids、goal_ids、artifact refs、错误、retry provenance，并支持 cancel/retry 与 task audit；cron/subagent/webhook 三类任务已验收。下一项为 `PA-GAP-014` 用户数据和隐私控制台。
 > - 2026-04-28 个人助理隐私控制补充：`PA-GAP-014` 已落地 `PersonalDataSubjectService`、memory/session-search 隐私状态、export/delete/freeze/retention/audit 能力和 Console Privacy 页面；删除或冻结后的 memory/trace/tool/artifact 不再进入 recall/search/export 默认结果。下一项为 `PA-GAP-022` 个人知识库接入。
 > - 2026-04-28 个人助理知识库补充：`PA-GAP-022` 已落地 SQLite personal knowledge base、ingest/search/delete/reindex 工具、PDF/OCR artifact、permission scope、citation 格式和 recall provider；删除后的文档不再被 search/retrieval 返回。下一项为 `PA-GAP-023` 联系人和关系图谱。
+> - 2026-04-28 个人助理联系人图谱补充：`PA-GAP-023` 已落地 SQLite contact graph、organization/channel identity/relationship 解析、联系人工具和 contact-aware `email_send`；歧义收件人不会发送，高风险关系需要显式确认，关系 memory_scope 会进入发送结果。下一项为 `PA-GAP-024` 多 profile 产品入口。
 
 ## 交付总结
 
