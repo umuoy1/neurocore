@@ -51,6 +51,7 @@
 > - 2026-04-28 个人助理扩展渠道补充：`PA-GAP-018` 已落地 WhatsApp、Signal、WeChat、Matrix、Teams adapter，扩展统一 IMPlatform/capabilities、pairing 默认保护、配置/env/secret lease 和 Gateway smoke；每个渠道均覆盖收发、approval、media fallback、handoff 与 memory 注入验收。下一项为 `PA-GAP-019` 语音 STT/TTS 和 push-to-talk。
 > - 2026-04-28 个人助理语音补充：`PA-GAP-019` 已落地 `VoiceIOService`、STT provider、TTS provider、push-to-talk metadata、`/voice on/off/status` 偏好和文本回退；audio/voice 输入可转写进入 runtime，支持语音回复投递，TTS/STT 失败不会阻断文本链路。下一项为 `PA-GAP-020` 桌面移动节点。
 > - 2026-04-28 个人助理端侧节点补充：`PA-GAP-020` 已落地 device node gateway protocol、pairing code、capability manifest、camera/screen/location/canvas permission gate、headless simulator 和个人助理设备节点工具；simulator 可完成配对、授权、screen/camera mock command 和审计。下一项为 `PA-GAP-021` Canvas / artifact surface。
+> - 2026-04-28 个人助理 Canvas 补充：`PA-GAP-021` 已落地 Canvas artifact store、HTML sanitizer、CSP preview renderer、version/diff/rollback 工具和 Console Assistant Canvas 页面；agent 可创建并更新 HTML artifact，恶意 script/event/javascript URL 被清洗并通过 CSP/sandbox 约束。下一项为 `PA-GAP-016` Skills marketplace and install audit。
 
 ## 交付总结
 

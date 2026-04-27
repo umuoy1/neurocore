@@ -28,6 +28,7 @@ const navSections = [
       { path: "/personal-assistant/governance", label: "Assistant Governance" },
       { path: "/personal-assistant/profiles", label: "Assistant Profiles" },
       { path: "/personal-assistant/privacy", label: "Assistant Privacy" },
+      { path: "/personal-assistant/canvas", label: "Assistant Canvas" },
       { path: "/config", label: "Configuration" },
     ],
   },

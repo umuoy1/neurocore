@@ -18,6 +18,7 @@ import { ConfigEditorPage } from "./pages/ConfigEditorPage";
 import { PersonalAssistantGovernancePage } from "./pages/PersonalAssistantGovernancePage";
 import { PersonalAssistantPrivacyPage } from "./pages/PersonalAssistantPrivacyPage";
 import { PersonalAssistantProfilesPage } from "./pages/PersonalAssistantProfilesPage";
+import { PersonalAssistantCanvasPage } from "./pages/PersonalAssistantCanvasPage";
 import { initAuth, useAuthStore } from "./stores/auth.store";
 
 export function App() {
@@ -85,6 +86,7 @@ export function App() {
           <Route path="/personal-assistant/governance" element={<PersonalAssistantGovernancePage />} />
           <Route path="/personal-assistant/profiles" element={<PersonalAssistantProfilesPage />} />
           <Route path="/personal-assistant/privacy" element={<PersonalAssistantPrivacyPage />} />
+          <Route path="/personal-assistant/canvas" element={<PersonalAssistantCanvasPage />} />
           <Route path="/config" element={<ConfigEditorPage />} />
         </Route>
       </Routes>

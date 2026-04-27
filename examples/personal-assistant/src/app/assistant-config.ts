@@ -184,6 +184,9 @@ export interface PersonalAssistantAppConfig {
     pairing_code_ttl_ms?: number;
     simulator_node_id?: string;
   };
+  canvas?: {
+    enabled?: boolean;
+  };
   proactive?: {
     enabled?: boolean;
     heartbeat_interval_ms?: number;
@@ -427,6 +430,9 @@ export function createPersonalAssistantConfigFromEnv(
       auto_grant_simulator: parseOptionalBoolean(env.PERSONAL_ASSISTANT_DEVICE_SIMULATOR_AUTO_GRANT) ?? appConfig.devices?.auto_grant_simulator,
       pairing_code_ttl_ms: parseOptionalInt(env.PERSONAL_ASSISTANT_DEVICE_PAIRING_CODE_TTL_MS) ?? appConfig.devices?.pairing_code_ttl_ms,
       simulator_node_id: env.PERSONAL_ASSISTANT_DEVICE_SIMULATOR_NODE_ID ?? appConfig.devices?.simulator_node_id
+    },
+    canvas: {
+      enabled: parseOptionalBoolean(env.PERSONAL_ASSISTANT_CANVAS_ENABLED) ?? appConfig.canvas?.enabled
     },
     proactive: appConfig.proactive
   };

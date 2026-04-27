@@ -59,6 +59,11 @@ import { createEmailReadTool } from "../connectors/email/email-read.js";
 import { createEmailSendTool } from "../connectors/email/email-send.js";
 import { createWebSearchTool } from "../connectors/search/web-search.js";
 import {
+  createCanvasArtifactTools,
+  InMemoryCanvasArtifactStore,
+  type CanvasArtifactStore
+} from "../canvas/canvas-artifact-store.js";
+import {
   createContactAwareEmailSendTool,
   createContactGraphTools,
   type ContactGraphStore,
@@ -118,6 +123,7 @@ export interface RunningPersonalAssistantApp {
   profileService: PersonalProfileProductService;
   voiceIO?: VoiceIOService;
   deviceNodeGateway?: DeviceNodeGateway;
+  canvasArtifactStore?: CanvasArtifactStore;
   webhookIngress?: PersonalWebhookIngress;
   gmailPubSubWebhook?: GmailPubSubWebhookAdapter;
   close(): Promise<void>;
@@ -136,6 +142,7 @@ export interface PersonalAssistantAgentOptions {
   contactGraphStore?: ContactGraphStore;
   voiceIO?: VoiceIOService;
   deviceNodeGateway?: DeviceNodeGateway;
+  canvasArtifactStore?: CanvasArtifactStore;
 }
 
 export function createPersonalAssistantAgent(
@@ -290,6 +297,12 @@ export function createPersonalAssistantAgent(
     }
   }
 
+  if (options.canvasArtifactStore) {
+    for (const tool of createCanvasArtifactTools(options.canvasArtifactStore)) {
+      agent.registerTool(tool);
+    }
+  }
+
   return agent;
 }
 
@@ -305,9 +318,10 @@ export async function startPersonalAssistantApp(
   const credentialVault = createPersonalAssistantCredentialVault(config);
   const voiceIO = createVoiceIOServiceFromConfig(config);
   const deviceNodeGateway = createDeviceNodeGatewayFromConfig(config);
+  const canvasArtifactStore = createCanvasArtifactStoreFromConfig(config);
   const runtimeFactory = new AssistantRuntimeFactory({
     dbPath: config.db_path,
-    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, knowledgeBaseStore, contactGraphStore, skillRegistry, credentialVault, deviceNodeGateway })
+    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, knowledgeBaseStore, contactGraphStore, skillRegistry, credentialVault, deviceNodeGateway, canvasArtifactStore })
   });
   const builder = runtimeFactory.getBuilder();
 
@@ -623,6 +637,7 @@ export async function startPersonalAssistantApp(
     profileService,
     voiceIO,
     deviceNodeGateway,
+    canvasArtifactStore,
     webhookIngress,
     gmailPubSubWebhook,
     async close() {
@@ -721,6 +736,10 @@ function createDeviceNodeGatewayFromConfig(config: PersonalAssistantAppConfig): 
     });
   }
   return gateway;
+}
+
+function createCanvasArtifactStoreFromConfig(config: PersonalAssistantAppConfig): CanvasArtifactStore | undefined {
+  return config.canvas?.enabled ? new InMemoryCanvasArtifactStore() : undefined;
 }
 
 function createOpenAIProviderRegistry(

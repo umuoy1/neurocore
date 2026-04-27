@@ -45,6 +45,7 @@ export * from "./browser/browser-session-tools.js";
 export * from "./webhook/webhook-ingress.js";
 export * from "./voice/voice-io.js";
 export * from "./devices/device-node-tools.js";
+export * from "./canvas/canvas-artifact-store.js";
 export * from "./skills/agent-skill-registry.js";
 export * from "./skills/skill-tools.js";
 export * from "./skills/auto-skill-manager.js";

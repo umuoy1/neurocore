@@ -1544,3 +1544,35 @@
 |---|---|
 | Ledger | `PA-GAP-020` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-021` Canvas and artifact surface |
+
+### PA-GAP-021 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Artifact store | 新增 `InMemoryCanvasArtifactStore`，支持 HTML artifact create/update/list/inspect/preview/rollback 和 version history |
+| Renderer | Canvas preview 输出带 CSP meta、`content_security_policy` 和 iframe sandbox 配置 |
+| Sanitizer | HTML 清洗移除 script、iframe/object/embed、inline event handler 和 `javascript:` URL |
+| Tools | 新增 `canvas_artifact_create/update/preview/rollback/list/inspect`，agent 可创建和修改 versioned HTML artifact |
+| App wiring | 个人助理配置/env 支持 `canvas.enabled`，启动后注册 canvas 工具并暴露 `canvasArtifactStore` |
+| Console | 新增 Assistant Canvas 页面、store、API types、路由和导航，可查看 preview、版本 diff 和 rollback |
+| Tests | 新增 `tests/personal-assistant-canvas-artifacts.test.mjs` 覆盖工具、runtime E2E、app config、Console surface 和 sanitizer |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `npm run pa:plan-check` | 通过 |
+| `npm --workspace @neurocore/console run typecheck` | 通过 |
+| `node --test tests/personal-assistant-canvas-artifacts.test.mjs` | 通过，5 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-021` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-021` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-016` Skills marketplace and install audit |

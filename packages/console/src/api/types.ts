@@ -418,3 +418,38 @@ export interface PersonalAssistantProfileInspect {
   bindings: PersonalAssistantProfileBinding[];
   isolation: PersonalAssistantProfileIsolationViolation[];
 }
+
+export interface CanvasArtifactVersion {
+  version_id: string;
+  version_no: number;
+  html: string;
+  sanitized_html: string;
+  diff: string;
+  created_at: string;
+  created_by?: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface CanvasArtifact {
+  artifact_id: string;
+  artifact_type: "html";
+  title: string;
+  owner_id: string;
+  permission_scope: string;
+  current_version_id: string;
+  created_at: string;
+  updated_at: string;
+  metadata: Record<string, unknown>;
+  versions: CanvasArtifactVersion[];
+}
+
+export interface CanvasPreview {
+  preview_id: string;
+  artifact_id: string;
+  version_id: string;
+  version_no: number;
+  title: string;
+  html: string;
+  content_security_policy: string;
+  iframe_sandbox: string;
+}

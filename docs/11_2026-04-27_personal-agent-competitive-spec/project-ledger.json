@@ -2,9 +2,9 @@
   "schema_version": "1.0.0",
   "project": "personal-agent-competitive-spec",
   "meta": {
-    "current_task": "PA-GAP-021",
-    "phase": "PA-GAP-E",
-    "updated_at": "2026-04-27T18:55:08.322Z",
+    "current_task": "PA-GAP-016",
+    "phase": "PA-GAP-F",
+    "updated_at": "2026-04-27T19:03:09.300Z",
     "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
   },
   "phases": [
@@ -1656,7 +1656,9 @@
       "id": "PA-GAP-021",
       "phase": "PA-GAP-E",
       "title": "Canvas and artifact surface",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-04-27T19:03:09.300Z",
+      "acceptance_last_run": "npm run pa:accept -- PA-GAP-021",
       "depends_on": [
         "PA-GAP-020"
       ],
@@ -1670,14 +1672,18 @@
       ],
       "tests": [
         "npm run build",
-        "npm run pa:plan-check"
+        "npm run pa:plan-check",
+        "npm --workspace @neurocore/console run typecheck",
+        "node --test tests/personal-assistant-canvas-artifacts.test.mjs",
+        "node --test tests/personal-assistant-baseline.test.mjs"
       ],
       "write_paths": [
         "examples/personal-assistant/",
         "packages/console/",
         "tests/",
         "docs/"
-      ]
+      ],
+      "started_at": "2026-04-27T18:56:44.710Z"
     },
     {
       "id": "PA-GAP-016",
