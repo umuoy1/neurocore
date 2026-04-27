@@ -31,7 +31,7 @@
 
 | ID | 需求 | 对标来源 / 个人助理理由 | 当前状态 | 优先级 | 验收门槛 |
 |---|---|---|---|---|---|
-| PA-GAP-001 | 产品级 Baseline Runner | 个人助理必须有完整回归门禁；当前只有设计规格 | missing | P0 | `PA-BL-001` deterministic runner 12 轮主链路 + S1~S12 全过 |
+| PA-GAP-001 | 产品级 Baseline Runner | 个人助理必须有完整回归门禁；当前只有设计规格 | covered | P0 | `PA-BL-001` deterministic runner 12 轮主链路 + S1~S12 全过 |
 | PA-GAP-002 | 安装、onboarding、daemon、自启动 | OpenClaw `onboard --install-daemon`，Hermes setup | missing | P0 | 新用户一条命令完成配置、启动守护进程、重启后仍可用 |
 | PA-GAP-003 | doctor / health / config dry-run | OpenClaw `doctor` 和运维诊断 | missing | P0 | 能发现危险 DM policy、缺失 token、端口冲突、SQLite 权限、provider 超时配置 |
 | PA-GAP-004 | 真实 CLI/TUI 产品 | Hermes TUI、多行输入、autocomplete、interrupt | skeleton | P0 | `neurocore assistant` 可交互聊天，支持 slash autocomplete、history、streaming status |
@@ -411,8 +411,8 @@
 
 | 顺序 | 动作 | 输出 |
 |---|---|---|
-| 1 | 将 PA-GAP-001 ~ PA-GAP-030 导入 `project-ledger.json` 或新建 `project-ledger-v2.json` | 机器可读任务队列 |
-| 2 | 先执行 PA-GAP-001 | Baseline runner 和 accepted baseline |
-| 3 | 使用 baseline 作为后续所有 PA-GAP 任务门禁 | 每项任务都有 artifact 和 verdict |
+| 1 | 已将 PA-GAP-001 ~ PA-GAP-030 导入 `project-ledger.json` | 机器可读任务队列 |
+| 2 | 已执行 PA-GAP-001 | Baseline runner 和 accepted baseline |
+| 3 | 后续从 PA-GAP-002 开始使用 baseline 作为门禁 | 每项任务都有 artifact 和 verdict |
 | 4 | 每完成一项更新本文档状态列 | 从 `missing/skeleton/partial` 前移到 `covered` |
 | 5 | Phase 收口后提交并 push | 可恢复长任务 checkpoint |

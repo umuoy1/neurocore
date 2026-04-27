@@ -858,3 +858,49 @@
 |---|---|
 | 已完成 | 文档级需求表、完整计划和真实验收过程 |
 | 下一项 | 将 `PA-GAP-001` ~ `PA-GAP-030` 导入机器可读 ledger，并先实现 `PA-GAP-001` 产品级 Baseline Runner |
+
+### PA-GAP-001 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Ledger import | `project-ledger.json` 已追加 `PA-GAP-001` ~ `PA-GAP-030` 和 Phase A ~ G，`PA-GAP-001` 已作为当前任务启动 |
+| Baseline runner | 新增 `examples/personal-assistant/src/baseline/assertions.ts`、`fixtures.ts`、`runner.ts` 和 `examples/personal-assistant/scripts/run-baseline.mjs` |
+| Deterministic fixtures | 覆盖 WebChat 真实连接、搜索/浏览/邮件/日历 mock connector、审批、记忆纠错、自动提醒、媒体 fallback 和 timeout 场景 |
+| Baseline test | 新增 `tests/personal-assistant-baseline.test.mjs`，复用 runner 并验证 artifact 完整性 |
+| Accepted summary | 新增 `.neurocore/baselines/personal-assistant/accepted-baseline.json`，大型 run artifact 目录由 `.gitignore` 排除 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `node examples/personal-assistant/scripts/run-baseline.mjs --mode deterministic --artifact-dir .neurocore/baselines/personal-assistant/pa-gap-001-deterministic --update-accepted` | 通过，run id `pa-bl-001-2026-04-27T15-53-36-881Z-deterministic` |
+| `npm run pa:accept -- PA-GAP-001` | 通过 |
+| `node --test tests/personal-assistant-web-chat.test.mjs tests/personal-assistant-gateway.test.mjs` | 通过，14 项回归 |
+| `node --test tests/personal-assistant-e2e.test.mjs tests/personal-assistant-approval.test.mjs` | 通过，11 项回归 |
+| `node --test tests/personal-assistant-proactive.test.mjs tests/personal-assistant-memory-search.test.mjs` | 通过，6 项回归 |
+
+指标：
+
+| 指标 | 数值 |
+|---|---:|
+| Assertions | 66 / 66 passed |
+| Main + scenario turns | 22 |
+| p50 latency | `203ms` |
+| p95 latency | `243ms` |
+| Max latency | `244ms` |
+| Search calls | 2 |
+| Browser calls | 1 |
+| Email sends | 1，且仅在 approval 后 |
+| Calendar/reminder calls | 1 |
+| Schedule count | 1 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-001` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-002` Install, onboarding, daemon and autostart |

@@ -102,4 +102,6 @@ Baseline 必须作为阶段收口门禁，而不是普通 smoke：
 | 场景矩阵 | deterministic 模式必须覆盖 S1~S12 |
 | Artifact | 每次 run 输出 transcript、events、trace、memory、tools、approvals、tasks、metrics、verdict |
 | 阻断项 | 上下文反问、审批绕过、旧记忆误召回、provider timeout 崩溃、token 泄漏均为 blocker |
+| Deterministic command | `node --test tests/personal-assistant-baseline.test.mjs` |
+| Artifact command | `node examples/personal-assistant/scripts/run-baseline.mjs --mode deterministic --artifact-dir .neurocore/baselines/personal-assistant/pa-gap-001-deterministic --update-accepted` |
 | Live provider | OpenAI-compatible/provider 改动必须跑 live-provider 模式；provider 不可用不得覆盖 accepted baseline |

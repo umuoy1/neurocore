@@ -537,6 +537,8 @@ Runner 退出码：
 | 项 | 状态 |
 |---|---|
 | Baseline 设计规格 | 已定义于本文档 |
-| 当前已有覆盖 | WebChat、gateway、e2e、approval、proactive、memory search、reasoner timeout focused tests |
-| 缺口 | 尚需新增 dedicated baseline runner、deterministic accepted baseline artifact、`tests/personal-assistant-baseline.test.mjs` |
-| 下一步 | 按第 10 节实现 runner，并把第 9 节接入 `pa:accept` 或 nightly lane |
+| 当前已有覆盖 | WebChat、gateway、e2e、approval、proactive、memory search、reasoner timeout focused tests，以及 dedicated `PA-BL-001` deterministic runner |
+| Runner | `examples/personal-assistant/scripts/run-baseline.mjs`，复用 `examples/personal-assistant/src/baseline/*` 的 fixtures、assertions 和 artifact writer |
+| 测试 | `tests/personal-assistant-baseline.test.mjs` 已覆盖 12 轮主链路、S1~S12 场景矩阵和 artifact 完整性 |
+| Accepted summary | `.neurocore/baselines/personal-assistant/accepted-baseline.json` |
+| 下一步 | 后续 PA-GAP 任务必须保持 `node --test tests/personal-assistant-baseline.test.mjs` 通过，并在关键产品改动后刷新 deterministic artifact |

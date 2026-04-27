@@ -2,9 +2,9 @@
   "schema_version": "1.0.0",
   "project": "personal-agent-competitive-spec",
   "meta": {
-    "current_task": "PA2-P2-07",
-    "phase": "Phase 7",
-    "updated_at": "2026-04-27T04:44:34+08:00",
+    "current_task": "PA-GAP-001",
+    "phase": "PA-GAP-A",
+    "updated_at": "2026-04-27T23:53:36+08:00",
     "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
   },
   "phases": [
@@ -68,6 +68,62 @@
       "title": "Beyond",
       "exit_criteria": [
         "memory wiki, dreaming, benchmark and Console governance are complete"
+      ]
+    },
+    {
+      "id": "PA-GAP-A",
+      "title": "Baseline and Product Shell",
+      "exit_criteria": [
+        "PA-BL-001 deterministic baseline passes",
+        "assistant has setup, doctor and interactive shell entry points"
+      ]
+    },
+    {
+      "id": "PA-GAP-B",
+      "title": "Session, Identity, Security and Model",
+      "exit_criteria": [
+        "session UX commands are consistent across entries",
+        "identity pairing, model fallback and secret scoping are governed"
+      ]
+    },
+    {
+      "id": "PA-GAP-C",
+      "title": "Execution Tools and External Events",
+      "exit_criteria": [
+        "file, terminal, browser, webhook, notification and task execution are productized",
+        "high-risk execution remains approval-gated and auditable"
+      ]
+    },
+    {
+      "id": "PA-GAP-D",
+      "title": "Data, Memory, Knowledge Base and Privacy",
+      "exit_criteria": [
+        "user data can be exported, deleted and frozen",
+        "knowledge, contacts and profiles affect recall and policy without cross-scope leakage"
+      ]
+    },
+    {
+      "id": "PA-GAP-E",
+      "title": "Channels, Voice, Devices and Canvas",
+      "exit_criteria": [
+        "extended channels and voice have smoke coverage",
+        "device nodes and canvas artifacts have governed E2E paths"
+      ]
+    },
+    {
+      "id": "PA-GAP-F",
+      "title": "Ecosystem, Migration, Sandbox and Self-Learning",
+      "exit_criteria": [
+        "skills, migration, advanced sandbox, MCP and self-learning loops are productized",
+        "all extension points have permission and rollback controls"
+      ]
+    },
+    {
+      "id": "PA-GAP-G",
+      "title": "Long-Term Data, Training and Home Automation",
+      "exit_criteria": [
+        "trajectory, backup and home automation paths are recoverable",
+        "long-term data remains encrypted, redacted and auditable"
       ]
     }
   ],
@@ -880,6 +936,815 @@
         "docs/03_2026-03-30_assessment/02_gap-analysis-and-roadmap.md"
       ],
       "started_at": "2026-04-26T20:33:04.332Z"
+    },
+    {
+      "id": "PA-GAP-001",
+      "phase": "PA-GAP-A",
+      "title": "Product-level Baseline Runner",
+      "status": "completed",
+      "completed_at": "2026-04-27T23:53:36+08:00",
+      "acceptance_last_run": "npm run pa:accept -- PA-GAP-001",
+      "depends_on": [
+        "PA2-P2-07"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/09_personal-assistant-baseline-test.md",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-001产品级-baseline-runner"
+      ],
+      "acceptance": [
+        "PA-BL-001 deterministic runner executes the 12-turn product chain",
+        "S1-S12 deterministic scenario matrix passes",
+        "baseline artifacts include run, transcript, events, trace, memory, tools, approvals, tasks, metrics and verdict",
+        "accepted deterministic baseline summary is generated without committing large artifacts"
+      ],
+      "tests": [
+        "npm run pa:plan-check",
+        "npm run build",
+        "node --test tests/personal-assistant-baseline.test.mjs",
+        "node examples/personal-assistant/scripts/run-baseline.mjs --mode deterministic --artifact-dir .neurocore/baselines/personal-assistant/pa-gap-001-deterministic --update-accepted"
+      ],
+      "write_paths": [
+        ".gitignore",
+        ".neurocore/baselines/personal-assistant/accepted-baseline.json",
+        "examples/personal-assistant/",
+        "tests/personal-assistant-baseline.test.mjs",
+        "docs/11_2026-04-27_personal-agent-competitive-spec/",
+        "docs/README.md",
+        "docs/03_2026-03-30_assessment/01_mvp-gaps-and-next-steps.md",
+        "docs/03_2026-03-30_assessment/02_gap-analysis-and-roadmap.md"
+      ],
+      "started_at": "2026-04-27T15:41:16.519Z"
+    },
+    {
+      "id": "PA-GAP-002",
+      "phase": "PA-GAP-A",
+      "title": "Install, onboarding, daemon and autostart",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-001"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-002安装onboardingdaemon自启动"
+      ],
+      "acceptance": [
+        "new user can configure, start and persist the assistant with one command",
+        "daemon survives restart and can report status",
+        "setup can be rerun safely after deleting local config"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "scripts/",
+        "package.json",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-003",
+      "phase": "PA-GAP-A",
+      "title": "Doctor, health and config dry-run",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-002"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-003doctor--health--config-dry-run"
+      ],
+      "acceptance": [
+        "doctor detects missing token, bad port, database, approval and sandbox risks",
+        "config dry-run emits machine-readable JSON",
+        "risk report includes actionable remediation"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "scripts/",
+        "package.json",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-004",
+      "phase": "PA-GAP-A",
+      "title": "Real CLI/TUI product entry",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-003"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-004真实-clitui-产品"
+      ],
+      "acceptance": [
+        "interactive assistant shell supports multiline input, command history, status stream and interrupt",
+        "CLI/TUI shares Gateway and CommandHandler behavior with WebChat",
+        "CLI/TUI passes the baseline subset"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "scripts/",
+        "package.json",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-005",
+      "phase": "PA-GAP-B",
+      "title": "Session UX commands",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-004"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-005会话-ux-命令"
+      ],
+      "acceptance": [
+        "/retry, /undo, /personality, /insights and /trace are schema-registered",
+        "commands behave consistently across WebChat, CLI and IM",
+        "commands do not accidentally trigger model calls"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-006",
+      "phase": "PA-GAP-B",
+      "title": "DM pairing, allowlist and home channel",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-005"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-006dm-pairingallowlisthome-channel"
+      ],
+      "acceptance": [
+        "unpaired senders cannot enter runtime",
+        "/pair binds platform identity to canonical user",
+        "revocation prevents future runtime entry and writes audit"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-007",
+      "phase": "PA-GAP-B",
+      "title": "Model selection, fallback and health check",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-006"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-007模型选择fallbackhealth-check"
+      ],
+      "acceptance": [
+        "session-level model switch is visible and auditable",
+        "provider health probe reports failure modes",
+        "fallback provider handles timeout or rate limit without breaking next turn"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/sdk-node/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-008",
+      "phase": "PA-GAP-B",
+      "title": "Credential vault and least-secret privilege",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-007"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-008凭据保险箱--secret-最小权限"
+      ],
+      "acceptance": [
+        "secrets are referenced by scoped handles instead of raw values",
+        "artifacts and sandbox environments do not expose tokens",
+        "tools can only lease credentials for authorized scopes"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-009",
+      "phase": "PA-GAP-C",
+      "title": "Product-level file tools",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-008"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-009产品级文件工具"
+      ],
+      "acceptance": [
+        "read, write, edit, diff and rollback operate inside a governed workspace",
+        "high-risk file writes require approval",
+        "trace and artifact output match final file state"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-010",
+      "phase": "PA-GAP-C",
+      "title": "Terminal background process management",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-009"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-010终端后台进程管理"
+      ],
+      "acceptance": [
+        "background process start, poll, log, stdin, wait and kill are available",
+        "killed or failed processes leave no orphan",
+        "process lifecycle is attached to task ledger"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-011",
+      "phase": "PA-GAP-C",
+      "title": "Real browser profile",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-010"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-011真实浏览器-profile"
+      ],
+      "acceptance": [
+        "browser sessions provide navigate, click, type, screenshot, PDF and snapshot actions",
+        "profile lifecycle is task-bound and cleaned up",
+        "untrusted page content markers survive into runtime observations"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-012",
+      "phase": "PA-GAP-C",
+      "title": "Generic webhook and Gmail Pub/Sub",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-011"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-012通用-webhook--gmail-pubsub"
+      ],
+      "acceptance": [
+        "webhook requests require token authentication",
+        "valid payloads route to session or task with untrusted marker",
+        "Gmail Pub/Sub adapter creates auditable events"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-013",
+      "phase": "PA-GAP-C",
+      "title": "Notification policy",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-012"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-013通知策略"
+      ],
+      "acceptance": [
+        "quiet hours suppress normal notifications but not urgent escalations",
+        "failed primary delivery falls back to configured channel",
+        "dedupe prevents duplicate reminders"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-015",
+      "phase": "PA-GAP-C",
+      "title": "Task board productization",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-013"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-015任务板产品化"
+      ],
+      "acceptance": [
+        "task board exposes goals, status, artifacts, errors, retry and cancel",
+        "tasks are linked to trace and governance records",
+        "failed and cancelled tasks remain inspectable"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/console/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-014",
+      "phase": "PA-GAP-D",
+      "title": "User data and privacy console",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-015"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-014用户数据和隐私控制台"
+      ],
+      "acceptance": [
+        "user can export, delete and freeze memory, trace, tool and artifact data",
+        "privacy operations write audit records",
+        "deleted or frozen data is not retrieved in later runs"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/console/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-022",
+      "phase": "PA-GAP-D",
+      "title": "Personal knowledge base ingestion",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-014"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-022个人知识库接入"
+      ],
+      "acceptance": [
+        "documents can be ingested, indexed, cited, deleted and reindexed",
+        "PDF/OCR content enters artifacts with permissions",
+        "answers include citations and respect deletion"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/memory-core/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-023",
+      "phase": "PA-GAP-D",
+      "title": "Contacts and relationship graph",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-022"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-023联系人和关系图谱"
+      ],
+      "acceptance": [
+        "contact graph resolves people, organizations and channel identities",
+        "ambiguous recipients require clarification",
+        "relationship changes affect message confirmation and memory scope"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-024",
+      "phase": "PA-GAP-D",
+      "title": "Multi-profile product entry",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-023"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-024多-profile-产品入口"
+      ],
+      "acceptance": [
+        "users can create, inspect and switch profiles",
+        "memory, tools, channels and policy are isolated by profile",
+        "cross-domain leakage tests pass with zero failures"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/console/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-018",
+      "phase": "PA-GAP-E",
+      "title": "WhatsApp, Signal, WeChat, Matrix and Teams channels",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-024"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-018whatsapp--signal--wechat--matrix--teams"
+      ],
+      "acceptance": [
+        "each enabled channel passes pairing, send, receive, approval, handoff and memory smoke",
+        "channel capabilities are explicit",
+        "unsupported platform features degrade safely"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-019",
+      "phase": "PA-GAP-E",
+      "title": "STT/TTS and push-to-talk",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-018"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-019语音-stttts-和-push-to-talk"
+      ],
+      "acceptance": [
+        "voice input transcription enters runtime",
+        "assistant TTS output can be delivered",
+        "STT/TTS failures fall back to text"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-020",
+      "phase": "PA-GAP-E",
+      "title": "Desktop and mobile nodes",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-019"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-020桌面移动节点"
+      ],
+      "acceptance": [
+        "node pairing and capability manifests work",
+        "device permissions gate camera, screen, location and canvas commands",
+        "at least one node simulator E2E passes"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/device-core/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-021",
+      "phase": "PA-GAP-E",
+      "title": "Canvas and artifact surface",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-020"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-021canvas--artifact-surface"
+      ],
+      "acceptance": [
+        "agent can create, update, version, preview and roll back artifacts",
+        "canvas output is visible in WebChat or Console",
+        "malicious scripts are constrained by sandbox or CSP"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/console/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-016",
+      "phase": "PA-GAP-F",
+      "title": "Skills marketplace and install audit",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-021"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-016技能市场和安装审计"
+      ],
+      "acceptance": [
+        "skills can be searched, installed, audited, enabled and disabled",
+        "skill permissions and risk are visible before enablement",
+        "install and disable actions are audited"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-017",
+      "phase": "PA-GAP-F",
+      "title": "OpenClaw and Hermes migration",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-016"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-017openclawhermes-迁移器"
+      ],
+      "acceptance": [
+        "migration dry-run imports persona, memory, skills, allowlist and channels",
+        "duplicate records are detected and reported",
+        "real import is reversible or creates rollback artifact"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-025",
+      "phase": "PA-GAP-F",
+      "title": "Advanced sandbox backend",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-017"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-025高级沙箱后端"
+      ],
+      "acceptance": [
+        "at least one remote or serverless sandbox backend is integrated",
+        "task hibernate and resume metadata are preserved",
+        "secrets are deny-by-default and cost/lifecycle is visible"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-026",
+      "phase": "PA-GAP-F",
+      "title": "MCP product governance",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-025"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-026mcp-产品化治理"
+      ],
+      "acceptance": [
+        "MCP discovery, include/exclude and dynamic refresh are available",
+        "MCP secrets are filtered",
+        "untrusted MCP results are marked and audited"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-027",
+      "phase": "PA-GAP-F",
+      "title": "Self-learning skill loop productization",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-026"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-027自学习技能闭环产品化"
+      ],
+      "acceptance": [
+        "successful workflows generate candidate skills",
+        "candidate skills pass regression before activation",
+        "failed skill versions can be rolled back"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/runtime-core/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-028",
+      "phase": "PA-GAP-G",
+      "title": "Trajectory training data pipeline",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-027"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-028轨迹训练数据流水线"
+      ],
+      "acceptance": [
+        "batch trajectory generation, compression and redaction run end to end",
+        "generated trajectories can be replayed",
+        "eval and training artifacts pass schema validation"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/eval-core/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-029",
+      "phase": "PA-GAP-G",
+      "title": "Backup, restore, sync and encryption",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-028"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-029备份恢复同步加密"
+      ],
+      "acceptance": [
+        "one-command backup and restore work in a fresh HOME",
+        "sync conflict reports are readable",
+        "sensitive backup data is encrypted"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "tests/",
+        "docs/"
+      ]
+    },
+    {
+      "id": "PA-GAP-030",
+      "phase": "PA-GAP-G",
+      "title": "Home Assistant and IoT",
+      "status": "pending",
+      "depends_on": [
+        "PA-GAP-029"
+      ],
+      "design_refs": [
+        "docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md#pa-gap-030home-assistant--iot"
+      ],
+      "acceptance": [
+        "Home Assistant entity discovery works against fixture server",
+        "dangerous actions require dry-run and approval",
+        "state readback and audit are recorded after execution"
+      ],
+      "tests": [
+        "npm run build",
+        "npm run pa:plan-check"
+      ],
+      "write_paths": [
+        "examples/personal-assistant/",
+        "packages/device-core/",
+        "tests/",
+        "docs/"
+      ]
     }
   ]
 }

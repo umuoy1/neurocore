@@ -1,0 +1,23 @@
+{
+  "baseline_id": "PA-BL-001",
+  "run_id": "pa-bl-001-2026-04-27T15-53-36-881Z-deterministic",
+  "mode": "deterministic",
+  "git_sha": "9a9262b",
+  "artifact_dir": ".neurocore/baselines/personal-assistant/pa-gap-001-deterministic",
+  "accepted_at": "2026-04-27T15:53:41.974Z",
+  "assertion_count": 66,
+  "failed_count": 0,
+  "metrics": {
+    "turn_count": 22,
+    "p50_turn_latency_ms": 203,
+    "p95_turn_latency_ms": 243,
+    "max_turn_latency_ms": 244,
+    "search_call_count": 2,
+    "browser_call_count": 1,
+    "email_send_call_count": 1,
+    "calendar_call_count": 1,
+    "schedule_count": 1,
+    "assertion_count": 66,
+    "failed_assertion_count": 0
+  }
+}
