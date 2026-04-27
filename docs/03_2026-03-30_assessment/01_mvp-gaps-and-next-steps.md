@@ -57,6 +57,7 @@
 > - 2026-04-28 个人助理高级沙箱补充：`PA-GAP-025` 已落地 `serverless` sandbox target、持久化 environment state、hibernate/resume/status 工具、cost/lifecycle payload、workspace 重启恢复和 secret env deny-by-default 验收。下一项为 `PA-GAP-026` MCP product governance。
 > - 2026-04-28 个人助理 MCP 治理补充：`PA-GAP-026` 已落地 MCP governance registry、server/tool enable/disable、dynamic refresh、include/exclude、secret header/env filtering、untrusted/prompt-injection marker 和 audit 工具。下一项为 `PA-GAP-027` Self-learning skill loop productization。
 > - 2026-04-28 个人助理自学习技能补充：`PA-GAP-027` 已落地 auto skill product tools、candidate proposal、regression validation gate、activation、disable、rollback 和 audit；成功 workflow 可生成候选技能，验证通过后启用，失败或新版本可回滚。下一项为 `PA-GAP-028` Trajectory training data pipeline。
+> - 2026-04-28 个人助理轨迹训练流水线补充：`PA-GAP-028` 已落地 batch trajectory pipeline、training artifact、compression report、redaction aggregation、deterministic replay report 和 schema validation；训练/评测 artifact 可端到端生成并回放。下一项为 `PA-GAP-029` Backup, restore, sync and encryption。
 
 ## 交付总结
 

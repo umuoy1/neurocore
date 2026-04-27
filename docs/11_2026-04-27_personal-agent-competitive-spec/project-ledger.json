@@ -2,9 +2,9 @@
   "schema_version": "1.0.0",
   "project": "personal-agent-competitive-spec",
   "meta": {
-    "current_task": "PA-GAP-028",
+    "current_task": "PA-GAP-029",
     "phase": "PA-GAP-G",
-    "updated_at": "2026-04-27T19:39:28.054Z",
+    "updated_at": "2026-04-27T19:44:27.304Z",
     "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
   },
   "phases": [
@@ -1850,7 +1850,9 @@
       "id": "PA-GAP-028",
       "phase": "PA-GAP-G",
       "title": "Trajectory training data pipeline",
-      "status": "in_progress",
+      "status": "completed",
+      "completed_at": "2026-04-27T19:43:54.289Z",
+      "acceptance_last_run": "npm run pa:accept -- PA-GAP-028",
       "depends_on": [
         "PA-GAP-027"
       ],
@@ -1864,7 +1866,10 @@
       ],
       "tests": [
         "npm run build",
-        "npm run pa:plan-check"
+        "npm run pa:plan-check",
+        "node --test tests/personal-assistant-trajectory-export.test.mjs",
+        "node --test tests/eval-runner.test.mjs tests/meta-online-eval.test.mjs",
+        "node --test tests/personal-assistant-baseline.test.mjs"
       ],
       "write_paths": [
         "examples/personal-assistant/",
@@ -1878,7 +1883,7 @@
       "id": "PA-GAP-029",
       "phase": "PA-GAP-G",
       "title": "Backup, restore, sync and encryption",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": [
         "PA-GAP-028"
       ],
@@ -1898,7 +1903,8 @@
         "examples/personal-assistant/",
         "tests/",
         "docs/"
-      ]
+      ],
+      "started_at": "2026-04-27T19:44:27.304Z"
     },
     {
       "id": "PA-GAP-030",

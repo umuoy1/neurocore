@@ -149,6 +149,60 @@ export interface PersonalAgentTrajectoryReplayReport {
   cases: PersonalAgentTrajectoryReplayCaseReport[];
 }
 
+export interface PersonalAgentTrajectoryCompressionReport {
+  applied: boolean;
+  max_chars_per_field: number;
+  truncated_field_count: number;
+  original_trace_count: number;
+  compressed_record_count: number;
+}
+
+export interface PersonalAgentTrajectoryTrainingRecord {
+  record_id: string;
+  source_export_id: string;
+  session_id: string;
+  messages: Array<{
+    role: "user" | "assistant";
+    content: string;
+  }>;
+  expected_final_output?: string;
+  trace_signature: string;
+  replay_signature: string;
+  tool_refs: string[];
+  memory_refs: string[];
+  redaction: PersonalAgentRedactionReport;
+}
+
+export interface PersonalAgentTrajectoryTrainingArtifact {
+  schema_version: "personal-agent-training.v1";
+  artifact_id: string;
+  created_at: string;
+  source_export_ids: string[];
+  compression: PersonalAgentTrajectoryCompressionReport;
+  redaction: PersonalAgentRedactionReport;
+  records: PersonalAgentTrajectoryTrainingRecord[];
+}
+
+export interface PersonalAgentTrajectoryPipelineValidationReport {
+  valid: boolean;
+  errors: string[];
+  case_count: number;
+  training_record_count: number;
+  replay_passed_count: number;
+}
+
+export interface PersonalAgentTrajectoryPipelineArtifact {
+  schema_version: "personal-agent-trajectory-pipeline.v1";
+  artifact_id: string;
+  batch_id: string;
+  created_at: string;
+  exports: PersonalAgentTrajectoryExport[];
+  benchmark: PersonalAgentTrajectoryBenchmarkArtifact;
+  training: PersonalAgentTrajectoryTrainingArtifact;
+  replay_report: PersonalAgentTrajectoryReplayReport;
+  validation: PersonalAgentTrajectoryPipelineValidationReport;
+}
+
 export function exportPersonalAgentTrajectory(
   options: PersonalAgentTrajectoryExportOptions
 ): PersonalAgentTrajectoryExport {
@@ -271,6 +325,111 @@ export function replayPersonalAgentTrajectoryBenchmarkArtifact(
     passed_count: cases.filter((item) => item.passed).length,
     failed_count: cases.filter((item) => !item.passed).length,
     cases
+  };
+}
+
+export function buildPersonalAgentTrajectoryTrainingArtifact(
+  exports: PersonalAgentTrajectoryExport[],
+  options: {
+    artifactId?: string;
+    createdAt?: string;
+    maxCharsPerField?: number;
+  } = {}
+): PersonalAgentTrajectoryTrainingArtifact {
+  const maxCharsPerField = options.maxCharsPerField ?? 4000;
+  const compression: PersonalAgentTrajectoryCompressionReport = {
+    applied: false,
+    max_chars_per_field: maxCharsPerField,
+    truncated_field_count: 0,
+    original_trace_count: exports.reduce((count, item) => count + item.trace_records.length, 0),
+    compressed_record_count: exports.length
+  };
+  const records = exports.map((trajectory) => toTrainingRecord(trajectory, compression));
+  return {
+    schema_version: "personal-agent-training.v1",
+    artifact_id: options.artifactId ?? createHashId("patrain", ...exports.map((item) => item.export_id)),
+    created_at: options.createdAt ?? new Date().toISOString(),
+    source_export_ids: exports.map((item) => item.export_id),
+    compression,
+    redaction: aggregateRedaction(exports.map((item) => item.redaction)),
+    records
+  };
+}
+
+export function buildPersonalAgentTrajectoryPipelineArtifact(
+  exports: PersonalAgentTrajectoryExport[],
+  options: {
+    artifactId?: string;
+    batchId?: string;
+    createdAt?: string;
+    benchmarkArtifactId?: string;
+    trainingArtifactId?: string;
+    maxCharsPerField?: number;
+  } = {}
+): PersonalAgentTrajectoryPipelineArtifact {
+  const createdAt = options.createdAt ?? new Date().toISOString();
+  const benchmark = buildPersonalAgentTrajectoryBenchmarkArtifact(exports, {
+    artifactId: options.benchmarkArtifactId,
+    createdAt
+  });
+  const training = buildPersonalAgentTrajectoryTrainingArtifact(exports, {
+    artifactId: options.trainingArtifactId,
+    createdAt,
+    maxCharsPerField: options.maxCharsPerField
+  });
+  const replayReport = replayPersonalAgentTrajectoryBenchmarkArtifact(benchmark);
+  const artifact: PersonalAgentTrajectoryPipelineArtifact = {
+    schema_version: "personal-agent-trajectory-pipeline.v1",
+    artifact_id: options.artifactId ?? createHashId("patpipe", benchmark.artifact_id, training.artifact_id),
+    batch_id: options.batchId ?? createHashId("patbatch", ...exports.map((item) => item.export_id)),
+    created_at: createdAt,
+    exports,
+    benchmark,
+    training,
+    replay_report: replayReport,
+    validation: {
+      valid: false,
+      errors: [],
+      case_count: benchmark.cases.length,
+      training_record_count: training.records.length,
+      replay_passed_count: replayReport.passed_count
+    }
+  };
+  artifact.validation = validatePersonalAgentTrajectoryPipelineArtifact(artifact);
+  return artifact;
+}
+
+export function validatePersonalAgentTrajectoryPipelineArtifact(
+  artifact: PersonalAgentTrajectoryPipelineArtifact
+): PersonalAgentTrajectoryPipelineValidationReport {
+  const errors: string[] = [];
+  if (artifact.schema_version !== "personal-agent-trajectory-pipeline.v1") {
+    errors.push("invalid pipeline schema_version");
+  }
+  if (artifact.benchmark.schema_version !== "personal-agent-benchmark.v1") {
+    errors.push("invalid benchmark schema_version");
+  }
+  if (artifact.training.schema_version !== "personal-agent-training.v1") {
+    errors.push("invalid training schema_version");
+  }
+  if (artifact.benchmark.cases.length !== artifact.training.records.length) {
+    errors.push("benchmark case count must match training record count");
+  }
+  if (artifact.replay_report.failed_count !== 0) {
+    errors.push("replay report must have zero failed cases");
+  }
+  if (artifact.training.records.some((record) => record.messages.length < 2)) {
+    errors.push("training records must include user and assistant messages");
+  }
+  if (artifact.training.source_export_ids.some((id) => !artifact.benchmark.source_export_ids.includes(id))) {
+    errors.push("training source export ids must be present in benchmark source export ids");
+  }
+  return {
+    valid: errors.length === 0,
+    errors,
+    case_count: artifact.benchmark.cases.length,
+    training_record_count: artifact.training.records.length,
+    replay_passed_count: artifact.replay_report.passed_count
   };
 }
 
@@ -397,6 +556,48 @@ function toBenchmarkCase(
     memory_refs: uniqueStrings(trajectory.provenance.memory.flatMap((item) => item.memory_refs.map((ref) => ref.memory_id))),
     tool_refs: uniqueStrings(trajectory.provenance.tools.map((item) => item.tool_name).filter((value): value is string => Boolean(value))),
     redaction: trajectory.redaction
+  };
+}
+
+function toTrainingRecord(
+  trajectory: PersonalAgentTrajectoryExport,
+  compression: PersonalAgentTrajectoryCompressionReport
+): PersonalAgentTrajectoryTrainingRecord {
+  const input = compressText(trajectory.replay.steps.map((step) => step.input).filter(Boolean).join("\n"), compression);
+  const output = compressText(trajectory.final_output ?? trajectory.replay.steps.at(-1)?.output ?? "", compression);
+  const benchmarkCase = toBenchmarkCase(trajectory, 0);
+  return {
+    record_id: createHashId("patrec", trajectory.export_id, trajectory.replay.replay_signature),
+    source_export_id: trajectory.export_id,
+    session_id: trajectory.session_id,
+    messages: [
+      { role: "user", content: input },
+      { role: "assistant", content: output }
+    ],
+    expected_final_output: output,
+    trace_signature: trajectory.replay.trace_signature,
+    replay_signature: trajectory.replay.replay_signature,
+    tool_refs: benchmarkCase.tool_refs,
+    memory_refs: benchmarkCase.memory_refs,
+    redaction: trajectory.redaction
+  };
+}
+
+function compressText(value: string, compression: PersonalAgentTrajectoryCompressionReport): string {
+  if (value.length <= compression.max_chars_per_field) {
+    return value;
+  }
+  compression.applied = true;
+  compression.truncated_field_count += 1;
+  return `${value.slice(0, Math.max(0, compression.max_chars_per_field - 24))}\n[TRUNCATED:${value.length}]`;
+}
+
+function aggregateRedaction(reports: PersonalAgentRedactionReport[]): PersonalAgentRedactionReport {
+  const findings = reports.flatMap((report) => report.findings);
+  return {
+    applied: reports.some((report) => report.applied),
+    finding_count: findings.length,
+    findings
   };
 }
 

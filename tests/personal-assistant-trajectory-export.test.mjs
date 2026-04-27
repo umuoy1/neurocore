@@ -4,7 +4,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { createPersonalAssistantAgent } from "../examples/personal-assistant/dist/app/create-personal-assistant.js";
-import { exportPersonalAssistantSessionTrajectory } from "../examples/personal-assistant/dist/trajectory/trajectory-exporter.js";
+import {
+  buildPersonalAssistantTrajectoryPipelineArtifact,
+  exportPersonalAssistantSessionTrajectory,
+  validatePersonalAssistantTrajectoryPipelineArtifact
+} from "../examples/personal-assistant/dist/trajectory/trajectory-exporter.js";
 import { SqlitePersonalMemoryStore } from "../examples/personal-assistant/dist/memory/sqlite-personal-memory-store.js";
 import {
   buildPersonalAgentTrajectoryBenchmarkArtifact,
@@ -125,6 +129,40 @@ test("personal assistant trajectory export redacts private data and builds deter
     assert.equal(firstReplay.passed_count, 1);
     assert.equal(firstReplay.failed_count, 0);
     assert.match(firstReplay.cases[0].final_output ?? "", /Trajectory Export/);
+
+    const trajectoryTwo = {
+      ...trajectory,
+      export_id: "trajectory-export-2",
+      session_id: "session-redacted-copy",
+      metadata: {
+        copy: true
+      }
+    };
+    const pipeline = buildPersonalAssistantTrajectoryPipelineArtifact([trajectory, trajectoryTwo], {
+      artifactId: "trajectory-pipeline-1",
+      batchId: "trajectory-batch-1",
+      benchmarkArtifactId: "trajectory-benchmark-1",
+      trainingArtifactId: "trajectory-training-1",
+      createdAt: "2026-04-27T03:00:00.000Z",
+      maxCharsPerField: 48
+    });
+    assert.equal(pipeline.schema_version, "personal-agent-trajectory-pipeline.v1");
+    assert.equal(pipeline.benchmark.cases.length, 2);
+    assert.equal(pipeline.training.schema_version, "personal-agent-training.v1");
+    assert.equal(pipeline.training.records.length, 2);
+    assert.equal(pipeline.replay_report.passed_count, 2);
+    assert.equal(pipeline.replay_report.failed_count, 0);
+    assert.equal(pipeline.training.compression.applied, true);
+    assert.ok(pipeline.training.compression.truncated_field_count >= 1);
+    assert.equal(pipeline.validation.valid, true);
+    assert.deepEqual(validatePersonalAssistantTrajectoryPipelineArtifact(pipeline), pipeline.validation);
+    assert.deepEqual(pipeline.training.records[0].tool_refs, ["web_search"]);
+    assert.ok(pipeline.training.records[0].messages.some((message) => message.content.includes("[TRUNCATED:")));
+
+    const pipelineSerialized = JSON.stringify(pipeline);
+    assert.doesNotMatch(pipelineSerialized, /alice@example\.com/);
+    assert.doesNotMatch(pipelineSerialized, /sk-liveSECRET123456789/);
+    assert.doesNotMatch(pipelineSerialized, /private-token-123456789/);
 
     memoryStore.close();
   } finally {

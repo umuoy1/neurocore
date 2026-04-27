@@ -1741,3 +1741,36 @@
 |---|---|
 | Ledger | `PA-GAP-027` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-028` Trajectory training data pipeline |
+
+### PA-GAP-028 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Training artifact | 新增 `personal-agent-training.v1` artifact，包含 redacted user/assistant messages、tool refs、memory refs、trace/replay signatures |
+| Batch pipeline | 新增 `personal-agent-trajectory-pipeline.v1`，把 batch exports、benchmark、training artifact、replay report 和 validation 汇总到一个 artifact |
+| Compression | training artifact 支持 `maxCharsPerField` 压缩，记录 applied、truncated_field_count、original_trace_count、compressed_record_count |
+| Redaction aggregation | batch training artifact 聚合每条 trajectory 的 redaction report，序列化结果不含 email、secret、bearer token、private user/chat id |
+| Replay | pipeline 自动构建 benchmark 并执行 deterministic replay，`replay_report.failed_count` 为 0 才通过 validation |
+| Schema validation | 新增 `validatePersonalAgentTrajectoryPipelineArtifact`，校验 pipeline/benchmark/training schema、case/record 数量、replay 和 messages |
+| App wrappers | `trajectory-exporter` 暴露 personal assistant pipeline/training/validation wrapper |
+| Tests | 扩展 `tests/personal-assistant-trajectory-export.test.mjs` 覆盖 batch、compression、redaction、replay 和 schema validation |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `npm run pa:plan-check` | 通过 |
+| `node --test tests/personal-assistant-trajectory-export.test.mjs` | 通过，1 项测试 |
+| `node --test tests/eval-runner.test.mjs tests/meta-online-eval.test.mjs` | 通过，4 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-028` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-028` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-029` Backup, restore, sync and encryption |
