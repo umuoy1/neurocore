@@ -88,6 +88,10 @@ import {
   PersonalAssistantMigrationImporter
 } from "../migration/openclaw-hermes-migration.js";
 import {
+  createPersonalAssistantBackupTools,
+  PersonalAssistantBackupService
+} from "../backup/personal-assistant-backup.js";
+import {
   createSandboxManagerFromConfig,
   defaultSandboxForceTools,
   defaultSandboxedTools,
@@ -137,6 +141,7 @@ export interface RunningPersonalAssistantApp {
   canvasArtifactStore?: CanvasArtifactStore;
   skillMarketplace?: SkillMarketplace;
   migrationImporter?: PersonalAssistantMigrationImporter;
+  backupService?: PersonalAssistantBackupService;
   webhookIngress?: PersonalWebhookIngress;
   gmailPubSubWebhook?: GmailPubSubWebhookAdapter;
   close(): Promise<void>;
@@ -159,6 +164,7 @@ export interface PersonalAssistantAgentOptions {
   skillMarketplace?: SkillMarketplace;
   autoSkillManager?: AutoSkillManager;
   mcpGovernance?: PersonalMcpGovernanceRegistry;
+  backupService?: PersonalAssistantBackupService;
 }
 
 export function createPersonalAssistantAgent(
@@ -277,6 +283,12 @@ export function createPersonalAssistantAgent(
     }
   }
 
+  if (options.backupService) {
+    for (const tool of createPersonalAssistantBackupTools(options.backupService)) {
+      agent.registerTool(tool);
+    }
+  }
+
   for (const tool of options.mcpTools ?? []) {
     agent.registerTool(tool);
   }
@@ -353,9 +365,10 @@ export async function startPersonalAssistantApp(
   const voiceIO = createVoiceIOServiceFromConfig(config);
   const deviceNodeGateway = createDeviceNodeGatewayFromConfig(config);
   const canvasArtifactStore = createCanvasArtifactStoreFromConfig(config);
+  const backupService = new PersonalAssistantBackupService();
   const runtimeFactory = new AssistantRuntimeFactory({
     dbPath: config.db_path,
-    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, knowledgeBaseStore, contactGraphStore, skillRegistry, credentialVault, deviceNodeGateway, canvasArtifactStore, skillMarketplace })
+    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, knowledgeBaseStore, contactGraphStore, skillRegistry, credentialVault, deviceNodeGateway, canvasArtifactStore, skillMarketplace, backupService })
   });
   const builder = runtimeFactory.getBuilder();
 
@@ -685,6 +698,7 @@ export async function startPersonalAssistantApp(
     canvasArtifactStore,
     skillMarketplace,
     migrationImporter,
+    backupService,
     webhookIngress,
     gmailPubSubWebhook,
     async close() {

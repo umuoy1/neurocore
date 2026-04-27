@@ -1774,3 +1774,36 @@
 |---|---|
 | Ledger | `PA-GAP-028` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-029` Backup, restore, sync and encryption |
+
+### PA-GAP-029 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Encrypted backup | 新增 `PersonalAssistantBackupService`，使用 AES-256-GCM + scrypt 写入加密 envelope，原始 payload、SQLite、config、artifact、skill 内容不以明文出现在备份文件中 |
+| Manifest | 加密 payload 内包含 `personal-assistant-backup.manifest.v1`，记录文件路径、kind、hash、bytes、mtime 和 source summary |
+| Restore | 支持 fresh HOME restore、dry-run restore、overwrite restore 和 per-file checksum 校验；冲突文件默认不覆盖 |
+| Conflict report | restore 和 sync 均输出可读冲突信息，包含 path、local/remote hash、resolution 和人工处理建议 |
+| Sync comparison | `personal_backup_sync_report` 可比较两个加密备份 manifest，输出 identical/local-only/remote-only/conflict 汇总 |
+| Product tools | 新增 `personal_backup_create/restore/manifest/sync_report`，并在个人助理 app 启动时注册为 Agent 工具 |
+| Fresh HOME verification | focused test 在临时 HOME 创建 SQLite memory、config、artifact 和 skill，备份后恢复到新 HOME，并用恢复后的 SQLite 启动个人助理子集 |
+| Tests | 新增 `tests/personal-assistant-backup.test.mjs` 覆盖加密不泄漏、manifest、dry-run、真实恢复、冲突报告、sync report 和 app tool refs |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `npm run pa:plan-check` | 通过 |
+| `node --test tests/personal-assistant-backup.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-credential-vault.test.mjs tests/personal-assistant-config.test.mjs` | 通过，8 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-029` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-029` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-030` Home Assistant and IoT |
