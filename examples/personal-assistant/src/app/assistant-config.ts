@@ -7,6 +7,7 @@ import type { ServiceConnectorConfig } from "../connectors/types.js";
 import type { PersonalMcpServerConfig } from "../mcp/personal-mcp-client.js";
 import type { PersonalAssistantSandboxConfig, SandboxTarget } from "../sandbox/sandbox-provider.js";
 import type { IMPlatform } from "../im-gateway/types.js";
+import type { PersonalWebhookRouteConfig } from "../webhook/webhook-ingress.js";
 
 export interface PersonalAssistantAppConfig {
   db_path: string;
@@ -110,6 +111,17 @@ export interface PersonalAssistantAppConfig {
     user_agent?: string;
     max_content_chars?: number;
     headless?: boolean;
+  };
+  webhooks?: {
+    enabled?: boolean;
+    routes?: PersonalWebhookRouteConfig[];
+    gmail_pubsub?: {
+      enabled?: boolean;
+      token?: string;
+      platform?: IMPlatform;
+      chat_id?: string;
+      sender_id?: string;
+    };
   };
   proactive?: {
     enabled?: boolean;
@@ -279,6 +291,17 @@ export function createPersonalAssistantConfigFromEnv(
       user_agent: env.PERSONAL_ASSISTANT_BROWSER_PROFILE_USER_AGENT ?? appConfig.browser_profile?.user_agent,
       max_content_chars: parseOptionalInt(env.PERSONAL_ASSISTANT_BROWSER_PROFILE_MAX_CONTENT_CHARS) ?? appConfig.browser_profile?.max_content_chars,
       headless: parseOptionalBoolean(env.PERSONAL_ASSISTANT_BROWSER_PROFILE_HEADLESS) ?? appConfig.browser_profile?.headless
+    },
+    webhooks: {
+      enabled: parseOptionalBoolean(env.PERSONAL_ASSISTANT_WEBHOOKS_ENABLED) ?? appConfig.webhooks?.enabled,
+      routes: appConfig.webhooks?.routes,
+      gmail_pubsub: {
+        enabled: parseOptionalBoolean(env.PERSONAL_ASSISTANT_GMAIL_PUBSUB_ENABLED) ?? appConfig.webhooks?.gmail_pubsub?.enabled,
+        token: env.PERSONAL_ASSISTANT_GMAIL_PUBSUB_TOKEN ?? appConfig.webhooks?.gmail_pubsub?.token,
+        platform: parseOptionalPlatform(env.PERSONAL_ASSISTANT_GMAIL_PUBSUB_PLATFORM) ?? appConfig.webhooks?.gmail_pubsub?.platform,
+        chat_id: env.PERSONAL_ASSISTANT_GMAIL_PUBSUB_CHAT_ID ?? appConfig.webhooks?.gmail_pubsub?.chat_id,
+        sender_id: env.PERSONAL_ASSISTANT_GMAIL_PUBSUB_SENDER_ID ?? appConfig.webhooks?.gmail_pubsub?.sender_id
+      }
     },
     proactive: appConfig.proactive
   };
@@ -575,6 +598,10 @@ function parseOptionalPlatformList(value: string | undefined): IMPlatform[] | un
     return undefined;
   }
   return list.filter(isSupportedPlatform) as IMPlatform[];
+}
+
+function parseOptionalPlatform(value: string | undefined): IMPlatform | undefined {
+  return value && isSupportedPlatform(value) ? value : undefined;
 }
 
 function parseBrowserProfileProvider(value: string | undefined): "fetch" | "playwright" | undefined {

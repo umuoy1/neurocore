@@ -36,6 +36,7 @@ export * from "./mcp/personal-mcp-client.js";
 export * from "./files/workspace-file-tools.js";
 export * from "./terminal/background-process-tools.js";
 export * from "./browser/browser-session-tools.js";
+export * from "./webhook/webhook-ingress.js";
 export * from "./skills/agent-skill-registry.js";
 export * from "./skills/skill-tools.js";
 export * from "./skills/auto-skill-manager.js";

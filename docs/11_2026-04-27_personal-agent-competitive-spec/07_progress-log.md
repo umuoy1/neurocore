@@ -1219,3 +1219,34 @@
 |---|---|
 | Ledger | `PA-GAP-011` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-012` Generic webhook and Gmail Pub/Sub |
+
+### PA-GAP-012 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Webhook ingress | 新增 `PersonalWebhookIngress`，按 path 匹配 route，支持 Bearer / `x-neurocore-webhook-token` / `x-webhook-token` 鉴权 |
+| Routing | webhook route 支持 `session` 和 `task` 两类目标；session route 进入 PersonalGateway，task route 写入 `BackgroundTaskLedger` |
+| Trust boundary | webhook payload 和 Gmail Pub/Sub payload 均写入 `UNTRUSTED_*` 内容、metadata、channel metadata 与 audit |
+| Gmail Pub/Sub | 新增 `GmailPubSubWebhookAdapter`，解码 Pub/Sub base64 data，归一化为 email 平台 untrusted event |
+| App wiring | `startPersonalAssistantApp()` 暴露 `webhookIngress` 和 `gmailPubSubWebhook`，配置新增 `webhooks.routes` 与 `webhooks.gmail_pubsub` |
+| Tests | 新增 `tests/personal-assistant-webhook-ingress.test.mjs` 覆盖无 token 拒绝、合法 task/session route、Gmail Pub/Sub push 和 audit |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-webhook-ingress.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-email-adapter.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-proactive.test.mjs` | 通过，4 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-012` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-012` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-013` Notification policy |

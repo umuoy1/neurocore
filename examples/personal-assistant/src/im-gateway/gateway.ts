@@ -97,7 +97,7 @@ export class IMGateway {
     return this.adapters.get(platform)?.adapter;
   }
 
-  private async handleMessage(rawMessage: UnifiedMessage): Promise<void> {
+  public async handleMessage(rawMessage: UnifiedMessage): Promise<void> {
     const message = normalizePersonalIngressMessage(rawMessage);
 
     if (this.options.pairingManager?.shouldBlock(message)) {

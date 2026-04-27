@@ -57,6 +57,10 @@ import {
   createTerminalBackgroundProcessTools,
   TerminalBackgroundProcessManager
 } from "../terminal/background-process-tools.js";
+import {
+  GmailPubSubWebhookAdapter,
+  PersonalWebhookIngress
+} from "../webhook/webhook-ingress.js";
 import type { PersonalAssistantAppConfig } from "./assistant-config.js";
 import type { CredentialVault } from "../security/credential-vault.js";
 import {
@@ -72,6 +76,8 @@ export interface RunningPersonalAssistantApp {
   gateway: IMGateway;
   commandHandler: CommandHandler;
   proactive?: ProactiveEngine;
+  webhookIngress?: PersonalWebhookIngress;
+  gmailPubSubWebhook?: GmailPubSubWebhookAdapter;
   close(): Promise<void>;
 }
 
@@ -420,11 +426,30 @@ export async function startPersonalAssistantApp(
     await proactive.start();
   }
 
+  const webhookIngress = config.webhooks?.enabled && config.webhooks.routes
+    ? new PersonalWebhookIngress({
+        routes: config.webhooks.routes,
+        handleMessage: (message) => gateway.handleMessage(message),
+        taskLedger: proactive?.taskLedger
+      })
+    : undefined;
+  const gmailPubSubWebhook = config.webhooks?.gmail_pubsub?.enabled && config.webhooks.gmail_pubsub.token
+    ? new GmailPubSubWebhookAdapter({
+        token: config.webhooks.gmail_pubsub.token,
+        handleMessage: (message) => gateway.handleMessage(message),
+        platform: config.webhooks.gmail_pubsub.platform,
+        chat_id: config.webhooks.gmail_pubsub.chat_id,
+        sender_id: config.webhooks.gmail_pubsub.sender_id
+      })
+    : undefined;
+
   return {
     builder,
     gateway,
     commandHandler,
     proactive,
+    webhookIngress,
+    gmailPubSubWebhook,
     async close() {
       await proactive?.stop();
       await gateway.stop();
