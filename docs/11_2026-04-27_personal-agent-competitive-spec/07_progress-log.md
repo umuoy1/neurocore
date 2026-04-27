@@ -1348,3 +1348,38 @@
 |---|---|
 | Ledger | `PA-GAP-014` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-022` Personal knowledge base ingestion |
+
+### PA-GAP-022 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Knowledge store | 新增 `SqlitePersonalKnowledgeBaseStore`，持久化 document、chunk、artifact |
+| Ingestion | 支持 text / PDF OCR 输入，生成 chunks、citation 和 artifact |
+| Search | 支持 query + permission_scope 搜索，返回 cited chunks |
+| Recall | 新增 `PersonalKnowledgeBaseRecallProvider`，把 knowledge results、entries 和 citations 注入 recall bundle |
+| Tools | 新增 `knowledge_base_ingest/search/delete/reindex` 工具，接入个人助理 agent |
+| Deletion | document delete 会级联 chunk/artifact status，后续 search/retrieval 不返回 |
+| Reindex | active document 可重建 chunk 和 citation |
+| App wiring | `startPersonalAssistantApp()` 创建并暴露 `knowledgeBaseStore`，关闭时释放 SQLite 连接 |
+| Tests | 新增 `tests/personal-assistant-knowledge-base.test.mjs` 覆盖 text、PDF/OCR、tools、recall、delete、reindex |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `npm run pa:plan-check` | 通过 |
+| `node --test tests/personal-assistant-knowledge-base.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-privacy-console.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-memory-search.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-022` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-022` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-023` Contacts and relationship graph |

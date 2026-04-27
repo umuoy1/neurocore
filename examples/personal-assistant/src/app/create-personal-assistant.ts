@@ -30,6 +30,12 @@ import { NotificationDispatcher } from "../im-gateway/notification/notification-
 import { InMemoryNotificationPolicyStore } from "../im-gateway/notification/notification-policy.js";
 import { AssistantRuntimeFactory } from "../im-gateway/runtime/assistant-runtime-factory.js";
 import type { IMPlatform } from "../im-gateway/types.js";
+import {
+  createPersonalKnowledgeBaseTools,
+  PersonalKnowledgeBaseRecallProvider,
+  type PersonalKnowledgeBaseStore,
+  SqlitePersonalKnowledgeBaseStore
+} from "../knowledge/personal-knowledge-base.js";
 import { PersonalMemoryRecallProvider } from "../memory/personal-memory-recall-provider.js";
 import type { PersonalMemoryStore } from "../memory/personal-memory-store.js";
 import { SessionSearchRecallProvider } from "../memory/session-search-recall-provider.js";
@@ -81,6 +87,7 @@ export interface RunningPersonalAssistantApp {
   proactive?: ProactiveEngine;
   taskBoard?: PersonalAssistantTaskBoard;
   privacy: PersonalDataSubjectService;
+  knowledgeBaseStore: PersonalKnowledgeBaseStore;
   webhookIngress?: PersonalWebhookIngress;
   gmailPubSubWebhook?: GmailPubSubWebhookAdapter;
   close(): Promise<void>;
@@ -95,6 +102,7 @@ export interface PersonalAssistantAgentOptions {
   credentialVault?: CredentialVault;
   terminalProcessManager?: TerminalBackgroundProcessManager;
   browserSessionManager?: BrowserSessionManager;
+  knowledgeBaseStore?: PersonalKnowledgeBaseStore;
 }
 
 export function createPersonalAssistantAgent(
@@ -180,6 +188,13 @@ export function createPersonalAssistantAgent(
     agent.registerMemoryProvider(new SessionSearchRecallProvider(options.sessionSearchStore));
   }
 
+  if (options.knowledgeBaseStore) {
+    agent.registerMemoryProvider(new PersonalKnowledgeBaseRecallProvider(options.knowledgeBaseStore));
+    for (const tool of createPersonalKnowledgeBaseTools(options.knowledgeBaseStore)) {
+      agent.registerTool(tool);
+    }
+  }
+
   if (skillRegistry) {
     for (const tool of createPersonalSkillTools(skillRegistry)) {
       agent.registerTool(tool);
@@ -236,12 +251,13 @@ export async function startPersonalAssistantApp(
 ): Promise<RunningPersonalAssistantApp> {
   const memoryStore = new SqlitePersonalMemoryStore({ filename: config.db_path });
   const sessionSearchStore = new SqliteSessionSearchStore({ filename: config.db_path });
+  const knowledgeBaseStore = new SqlitePersonalKnowledgeBaseStore({ filename: config.db_path });
   const privacy = new PersonalDataSubjectService({ memoryStore, sessionSearchStore });
   const skillRegistry = createAgentSkillRegistryFromConfig(config.skills);
   const credentialVault = createPersonalAssistantCredentialVault(config);
   const runtimeFactory = new AssistantRuntimeFactory({
     dbPath: config.db_path,
-    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, skillRegistry, credentialVault })
+    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, knowledgeBaseStore, skillRegistry, credentialVault })
   });
   const builder = runtimeFactory.getBuilder();
 
@@ -458,11 +474,13 @@ export async function startPersonalAssistantApp(
     proactive,
     taskBoard,
     privacy,
+    knowledgeBaseStore,
     webhookIngress,
     gmailPubSubWebhook,
     async close() {
       await proactive?.stop();
       await gateway.stop();
+      knowledgeBaseStore.close();
       memoryStore.close();
       sessionSearchStore.close();
       standingOrderStore?.close();
