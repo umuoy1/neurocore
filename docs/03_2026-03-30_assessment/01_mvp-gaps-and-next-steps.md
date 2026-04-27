@@ -40,6 +40,7 @@
 > - 2026-04-27 个人助理凭据治理补充：`PA-GAP-008` 已落地 `CredentialVault`、secret ref、scoped lease、统一 artifact redactor、`web_search` 工具按 scope lease API key，以及 sandbox secret-like env deny-by-default。下一项为 `PA-GAP-009` 产品级文件工具。
 > - 2026-04-28 个人助理文件工具补充：`PA-GAP-009` 已落地 governed workspace file tools，支持 read/list/search/diff/write/edit/apply_patch/rollback，所有路径限定在 workspace root，写入类操作 high side effect 审批前不落盘，并返回 diff、hash、bytes 与 rollback_id。下一项为 `PA-GAP-010` 终端后台进程管理。
 > - 2026-04-28 个人助理终端后台进程补充：`PA-GAP-010` 已落地 `TerminalBackgroundProcessManager` 和 `terminal_process_start/poll/log/write/wait/kill` 工具，支持增量日志、stdin、wait、进程组 kill、timeout、task ledger 成功/失败/取消归档，以及 high-risk start/write/kill 审批前不 spawn。下一项为 `PA-GAP-011` 真实浏览器 profile。
+> - 2026-04-28 个人助理浏览器 profile 补充：`PA-GAP-011` 已落地 browser session/provider SPI 和 `browser_session_start/navigate/click/type/screenshot/pdf/snapshot/close` 工具，默认 fetch profile provider 支持本地登录态/cookie/表单验收，可选 Playwright provider 支持真实 browser context、截图和 PDF；profile close 会清理目录，untrusted marker 保留。下一项为 `PA-GAP-012` 通用 webhook + Gmail Pub/Sub。
 
 ## 交付总结
 

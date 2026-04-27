@@ -103,6 +103,14 @@ export interface PersonalAssistantAppConfig {
     max_log_bytes?: number;
     default_timeout_ms?: number;
   };
+  browser_profile?: {
+    enabled?: boolean;
+    provider?: "fetch" | "playwright";
+    profile_root?: string;
+    user_agent?: string;
+    max_content_chars?: number;
+    headless?: boolean;
+  };
   proactive?: {
     enabled?: boolean;
     heartbeat_interval_ms?: number;
@@ -263,6 +271,14 @@ export function createPersonalAssistantConfigFromEnv(
       cwd: env.PERSONAL_ASSISTANT_TERMINAL_CWD ?? appConfig.terminal?.cwd,
       max_log_bytes: parseOptionalInt(env.PERSONAL_ASSISTANT_TERMINAL_MAX_LOG_BYTES) ?? appConfig.terminal?.max_log_bytes,
       default_timeout_ms: parseOptionalInt(env.PERSONAL_ASSISTANT_TERMINAL_DEFAULT_TIMEOUT_MS) ?? appConfig.terminal?.default_timeout_ms
+    },
+    browser_profile: {
+      enabled: parseOptionalBoolean(env.PERSONAL_ASSISTANT_BROWSER_PROFILE_ENABLED) ?? appConfig.browser_profile?.enabled,
+      provider: parseBrowserProfileProvider(env.PERSONAL_ASSISTANT_BROWSER_PROFILE_PROVIDER) ?? appConfig.browser_profile?.provider,
+      profile_root: env.PERSONAL_ASSISTANT_BROWSER_PROFILE_ROOT ?? appConfig.browser_profile?.profile_root,
+      user_agent: env.PERSONAL_ASSISTANT_BROWSER_PROFILE_USER_AGENT ?? appConfig.browser_profile?.user_agent,
+      max_content_chars: parseOptionalInt(env.PERSONAL_ASSISTANT_BROWSER_PROFILE_MAX_CONTENT_CHARS) ?? appConfig.browser_profile?.max_content_chars,
+      headless: parseOptionalBoolean(env.PERSONAL_ASSISTANT_BROWSER_PROFILE_HEADLESS) ?? appConfig.browser_profile?.headless
     },
     proactive: appConfig.proactive
   };
@@ -559,6 +575,10 @@ function parseOptionalPlatformList(value: string | undefined): IMPlatform[] | un
     return undefined;
   }
   return list.filter(isSupportedPlatform) as IMPlatform[];
+}
+
+function parseBrowserProfileProvider(value: string | undefined): "fetch" | "playwright" | undefined {
+  return value === "fetch" || value === "playwright" ? value : undefined;
 }
 
 function isSupportedPlatform(value: string): value is IMPlatform {

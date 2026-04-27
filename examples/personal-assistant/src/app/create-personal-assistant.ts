@@ -7,6 +7,11 @@ import {
 } from "@neurocore/sdk-node";
 import type { Reasoner, Tool } from "@neurocore/protocol";
 import { SandboxPolicyProvider } from "@neurocore/policy-core";
+import {
+  BrowserSessionManager,
+  createBrowserSessionTools,
+  PlaywrightBrowserSessionProvider
+} from "../browser/browser-session-tools.js";
 import { CliAdapter } from "../im-gateway/adapter/cli.js";
 import { DiscordAdapter } from "../im-gateway/adapter/discord.js";
 import { EmailAdapter } from "../im-gateway/adapter/email.js";
@@ -78,6 +83,7 @@ export interface PersonalAssistantAgentOptions {
   mcpTools?: Tool[];
   credentialVault?: CredentialVault;
   terminalProcessManager?: TerminalBackgroundProcessManager;
+  browserSessionManager?: BrowserSessionManager;
 }
 
 export function createPersonalAssistantAgent(
@@ -191,6 +197,22 @@ export function createPersonalAssistantAgent(
       defaultTimeoutMs: config.terminal.default_timeout_ms
     });
     for (const tool of createTerminalBackgroundProcessTools(terminalManager)) {
+      agent.registerTool(tool);
+    }
+  }
+
+  if (config.browser_profile?.enabled) {
+    const browserManager = options.browserSessionManager ?? new BrowserSessionManager({
+      profileRoot: config.browser_profile.profile_root,
+      userAgent: config.browser_profile.user_agent,
+      maxContentChars: config.browser_profile.max_content_chars,
+      fetch: config.connectors?.browser?.fetch,
+      headless: config.browser_profile.headless,
+      provider: config.browser_profile.provider === "playwright"
+        ? new PlaywrightBrowserSessionProvider()
+        : undefined
+    });
+    for (const tool of createBrowserSessionTools(browserManager)) {
       agent.registerTool(tool);
     }
   }

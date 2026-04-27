@@ -1189,3 +1189,33 @@
 |---|---|
 | Ledger | `PA-GAP-010` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-011` Real browser profile |
+
+### PA-GAP-011 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Browser session SPI | 新增 `BrowserSessionManager`、`BrowserSessionProvider` 和 profile lifecycle，session 绑定 profile_dir、状态、trace 和 cleanup |
+| Tools | 新增 `browser_session_start/navigate/click/type/screenshot/pdf/snapshot/close`，click/type 为 high side effect |
+| Fetch profile provider | 默认无额外依赖 provider 支持本地页面导航、表单输入、cookie 登录态、截图/PDF artifact 和 untrusted snapshot |
+| Playwright provider | 可选 `browser_profile.provider=playwright` 使用持久 browser context，支持真实 screenshot、PDF、DOM snapshot 和 profile close |
+| Config | 个人助理配置新增 `browser_profile.enabled/provider/profile_root/user_agent/max_content_chars/headless` 及对应环境变量 |
+| Tests | 新增 `tests/personal-assistant-browser-session.test.mjs` 覆盖本地登录态导航、截图、PDF、snapshot、profile 清理和 click 审批前不改变浏览器状态 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-browser-session.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-e2e.test.mjs` | 通过，7 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-011` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-011` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-012` Generic webhook and Gmail Pub/Sub |
