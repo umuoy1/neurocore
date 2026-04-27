@@ -105,6 +105,21 @@ function registerChannelSecrets(config: PersonalAssistantAppConfig, vault: Crede
   if (config.discord?.bot_token) {
     registerIfMissing(vault, config.discord.bot_token_ref ?? channelSecretRef("discord", "bot_token"), config.discord.bot_token, ["channel:discord"]);
   }
+  if (config.whatsapp?.access_token) {
+    registerIfMissing(vault, config.whatsapp.access_token_ref ?? channelSecretRef("whatsapp", "access_token"), config.whatsapp.access_token, ["channel:whatsapp"]);
+  }
+  if (config.signal?.api_token) {
+    registerIfMissing(vault, config.signal.api_token_ref ?? channelSecretRef("signal", "api_token"), config.signal.api_token, ["channel:signal"]);
+  }
+  if (config.wechat?.access_token) {
+    registerIfMissing(vault, config.wechat.access_token_ref ?? channelSecretRef("wechat", "access_token"), config.wechat.access_token, ["channel:wechat"]);
+  }
+  if (config.matrix?.access_token) {
+    registerIfMissing(vault, config.matrix.access_token_ref ?? channelSecretRef("matrix", "access_token"), config.matrix.access_token, ["channel:matrix"]);
+  }
+  if (config.teams?.bot_token) {
+    registerIfMissing(vault, config.teams.bot_token_ref ?? channelSecretRef("teams", "bot_token"), config.teams.bot_token, ["channel:teams"]);
+  }
 }
 
 function registerIfMissing(

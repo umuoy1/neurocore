@@ -1449,3 +1449,36 @@
 |---|---|
 | Ledger | `PA-GAP-024` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-018` WhatsApp / Signal / WeChat / Matrix / Teams channels |
+
+### PA-GAP-018 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Platforms | `IMPlatform` 扩展 WhatsApp、Signal、WeChat、Matrix、Teams |
+| Capabilities | 每个新增平台具备显式 text/markdown/status/media/action/approval/typing/edit/thread/reaction/voice 能力声明 |
+| Adapters | 新增 `WhatsAppAdapter`、`SignalAdapter`、`WeChatAdapter`、`MatrixAdapter`、`TeamsAdapter` |
+| Safety fallback | 不支持 interactive/edit/typing 的渠道降级为文本 fallback，不丢 approval 和 media 上下文 |
+| App config | 个人助理配置/env/secret vault 支持新增渠道 token、base URL、sender、allowed_senders |
+| Gateway wiring | `startPersonalAssistantApp()` 可注册新增渠道，PairingManager 默认要求新外部渠道配对 |
+| Tests | 新增 `tests/personal-assistant-extended-channels.test.mjs` 覆盖每个渠道收发、approval、fallback、handoff 和 memory smoke |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `npm run pa:plan-check` | 通过 |
+| `node --test tests/personal-assistant-extended-channels.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-pairing.test.mjs` | 通过，1 项测试 |
+| `node --test tests/personal-assistant-gateway.test.mjs` | 通过，8 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-018` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-018` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-019` Voice STT/TTS and push-to-talk |

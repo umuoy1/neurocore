@@ -15,6 +15,13 @@ import {
 import { CliAdapter } from "../im-gateway/adapter/cli.js";
 import { DiscordAdapter } from "../im-gateway/adapter/discord.js";
 import { EmailAdapter } from "../im-gateway/adapter/email.js";
+import {
+  MatrixAdapter,
+  SignalAdapter,
+  TeamsAdapter,
+  WeChatAdapter,
+  WhatsAppAdapter
+} from "../im-gateway/adapter/extended-channels.js";
 import { FeishuAdapter } from "../im-gateway/adapter/feishu.js";
 import { SlackAdapter } from "../im-gateway/adapter/slack.js";
 import { TelegramAdapter } from "../im-gateway/adapter/telegram.js";
@@ -445,6 +452,85 @@ export async function startPersonalAssistantApp(
         api_base_url: config.discord.api_base_url
       }),
       allowed_senders: config.discord.allowed_senders
+    });
+  }
+
+  if (config.whatsapp?.enabled && config.whatsapp.access_token && config.whatsapp.phone_number_id) {
+    gateway.registerAdapter(new WhatsAppAdapter(), {
+      auth: compactAuth({
+        access_token: leaseChannelSecret(
+          credentialVault,
+          config.whatsapp.access_token_ref ?? channelSecretRef("whatsapp", "access_token"),
+          "channel:whatsapp",
+          config.whatsapp.access_token
+        ),
+        phone_number_id: config.whatsapp.phone_number_id,
+        api_base_url: config.whatsapp.api_base_url
+      }),
+      allowed_senders: config.whatsapp.allowed_senders
+    });
+  }
+
+  if (config.signal?.enabled && config.signal.sender) {
+    gateway.registerAdapter(new SignalAdapter(), {
+      auth: compactAuth({
+        sender: config.signal.sender,
+        api_token: leaseChannelSecret(
+          credentialVault,
+          config.signal.api_token_ref ?? channelSecretRef("signal", "api_token"),
+          "channel:signal",
+          config.signal.api_token
+        ),
+        api_base_url: config.signal.api_base_url
+      }),
+      allowed_senders: config.signal.allowed_senders
+    });
+  }
+
+  if (config.wechat?.enabled && config.wechat.access_token) {
+    gateway.registerAdapter(new WeChatAdapter(), {
+      auth: compactAuth({
+        access_token: leaseChannelSecret(
+          credentialVault,
+          config.wechat.access_token_ref ?? channelSecretRef("wechat", "access_token"),
+          "channel:wechat",
+          config.wechat.access_token
+        ),
+        api_base_url: config.wechat.api_base_url
+      }),
+      allowed_senders: config.wechat.allowed_senders
+    });
+  }
+
+  if (config.matrix?.enabled && config.matrix.access_token) {
+    gateway.registerAdapter(new MatrixAdapter(), {
+      auth: compactAuth({
+        access_token: leaseChannelSecret(
+          credentialVault,
+          config.matrix.access_token_ref ?? channelSecretRef("matrix", "access_token"),
+          "channel:matrix",
+          config.matrix.access_token
+        ),
+        api_base_url: config.matrix.api_base_url,
+        user_id: config.matrix.user_id
+      }),
+      allowed_senders: config.matrix.allowed_senders
+    });
+  }
+
+  if (config.teams?.enabled && config.teams.bot_token) {
+    gateway.registerAdapter(new TeamsAdapter(), {
+      auth: compactAuth({
+        bot_token: leaseChannelSecret(
+          credentialVault,
+          config.teams.bot_token_ref ?? channelSecretRef("teams", "bot_token"),
+          "channel:teams",
+          config.teams.bot_token
+        ),
+        service_url: config.teams.service_url,
+        api_base_url: config.teams.api_base_url
+      }),
+      allowed_senders: config.teams.allowed_senders
     });
   }
 

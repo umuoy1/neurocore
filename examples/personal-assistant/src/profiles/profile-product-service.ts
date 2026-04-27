@@ -319,7 +319,7 @@ function readOptionalString(value: unknown): string | undefined {
 function readPlatform(value: unknown): IMPlatform | undefined {
   const platform = readOptionalString(value);
   if (!platform) return undefined;
-  if (["web", "feishu", "slack", "discord", "telegram", "email", "cli"].includes(platform)) return platform as IMPlatform;
+  if (["web", "feishu", "slack", "discord", "telegram", "email", "cli", "whatsapp", "signal", "wechat", "matrix", "teams"].includes(platform)) return platform as IMPlatform;
   throw new Error(`Unsupported platform: ${platform}`);
 }
 

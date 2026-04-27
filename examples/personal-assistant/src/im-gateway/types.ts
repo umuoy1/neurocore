@@ -1,4 +1,16 @@
-export type IMPlatform = "cli" | "discord" | "email" | "feishu" | "slack" | "telegram" | "web";
+export type IMPlatform =
+  | "cli"
+  | "discord"
+  | "email"
+  | "feishu"
+  | "matrix"
+  | "signal"
+  | "slack"
+  | "teams"
+  | "telegram"
+  | "web"
+  | "wechat"
+  | "whatsapp";
 
 export type PersonalChannelKind = "cli" | "im" | "web";
 
@@ -232,10 +244,23 @@ export interface PushNotificationOptions {
   }>;
 }
 
-export const IM_PLATFORMS = ["cli", "discord", "email", "feishu", "slack", "telegram", "web"] as const;
+export const IM_PLATFORMS = [
+  "cli",
+  "discord",
+  "email",
+  "feishu",
+  "matrix",
+  "signal",
+  "slack",
+  "teams",
+  "telegram",
+  "web",
+  "wechat",
+  "whatsapp"
+] as const;
 
 export function isIMPlatform(value: unknown): value is IMPlatform {
-  return value === "cli" || value === "discord" || value === "email" || value === "feishu" || value === "slack" || value === "telegram" || value === "web";
+  return typeof value === "string" && (IM_PLATFORMS as readonly string[]).includes(value);
 }
 
 export function getChannelKind(platform: IMPlatform): PersonalChannelKind {
@@ -302,6 +327,79 @@ export function getDefaultChannelCapabilities(platform: IMPlatform): ChannelCapa
     case "feishu":
     case "slack":
     case "telegram":
+    case "matrix":
+    case "teams":
+    case "wechat":
+    case "whatsapp":
+    case "signal":
+      if (platform === "signal" || platform === "wechat") {
+        return {
+          text: true,
+          markdown: false,
+          status: true,
+          images: true,
+          files: true,
+          actions: false,
+          approval_requests: true,
+          typing: false,
+          streaming: false,
+          edits: false,
+          threads: false,
+          reactions: false,
+          voice: true
+        };
+      }
+      if (platform === "matrix") {
+        return {
+          text: true,
+          markdown: true,
+          status: true,
+          images: true,
+          files: true,
+          actions: true,
+          approval_requests: true,
+          typing: true,
+          streaming: false,
+          edits: true,
+          threads: true,
+          reactions: true,
+          voice: true
+        };
+      }
+      if (platform === "teams") {
+        return {
+          text: true,
+          markdown: true,
+          status: true,
+          images: true,
+          files: true,
+          actions: true,
+          approval_requests: true,
+          typing: true,
+          streaming: false,
+          edits: false,
+          threads: true,
+          reactions: false,
+          voice: false
+        };
+      }
+      if (platform === "whatsapp") {
+        return {
+          text: true,
+          markdown: false,
+          status: true,
+          images: true,
+          files: true,
+          actions: true,
+          approval_requests: true,
+          typing: false,
+          streaming: false,
+          edits: false,
+          threads: false,
+          reactions: true,
+          voice: true
+        };
+      }
       return {
         text: true,
         markdown: true,

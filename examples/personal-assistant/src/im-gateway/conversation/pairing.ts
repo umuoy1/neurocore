@@ -25,7 +25,7 @@ export class PairingManager {
   private readonly generateCode: () => string;
 
   public constructor(private readonly options: PairingManagerOptions) {
-    this.requirePairingFor = new Set(options.requirePairingFor ?? ["telegram", "slack", "discord", "email"]);
+    this.requirePairingFor = new Set(options.requirePairingFor ?? ["telegram", "slack", "discord", "email", "whatsapp", "signal", "wechat", "matrix", "teams"]);
     this.codeTtlMs = options.codeTtlMs ?? 10 * 60 * 1000;
     this.now = options.now ?? (() => new Date());
     this.generateCode = options.generateCode ?? (() => randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase());

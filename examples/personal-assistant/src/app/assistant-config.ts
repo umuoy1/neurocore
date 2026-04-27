@@ -83,6 +83,45 @@ export interface PersonalAssistantAppConfig {
     api_base_url?: string;
     allowed_senders?: string[];
   };
+  whatsapp?: {
+    enabled?: boolean;
+    access_token?: string;
+    access_token_ref?: string;
+    phone_number_id?: string;
+    api_base_url?: string;
+    allowed_senders?: string[];
+  };
+  signal?: {
+    enabled?: boolean;
+    sender?: string;
+    api_token?: string;
+    api_token_ref?: string;
+    api_base_url?: string;
+    allowed_senders?: string[];
+  };
+  wechat?: {
+    enabled?: boolean;
+    access_token?: string;
+    access_token_ref?: string;
+    api_base_url?: string;
+    allowed_senders?: string[];
+  };
+  matrix?: {
+    enabled?: boolean;
+    access_token?: string;
+    access_token_ref?: string;
+    api_base_url?: string;
+    user_id?: string;
+    allowed_senders?: string[];
+  };
+  teams?: {
+    enabled?: boolean;
+    bot_token?: string;
+    bot_token_ref?: string;
+    service_url?: string;
+    api_base_url?: string;
+    allowed_senders?: string[];
+  };
   skills?: {
     enabled?: boolean;
     directories?: string[];
@@ -191,6 +230,12 @@ export function createPersonalAssistantConfigFromEnv(
   const telegramBotToken = env.TELEGRAM_BOT_TOKEN ?? appConfig.telegram?.bot_token;
   const slackBotToken = env.SLACK_BOT_TOKEN ?? appConfig.slack?.bot_token;
   const discordBotToken = env.DISCORD_BOT_TOKEN ?? appConfig.discord?.bot_token;
+  const whatsappAccessToken = env.WHATSAPP_ACCESS_TOKEN ?? appConfig.whatsapp?.access_token;
+  const signalApiToken = env.SIGNAL_API_TOKEN ?? appConfig.signal?.api_token;
+  const signalSender = env.SIGNAL_SENDER ?? appConfig.signal?.sender;
+  const wechatAccessToken = env.WECHAT_ACCESS_TOKEN ?? appConfig.wechat?.access_token;
+  const matrixAccessToken = env.MATRIX_ACCESS_TOKEN ?? appConfig.matrix?.access_token;
+  const teamsBotToken = env.TEAMS_BOT_TOKEN ?? appConfig.teams?.bot_token;
 
   return {
     db_path: env.PERSONAL_ASSISTANT_DB_PATH ?? appConfig.db_path ?? join(cwd, ROOT_CONFIG_DIR, "personal-assistant.sqlite"),
@@ -268,6 +313,45 @@ export function createPersonalAssistantConfigFromEnv(
       bot_token_ref: appConfig.discord?.bot_token_ref,
       api_base_url: env.DISCORD_API_BASE_URL ?? appConfig.discord?.api_base_url,
       allowed_senders: parseOptionalList(env.DISCORD_ALLOWED_SENDERS) ?? appConfig.discord?.allowed_senders
+    },
+    whatsapp: {
+      enabled: parseOptionalBoolean(env.WHATSAPP_ENABLED) ?? appConfig.whatsapp?.enabled ?? Boolean(whatsappAccessToken && (env.WHATSAPP_PHONE_NUMBER_ID ?? appConfig.whatsapp?.phone_number_id)),
+      access_token: whatsappAccessToken,
+      access_token_ref: appConfig.whatsapp?.access_token_ref,
+      phone_number_id: env.WHATSAPP_PHONE_NUMBER_ID ?? appConfig.whatsapp?.phone_number_id,
+      api_base_url: env.WHATSAPP_API_BASE_URL ?? appConfig.whatsapp?.api_base_url,
+      allowed_senders: parseOptionalList(env.WHATSAPP_ALLOWED_SENDERS) ?? appConfig.whatsapp?.allowed_senders
+    },
+    signal: {
+      enabled: parseOptionalBoolean(env.SIGNAL_ENABLED) ?? appConfig.signal?.enabled ?? Boolean(signalSender),
+      sender: signalSender,
+      api_token: signalApiToken,
+      api_token_ref: appConfig.signal?.api_token_ref,
+      api_base_url: env.SIGNAL_API_BASE_URL ?? appConfig.signal?.api_base_url,
+      allowed_senders: parseOptionalList(env.SIGNAL_ALLOWED_SENDERS) ?? appConfig.signal?.allowed_senders
+    },
+    wechat: {
+      enabled: parseOptionalBoolean(env.WECHAT_ENABLED) ?? appConfig.wechat?.enabled ?? Boolean(wechatAccessToken),
+      access_token: wechatAccessToken,
+      access_token_ref: appConfig.wechat?.access_token_ref,
+      api_base_url: env.WECHAT_API_BASE_URL ?? appConfig.wechat?.api_base_url,
+      allowed_senders: parseOptionalList(env.WECHAT_ALLOWED_SENDERS) ?? appConfig.wechat?.allowed_senders
+    },
+    matrix: {
+      enabled: parseOptionalBoolean(env.MATRIX_ENABLED) ?? appConfig.matrix?.enabled ?? Boolean(matrixAccessToken),
+      access_token: matrixAccessToken,
+      access_token_ref: appConfig.matrix?.access_token_ref,
+      api_base_url: env.MATRIX_API_BASE_URL ?? appConfig.matrix?.api_base_url,
+      user_id: env.MATRIX_USER_ID ?? appConfig.matrix?.user_id,
+      allowed_senders: parseOptionalList(env.MATRIX_ALLOWED_SENDERS) ?? appConfig.matrix?.allowed_senders
+    },
+    teams: {
+      enabled: parseOptionalBoolean(env.TEAMS_ENABLED) ?? appConfig.teams?.enabled ?? Boolean(teamsBotToken),
+      bot_token: teamsBotToken,
+      bot_token_ref: appConfig.teams?.bot_token_ref,
+      service_url: env.TEAMS_SERVICE_URL ?? appConfig.teams?.service_url,
+      api_base_url: env.TEAMS_API_BASE_URL ?? appConfig.teams?.api_base_url,
+      allowed_senders: parseOptionalList(env.TEAMS_ALLOWED_SENDERS) ?? appConfig.teams?.allowed_senders
     },
     skills: {
       enabled: parseOptionalBoolean(env.PERSONAL_ASSISTANT_SKILLS_ENABLED) ?? appConfig.skills?.enabled,
@@ -614,7 +698,18 @@ function parseBrowserProfileProvider(value: string | undefined): "fetch" | "play
 }
 
 function isSupportedPlatform(value: string): value is IMPlatform {
-  return value === "cli" || value === "discord" || value === "email" || value === "feishu" || value === "slack" || value === "telegram" || value === "web";
+  return value === "cli" ||
+    value === "discord" ||
+    value === "email" ||
+    value === "feishu" ||
+    value === "matrix" ||
+    value === "signal" ||
+    value === "slack" ||
+    value === "teams" ||
+    value === "telegram" ||
+    value === "web" ||
+    value === "wechat" ||
+    value === "whatsapp";
 }
 
 function resolveSandboxConfig(

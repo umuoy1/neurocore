@@ -2,9 +2,9 @@
   "schema_version": "1.0.0",
   "project": "personal-agent-competitive-spec",
   "meta": {
-    "current_task": "PA-GAP-018",
+    "current_task": "PA-GAP-019",
     "phase": "PA-GAP-E",
-    "updated_at": "2026-04-28T02:18:35+08:00",
+    "updated_at": "2026-04-28T02:32:57+08:00",
     "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
   },
   "phases": [
@@ -1558,7 +1558,9 @@
       "id": "PA-GAP-018",
       "phase": "PA-GAP-E",
       "title": "WhatsApp, Signal, WeChat, Matrix and Teams channels",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-04-28T02:32:57+08:00",
+      "acceptance_last_run": "npm run pa:accept -- PA-GAP-018",
       "depends_on": [
         "PA-GAP-024"
       ],
@@ -1572,13 +1574,18 @@
       ],
       "tests": [
         "npm run build",
-        "npm run pa:plan-check"
+        "npm run pa:plan-check",
+        "node --test tests/personal-assistant-extended-channels.test.mjs",
+        "node --test tests/personal-assistant-pairing.test.mjs",
+        "node --test tests/personal-assistant-gateway.test.mjs",
+        "node --test tests/personal-assistant-baseline.test.mjs"
       ],
       "write_paths": [
         "examples/personal-assistant/",
         "tests/",
         "docs/"
-      ]
+      ],
+      "started_at": "2026-04-27T18:21:11.503Z"
     },
     {
       "id": "PA-GAP-019",
