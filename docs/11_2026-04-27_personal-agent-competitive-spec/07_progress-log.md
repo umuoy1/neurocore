@@ -1576,3 +1576,36 @@
 |---|---|
 | Ledger | `PA-GAP-021` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-016` Skills marketplace and install audit |
+
+### PA-GAP-016 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Marketplace | 新增 `SkillMarketplace`，支持 source、package search、install、update、remove、enable、disable、audit |
+| Registry controls | `AgentSkillRegistry` 增加 listAll、enable/disable 和 remove，禁用技能不能被 invoke |
+| Permission manifest | 搜索和 enable 输出 permissions、risk_level、channels、版本和 source 信息，启用前可见 |
+| Version pin | install 支持 `pin_version`；未 force 时 update 会被阻止并写 `update_blocked_pinned` audit |
+| Rollback | update 遇到 marketplace package install failure 时保留旧版本并写 `update_failed_rollback` audit |
+| Tools | 新增 `skill_marketplace_search/install/update/enable/disable/remove/audit` |
+| App wiring | 个人助理配置/env 支持 skill marketplace 和 fixture source，启动后注册 marketplace 工具 |
+| Tests | 新增 `tests/personal-assistant-skill-marketplace.test.mjs` 覆盖工具链、runtime E2E、app config、pin 和失败回滚 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `npm run pa:plan-check` | 通过 |
+| `node --test tests/personal-assistant-skill-marketplace.test.mjs` | 通过，4 项测试 |
+| `node --test tests/personal-assistant-skills.test.mjs tests/personal-assistant-auto-skills.test.mjs` | 通过，6 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-016` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-016` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-017` OpenClaw and Hermes migration |

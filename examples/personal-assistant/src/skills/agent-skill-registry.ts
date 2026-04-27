@@ -30,6 +30,8 @@ export interface AgentSkillInvokeResult {
 export interface AgentSkillRegistryConfig {
   directories?: string[];
   enabled?: boolean;
+  marketplace_enabled?: boolean;
+  marketplace_fixture?: boolean;
 }
 
 export interface AgentSkillContext {
@@ -57,9 +59,21 @@ export class AgentSkillRegistry {
     this.skillsById.set(skill.id, skill);
   }
 
+  public removeSkill(skillId: string): AgentSkillRecord | undefined {
+    const skill = this.skillsById.get(skillId);
+    this.skillsById.delete(skillId);
+    return skill;
+  }
+
   public listSkills(context: AgentSkillContext = {}): AgentSkillRecord[] {
     return [...this.skillsById.values()]
       .filter((skill) => skill.enabled)
+      .filter((skill) => isSkillVisible(skill, context.platform))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  public listAllSkills(context: AgentSkillContext = {}): AgentSkillRecord[] {
+    return [...this.skillsById.values()]
       .filter((skill) => isSkillVisible(skill, context.platform))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
@@ -79,6 +93,16 @@ export class AgentSkillRegistry {
 
   public getSkill(skillId: string): AgentSkillRecord | undefined {
     return this.skillsById.get(skillId);
+  }
+
+  public setSkillEnabled(skillId: string, enabled: boolean): AgentSkillRecord {
+    const skill = this.getSkill(skillId);
+    if (!skill) {
+      throw new Error(`Skill ${skillId} is not installed.`);
+    }
+    const next = { ...skill, enabled };
+    this.skillsById.set(skillId, next);
+    return next;
   }
 
   public invokeSkill(skillId: string, input: string, context: AgentSkillContext = {}): AgentSkillInvokeResult {

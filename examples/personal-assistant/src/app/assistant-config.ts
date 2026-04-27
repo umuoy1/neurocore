@@ -125,6 +125,8 @@ export interface PersonalAssistantAppConfig {
   skills?: {
     enabled?: boolean;
     directories?: string[];
+    marketplace_enabled?: boolean;
+    marketplace_fixture?: boolean;
   };
   mcp?: {
     enabled?: boolean;
@@ -376,7 +378,9 @@ export function createPersonalAssistantConfigFromEnv(
     },
     skills: {
       enabled: parseOptionalBoolean(env.PERSONAL_ASSISTANT_SKILLS_ENABLED) ?? appConfig.skills?.enabled,
-      directories: parseOptionalList(env.PERSONAL_ASSISTANT_SKILL_DIRS) ?? appConfig.skills?.directories
+      directories: parseOptionalList(env.PERSONAL_ASSISTANT_SKILL_DIRS) ?? appConfig.skills?.directories,
+      marketplace_enabled: parseOptionalBoolean(env.PERSONAL_ASSISTANT_SKILL_MARKETPLACE_ENABLED) ?? appConfig.skills?.marketplace_enabled,
+      marketplace_fixture: parseOptionalBoolean(env.PERSONAL_ASSISTANT_SKILL_MARKETPLACE_FIXTURE) ?? appConfig.skills?.marketplace_fixture
     },
     mcp: appConfig.mcp,
     sandbox: resolveSandboxConfig(env, appConfig.sandbox),

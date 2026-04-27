@@ -75,8 +75,13 @@ import { createProfileProductTools, PersonalProfileProductService } from "../pro
 import { ProactiveEngine } from "../proactive/proactive-engine.js";
 import { SqliteStandingOrderStore } from "../proactive/store/sqlite-standing-order-store.js";
 import { PersonalAssistantTaskBoard } from "../proactive/task-board.js";
-import { createAgentSkillRegistryFromConfig, type AgentSkillRegistry } from "../skills/agent-skill-registry.js";
+import { AgentSkillRegistry, createAgentSkillRegistryFromConfig } from "../skills/agent-skill-registry.js";
 import { createPersonalSkillTools } from "../skills/skill-tools.js";
+import {
+  createFixtureSkillMarketplaceSource,
+  createSkillMarketplaceTools,
+  SkillMarketplace
+} from "../skills/skill-marketplace.js";
 import {
   createSandboxManagerFromConfig,
   defaultSandboxForceTools,
@@ -124,6 +129,7 @@ export interface RunningPersonalAssistantApp {
   voiceIO?: VoiceIOService;
   deviceNodeGateway?: DeviceNodeGateway;
   canvasArtifactStore?: CanvasArtifactStore;
+  skillMarketplace?: SkillMarketplace;
   webhookIngress?: PersonalWebhookIngress;
   gmailPubSubWebhook?: GmailPubSubWebhookAdapter;
   close(): Promise<void>;
@@ -143,6 +149,7 @@ export interface PersonalAssistantAgentOptions {
   voiceIO?: VoiceIOService;
   deviceNodeGateway?: DeviceNodeGateway;
   canvasArtifactStore?: CanvasArtifactStore;
+  skillMarketplace?: SkillMarketplace;
 }
 
 export function createPersonalAssistantAgent(
@@ -151,7 +158,7 @@ export function createPersonalAssistantAgent(
 ): AgentBuilder {
   const credentialVault = options.credentialVault ?? createPersonalAssistantCredentialVault(config);
   const reasoner = resolveReasoner(config, credentialVault);
-  const skillRegistry = options.skillRegistry ?? createAgentSkillRegistryFromConfig(config.skills);
+  const skillRegistry = options.skillRegistry ?? createAgentSkillRegistryForConfig(config);
   const agent = defineAgent({
     id: config.agent?.id ?? "personal-assistant",
     name: config.agent?.name ?? "NeuroCore Assistant",
@@ -249,6 +256,12 @@ export function createPersonalAssistantAgent(
     }
   }
 
+  if (options.skillMarketplace) {
+    for (const tool of createSkillMarketplaceTools(options.skillMarketplace)) {
+      agent.registerTool(tool);
+    }
+  }
+
   for (const tool of options.mcpTools ?? []) {
     agent.registerTool(tool);
   }
@@ -314,14 +327,15 @@ export async function startPersonalAssistantApp(
   const knowledgeBaseStore = new SqlitePersonalKnowledgeBaseStore({ filename: config.db_path });
   const contactGraphStore = new SqliteContactGraphStore({ filename: config.db_path });
   const privacy = new PersonalDataSubjectService({ memoryStore, sessionSearchStore });
-  const skillRegistry = createAgentSkillRegistryFromConfig(config.skills);
+  const skillRegistry = createAgentSkillRegistryForConfig(config);
+  const skillMarketplace = createSkillMarketplaceFromConfig(config, skillRegistry);
   const credentialVault = createPersonalAssistantCredentialVault(config);
   const voiceIO = createVoiceIOServiceFromConfig(config);
   const deviceNodeGateway = createDeviceNodeGatewayFromConfig(config);
   const canvasArtifactStore = createCanvasArtifactStoreFromConfig(config);
   const runtimeFactory = new AssistantRuntimeFactory({
     dbPath: config.db_path,
-    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, knowledgeBaseStore, contactGraphStore, skillRegistry, credentialVault, deviceNodeGateway, canvasArtifactStore })
+    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, knowledgeBaseStore, contactGraphStore, skillRegistry, credentialVault, deviceNodeGateway, canvasArtifactStore, skillMarketplace })
   });
   const builder = runtimeFactory.getBuilder();
 
@@ -638,6 +652,7 @@ export async function startPersonalAssistantApp(
     voiceIO,
     deviceNodeGateway,
     canvasArtifactStore,
+    skillMarketplace,
     webhookIngress,
     gmailPubSubWebhook,
     async close() {
@@ -740,6 +755,24 @@ function createDeviceNodeGatewayFromConfig(config: PersonalAssistantAppConfig): 
 
 function createCanvasArtifactStoreFromConfig(config: PersonalAssistantAppConfig): CanvasArtifactStore | undefined {
   return config.canvas?.enabled ? new InMemoryCanvasArtifactStore() : undefined;
+}
+
+function createAgentSkillRegistryForConfig(config: PersonalAssistantAppConfig): AgentSkillRegistry | undefined {
+  return createAgentSkillRegistryFromConfig(config.skills)
+    ?? (config.skills?.marketplace_enabled ? new AgentSkillRegistry() : undefined);
+}
+
+function createSkillMarketplaceFromConfig(
+  config: PersonalAssistantAppConfig,
+  registry: AgentSkillRegistry | undefined
+): SkillMarketplace | undefined {
+  if (!registry || !config.skills?.marketplace_enabled) {
+    return undefined;
+  }
+  return new SkillMarketplace({
+    registry,
+    sources: config.skills.marketplace_fixture === false ? [] : [createFixtureSkillMarketplaceSource()]
+  });
 }
 
 function createOpenAIProviderRegistry(

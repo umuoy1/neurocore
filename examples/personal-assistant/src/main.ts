@@ -48,6 +48,7 @@ export * from "./devices/device-node-tools.js";
 export * from "./canvas/canvas-artifact-store.js";
 export * from "./skills/agent-skill-registry.js";
 export * from "./skills/skill-tools.js";
+export * from "./skills/skill-marketplace.js";
 export * from "./skills/auto-skill-manager.js";
 export * from "./subagents/subagent-manager.js";
 export * from "./sandbox/sandbox-provider.js";
