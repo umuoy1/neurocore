@@ -1807,3 +1807,36 @@
 |---|---|
 | Ledger | `PA-GAP-029` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-030` Home Assistant and IoT |
+
+### PA-GAP-030 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Home Assistant client | 新增 `HomeAssistantRestClient`，支持 `/api/states`、单 entity state 和 `/api/services/:domain/:service` REST 调用 |
+| Governance service | 新增 `PersonalHomeAssistantService`，统一 entity discovery、state read、service call、dry-run、approval gate、state readback 和 audit |
+| Dangerous action gate | `turn_on/turn_off/toggle/lock/unlock/open_cover/close_cover/set_temperature/press/start/stop` 等危险服务默认要求先 dry-run，再带 `approved=true` 执行 |
+| State readback | 执行成功后自动重新读取 entity state，并记录 `service_called` 与 `state_readback` audit |
+| Product tools | 新增 `home_assistant_entity_discover/state_read/service_call/audit_list`，`service_call` 标记为 high side effect |
+| Config and secret | `PersonalAssistantAppConfig.home_assistant` 支持 env/base_url/access_token/dangerous_services；access token 注册进 credential vault 并按 `tool:home_assistant` scope lease |
+| App wiring | `startPersonalAssistantApp` 可按配置创建 Home Assistant service，并把工具注册到个人助理 builder |
+| Tests | 新增 fixture HA server，覆盖 discovery、dry-run、blocked no-approval、approved execution、readback、audit、tool refs 和 config env |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `npm run pa:plan-check` | 通过 |
+| `node --test tests/personal-assistant-home-assistant.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-device-nodes.test.mjs tests/personal-assistant-config.test.mjs` | 通过，8 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-030` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-030` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-001` ~ `PA-GAP-030` 已全部完成，`pa:next-task` 应返回无可运行任务 |

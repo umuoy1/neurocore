@@ -115,12 +115,18 @@ import {
   createDeviceNodeTools,
   pairHeadlessDeviceNodeSimulator
 } from "../devices/device-node-tools.js";
+import {
+  createHomeAssistantTools,
+  HomeAssistantRestClient,
+  PersonalHomeAssistantService
+} from "../home-assistant/home-assistant-tools.js";
 import { createPersonalMcpGovernanceTools, type PersonalMcpGovernanceRegistry } from "../mcp/personal-mcp-client.js";
 import type { PersonalAssistantAppConfig } from "./assistant-config.js";
 import type { CredentialVault } from "../security/credential-vault.js";
 import {
   channelSecretRef,
   createPersonalAssistantCredentialVault,
+  HOME_ASSISTANT_SECRET_REF,
   leaseChannelSecret,
   resolveModelBearerToken,
   resolveWebSearchConfig
@@ -138,6 +144,7 @@ export interface RunningPersonalAssistantApp {
   profileService: PersonalProfileProductService;
   voiceIO?: VoiceIOService;
   deviceNodeGateway?: DeviceNodeGateway;
+  homeAssistantService?: PersonalHomeAssistantService;
   canvasArtifactStore?: CanvasArtifactStore;
   skillMarketplace?: SkillMarketplace;
   migrationImporter?: PersonalAssistantMigrationImporter;
@@ -160,6 +167,7 @@ export interface PersonalAssistantAgentOptions {
   contactGraphStore?: ContactGraphStore;
   voiceIO?: VoiceIOService;
   deviceNodeGateway?: DeviceNodeGateway;
+  homeAssistantService?: PersonalHomeAssistantService;
   canvasArtifactStore?: CanvasArtifactStore;
   skillMarketplace?: SkillMarketplace;
   autoSkillManager?: AutoSkillManager;
@@ -342,6 +350,12 @@ export function createPersonalAssistantAgent(
     }
   }
 
+  if (options.homeAssistantService) {
+    for (const tool of createHomeAssistantTools(options.homeAssistantService)) {
+      agent.registerTool(tool);
+    }
+  }
+
   if (options.canvasArtifactStore) {
     for (const tool of createCanvasArtifactTools(options.canvasArtifactStore)) {
       agent.registerTool(tool);
@@ -364,11 +378,12 @@ export async function startPersonalAssistantApp(
   const credentialVault = createPersonalAssistantCredentialVault(config);
   const voiceIO = createVoiceIOServiceFromConfig(config);
   const deviceNodeGateway = createDeviceNodeGatewayFromConfig(config);
+  const homeAssistantService = createHomeAssistantServiceFromConfig(config, credentialVault);
   const canvasArtifactStore = createCanvasArtifactStoreFromConfig(config);
   const backupService = new PersonalAssistantBackupService();
   const runtimeFactory = new AssistantRuntimeFactory({
     dbPath: config.db_path,
-    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, knowledgeBaseStore, contactGraphStore, skillRegistry, credentialVault, deviceNodeGateway, canvasArtifactStore, skillMarketplace, backupService })
+    buildAgent: () => createPersonalAssistantAgent(config, { personalMemoryStore: memoryStore, sessionSearchStore, knowledgeBaseStore, contactGraphStore, skillRegistry, credentialVault, deviceNodeGateway, homeAssistantService, canvasArtifactStore, skillMarketplace, backupService })
   });
   const builder = runtimeFactory.getBuilder();
 
@@ -695,6 +710,7 @@ export async function startPersonalAssistantApp(
     profileService,
     voiceIO,
     deviceNodeGateway,
+    homeAssistantService,
     canvasArtifactStore,
     skillMarketplace,
     migrationImporter,
@@ -797,6 +813,41 @@ function createDeviceNodeGatewayFromConfig(config: PersonalAssistantAppConfig): 
     });
   }
   return gateway;
+}
+
+function createHomeAssistantServiceFromConfig(
+  config: PersonalAssistantAppConfig,
+  credentialVault?: CredentialVault
+): PersonalHomeAssistantService | undefined {
+  if (!config.home_assistant?.enabled || !config.home_assistant.base_url) {
+    return undefined;
+  }
+  const accessToken = resolveHomeAssistantAccessToken(config, credentialVault);
+  if (!accessToken) {
+    return undefined;
+  }
+  return new PersonalHomeAssistantService({
+    client: new HomeAssistantRestClient({
+      baseUrl: config.home_assistant.base_url,
+      accessToken
+    }),
+    dangerousServices: config.home_assistant.dangerous_services
+  });
+}
+
+function resolveHomeAssistantAccessToken(
+  config: PersonalAssistantAppConfig,
+  credentialVault?: CredentialVault
+): string | undefined {
+  const homeAssistant = config.home_assistant;
+  if (!homeAssistant) {
+    return undefined;
+  }
+  const ref = homeAssistant.access_token_ref ?? HOME_ASSISTANT_SECRET_REF;
+  if (credentialVault?.hasSecret(ref)) {
+    return credentialVault.leaseSecret(ref, "tool:home_assistant", { reason: "home_assistant_tool" }).value;
+  }
+  return homeAssistant.access_token;
 }
 
 function createCanvasArtifactStoreFromConfig(config: PersonalAssistantAppConfig): CanvasArtifactStore | undefined {

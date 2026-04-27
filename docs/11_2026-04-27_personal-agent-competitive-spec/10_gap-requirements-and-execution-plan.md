@@ -60,7 +60,7 @@
 | PA-GAP-027 | 自学习技能闭环产品化 | Hermes built-in learning loop | partial | P1 | 从成功 workflow 生成候选技能，经回归验证后启用，失败可 rollback |
 | PA-GAP-028 | 轨迹训练数据流水线 | Hermes batch trajectory / RL env | partial | P2 | batch generation、compression、redaction、eval/training artifact 全链路 |
 | PA-GAP-029 | 备份、恢复、同步、加密 | 个人助理长期数据必须可迁移和恢复 | covered | P2 | 一键备份/恢复，跨设备同步冲突可处理，敏感数据加密 |
-| PA-GAP-030 | Home Assistant / IoT | OpenClaw/Hermes messaging 和设备生态延伸 | missing | P2 | 家庭自动化工具有授权、dry-run、approval、状态回读和审计 |
+| PA-GAP-030 | Home Assistant / IoT | OpenClaw/Hermes messaging 和设备生态延伸 | covered | P2 | 家庭自动化工具有授权、dry-run、approval、状态回读和审计 |
 
 ---
 

@@ -186,6 +186,13 @@ export interface PersonalAssistantAppConfig {
     pairing_code_ttl_ms?: number;
     simulator_node_id?: string;
   };
+  home_assistant?: {
+    enabled?: boolean;
+    base_url?: string;
+    access_token?: string;
+    access_token_ref?: string;
+    dangerous_services?: string[];
+  };
   canvas?: {
     enabled?: boolean;
   };
@@ -259,6 +266,8 @@ export function createPersonalAssistantConfigFromEnv(
   const wechatAccessToken = env.WECHAT_ACCESS_TOKEN ?? appConfig.wechat?.access_token;
   const matrixAccessToken = env.MATRIX_ACCESS_TOKEN ?? appConfig.matrix?.access_token;
   const teamsBotToken = env.TEAMS_BOT_TOKEN ?? appConfig.teams?.bot_token;
+  const homeAssistantBaseUrl = env.HOME_ASSISTANT_BASE_URL ?? env.PERSONAL_ASSISTANT_HOME_ASSISTANT_BASE_URL ?? appConfig.home_assistant?.base_url;
+  const homeAssistantAccessToken = env.HOME_ASSISTANT_ACCESS_TOKEN ?? env.PERSONAL_ASSISTANT_HOME_ASSISTANT_ACCESS_TOKEN ?? appConfig.home_assistant?.access_token;
 
   return {
     db_path: env.PERSONAL_ASSISTANT_DB_PATH ?? appConfig.db_path ?? join(cwd, ROOT_CONFIG_DIR, "personal-assistant.sqlite"),
@@ -434,6 +443,13 @@ export function createPersonalAssistantConfigFromEnv(
       auto_grant_simulator: parseOptionalBoolean(env.PERSONAL_ASSISTANT_DEVICE_SIMULATOR_AUTO_GRANT) ?? appConfig.devices?.auto_grant_simulator,
       pairing_code_ttl_ms: parseOptionalInt(env.PERSONAL_ASSISTANT_DEVICE_PAIRING_CODE_TTL_MS) ?? appConfig.devices?.pairing_code_ttl_ms,
       simulator_node_id: env.PERSONAL_ASSISTANT_DEVICE_SIMULATOR_NODE_ID ?? appConfig.devices?.simulator_node_id
+    },
+    home_assistant: {
+      enabled: parseOptionalBoolean(env.HOME_ASSISTANT_ENABLED) ?? parseOptionalBoolean(env.PERSONAL_ASSISTANT_HOME_ASSISTANT_ENABLED) ?? appConfig.home_assistant?.enabled ?? Boolean(homeAssistantBaseUrl && homeAssistantAccessToken),
+      base_url: homeAssistantBaseUrl,
+      access_token: homeAssistantAccessToken,
+      access_token_ref: appConfig.home_assistant?.access_token_ref,
+      dangerous_services: parseOptionalList(env.PERSONAL_ASSISTANT_HOME_ASSISTANT_DANGEROUS_SERVICES) ?? appConfig.home_assistant?.dangerous_services
     },
     canvas: {
       enabled: parseOptionalBoolean(env.PERSONAL_ASSISTANT_CANVAS_ENABLED) ?? appConfig.canvas?.enabled

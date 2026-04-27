@@ -55,6 +55,7 @@
 > - 2026-04-28 个人助理 Canvas 补充：`PA-GAP-021` 已完成，当前个人助理具备 versioned HTML canvas artifact store、create/update/preview/rollback/list/inspect 工具、CSP preview renderer、HTML sanitizer 和 Console Assistant Canvas 页面；script/event/javascript URL 注入会被清洗并由 iframe sandbox 约束。
 > - 2026-04-28 个人助理技能市场补充：`PA-GAP-016` 已完成，当前个人助理具备 `SkillMarketplace` source/package search、install/update/remove/enable/disable/audit、permission/risk manifest、version pin 和升级失败 rollback；禁用技能不会出现在可调用列表且 invoke 会被阻断。
 > - 2026-04-28 个人助理备份恢复补充：`PA-GAP-029` 已完成，当前个人助理具备加密 backup envelope、manifest、fresh HOME restore、dry-run restore、冲突报告、跨备份 sync conflict report 和 Agent 工具入口；focused test 已确认备份文件不泄漏 SQLite memory、config token 和 artifact email 明文。
+> - 2026-04-28 个人助理 Home Assistant / IoT 补充：`PA-GAP-030` 已完成，当前个人助理具备 Home Assistant REST client、entity discovery、state read、危险 service dry-run、approval gate、执行后状态回读和 audit 工具；`PA-GAP-001` ~ `PA-GAP-030` 产品化路线已全部收口。
 
 ## 完成度
 
@@ -88,7 +89,7 @@
 | 已完成 | Operational Maturity | 当前阶段已完成 webhook retry/DLQ/HMAC/timeout、batch session creation、eval parallelism、agent versioning、session sharing、logger/tracer SPI 与 observability gating |
 | 已完成 | M10 / Skill RL | 当前阶段已 100% 完成，已覆盖 reward/policy/exploration/evaluation/transfer/online learner 全链路、基于真实 `cycle / latency / token` 的效率奖励、reward metrics/baseline persistence、FR-45 分层上下文 bandit，以及 FR-47/48 闭环细节；后续只保留更长期的训练运营与策略演进 |
 | 已完成 | Personal Agent OpenClaw/Hermes parity+ | 当前 `PA2-P0-00` ~ `PA2-P2-07` 已全部完成，覆盖 gateway、连续性、显式记忆、命令治理、后台任务、cron、多渠道、skills、MCP、subagents、sandbox、standing orders、memory wiki、dreaming、自动技能、profile、trajectory、media/voice 和 Console governance；后续转入真实渠道联调、生产化持久治理 API 与更大规模验收 |
-| 下一轮 | Personal Assistant PA-GAP 产品化路线 | 已形成 `PA-GAP-001` ~ `PA-GAP-030` 需求表和 Phase A ~ G 计划；`PA-GAP-001` 产品级 Baseline Runner、`PA-GAP-002` 安装/onboarding/daemon、`PA-GAP-003` doctor / health / config dry-run、`PA-GAP-004` 真实 CLI/TUI 产品、`PA-GAP-005` 会话 UX 命令、`PA-GAP-006` DM pairing / allowlist / home channel、`PA-GAP-007` 模型选择/fallback/health check、`PA-GAP-008` credential vault / least-secret privilege、`PA-GAP-009` 产品级文件工具、`PA-GAP-010` 终端后台进程管理、`PA-GAP-011` 真实浏览器 profile、`PA-GAP-012` 通用 webhook + Gmail Pub/Sub、`PA-GAP-013` 通知策略、`PA-GAP-015` 任务板产品化、`PA-GAP-014` 用户数据和隐私控制台、`PA-GAP-022` 个人知识库接入、`PA-GAP-023` 联系人和关系图谱、`PA-GAP-024` 多 profile 产品入口、`PA-GAP-018` WhatsApp / Signal / WeChat / Matrix / Teams channels、`PA-GAP-019` 语音 STT/TTS 和 push-to-talk、`PA-GAP-020` 桌面移动节点、`PA-GAP-021` Canvas / artifact surface、`PA-GAP-016` Skills marketplace and install audit、`PA-GAP-017` OpenClaw and Hermes migration、`PA-GAP-025` Advanced sandbox backend、`PA-GAP-026` MCP product governance、`PA-GAP-027` Self-learning skill loop productization、`PA-GAP-028` Trajectory training data pipeline、`PA-GAP-029` Backup, restore, sync and encryption 已完成，下一步实现 `PA-GAP-030` Home Assistant and IoT，并把 baseline 作为后续所有功能门禁 |
+| 已完成 | Personal Assistant PA-GAP 产品化路线 | `PA-GAP-001` ~ `PA-GAP-030` 已全部完成并通过各自 `pa:accept`；当前个人助理已覆盖 baseline runner、安装/daemon、doctor、CLI/TUI、会话命令、pairing、模型 fallback、secret vault、文件/终端/浏览器/webhook/通知/任务板、隐私、知识库、联系人、多 profile、多渠道、语音、设备节点、Canvas、技能市场、迁移器、高级沙箱、MCP 治理、自学习技能、轨迹训练、加密备份恢复同步和 Home Assistant / IoT；后续进入真实平台联调、规模化稳定性和生产化运营增强 |
 
 ## 已实现核心能力
 

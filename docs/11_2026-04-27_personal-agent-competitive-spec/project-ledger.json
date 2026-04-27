@@ -1915,7 +1915,9 @@
       "id": "PA-GAP-030",
       "phase": "PA-GAP-G",
       "title": "Home Assistant and IoT",
-      "status": "in_progress",
+      "status": "completed",
+      "completed_at": "2026-04-28T04:01:23+08:00",
+      "acceptance_last_run": "npm run pa:accept -- PA-GAP-030",
       "depends_on": [
         "PA-GAP-029"
       ],
@@ -1929,7 +1931,10 @@
       ],
       "tests": [
         "npm run build",
-        "npm run pa:plan-check"
+        "npm run pa:plan-check",
+        "node --test tests/personal-assistant-home-assistant.test.mjs",
+        "node --test tests/personal-assistant-device-nodes.test.mjs tests/personal-assistant-config.test.mjs",
+        "node --test tests/personal-assistant-baseline.test.mjs"
       ],
       "write_paths": [
         "examples/personal-assistant/",

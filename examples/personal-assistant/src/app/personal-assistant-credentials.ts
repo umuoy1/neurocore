@@ -4,6 +4,7 @@ import type { PersonalAssistantAppConfig, PersonalAssistantModelProviderConfig, 
 
 export const MODEL_DEFAULT_SECRET_REF = "personal-assistant://model/default/bearer-token";
 export const WEB_SEARCH_SECRET_REF = "personal-assistant://tool/web_search/api-key";
+export const HOME_ASSISTANT_SECRET_REF = "personal-assistant://tool/home_assistant/access-token";
 
 export function createPersonalAssistantCredentialVault(
   config: PersonalAssistantAppConfig,
@@ -13,6 +14,7 @@ export function createPersonalAssistantCredentialVault(
   registerModelSecrets(config, vault);
   registerSearchSecret(config.connectors?.search, vault);
   registerChannelSecrets(config, vault);
+  registerHomeAssistantSecret(config, vault);
   return vault;
 }
 
@@ -119,6 +121,12 @@ function registerChannelSecrets(config: PersonalAssistantAppConfig, vault: Crede
   }
   if (config.teams?.bot_token) {
     registerIfMissing(vault, config.teams.bot_token_ref ?? channelSecretRef("teams", "bot_token"), config.teams.bot_token, ["channel:teams"]);
+  }
+}
+
+function registerHomeAssistantSecret(config: PersonalAssistantAppConfig, vault: CredentialVault): void {
+  if (config.home_assistant?.access_token) {
+    registerIfMissing(vault, config.home_assistant.access_token_ref ?? HOME_ASSISTANT_SECRET_REF, config.home_assistant.access_token, ["tool:home_assistant"]);
   }
 }
 

@@ -59,6 +59,7 @@
 > - 2026-04-28 个人助理自学习技能补充：`PA-GAP-027` 已落地 auto skill product tools、candidate proposal、regression validation gate、activation、disable、rollback 和 audit；成功 workflow 可生成候选技能，验证通过后启用，失败或新版本可回滚。下一项为 `PA-GAP-028` Trajectory training data pipeline。
 > - 2026-04-28 个人助理轨迹训练流水线补充：`PA-GAP-028` 已落地 batch trajectory pipeline、training artifact、compression report、redaction aggregation、deterministic replay report 和 schema validation；训练/评测 artifact 可端到端生成并回放。下一项为 `PA-GAP-029` Backup, restore, sync and encryption。
 > - 2026-04-28 个人助理备份恢复补充：`PA-GAP-029` 已落地加密 backup envelope、manifest、fresh HOME restore、dry-run、冲突报告、跨备份 sync conflict report 和个人助理备份工具；备份文件不暴露 SQLite memory、config token、artifact email 等敏感明文。下一项为 `PA-GAP-030` Home Assistant / IoT。
+> - 2026-04-28 个人助理 Home Assistant / IoT 补充：`PA-GAP-030` 已落地 Home Assistant REST client、entity discovery、state read、service dry-run、危险动作 approval gate、执行后状态回读、audit 和 Agent 工具；fixture server 验收覆盖 discovery、dry-run、blocked no-approval、approved execution 和 readback。`PA-GAP-001` ~ `PA-GAP-030` 当前已全部完成。
 
 ## 交付总结
 
