@@ -83,6 +83,10 @@ import {
   SkillMarketplace
 } from "../skills/skill-marketplace.js";
 import {
+  createPersonalAssistantMigrationTools,
+  PersonalAssistantMigrationImporter
+} from "../migration/openclaw-hermes-migration.js";
+import {
   createSandboxManagerFromConfig,
   defaultSandboxForceTools,
   defaultSandboxedTools,
@@ -130,6 +134,7 @@ export interface RunningPersonalAssistantApp {
   deviceNodeGateway?: DeviceNodeGateway;
   canvasArtifactStore?: CanvasArtifactStore;
   skillMarketplace?: SkillMarketplace;
+  migrationImporter?: PersonalAssistantMigrationImporter;
   webhookIngress?: PersonalWebhookIngress;
   gmailPubSubWebhook?: GmailPubSubWebhookAdapter;
   close(): Promise<void>;
@@ -355,6 +360,17 @@ export async function startPersonalAssistantApp(
   }
   const mappingStore = new SqliteProfileScopedSessionMappingStore({ filename: config.db_path });
   const userLinkStore = new SqlitePlatformUserLinkStore({ filename: config.db_path });
+  const migrationImporter = new PersonalAssistantMigrationImporter({
+    memoryStore,
+    skillRegistry,
+    profileService,
+    userLinkStore,
+    tenantId: config.tenant_id,
+    agentId: config.agent?.id ?? "personal-assistant"
+  });
+  for (const tool of createPersonalAssistantMigrationTools(migrationImporter)) {
+    builder.registerTool(tool);
+  }
   const pairingManager = new PairingManager({
     store: userLinkStore,
     requirePairingFor: config.identity?.require_pairing === false
@@ -653,6 +669,7 @@ export async function startPersonalAssistantApp(
     deviceNodeGateway,
     canvasArtifactStore,
     skillMarketplace,
+    migrationImporter,
     webhookIngress,
     gmailPubSubWebhook,
     async close() {

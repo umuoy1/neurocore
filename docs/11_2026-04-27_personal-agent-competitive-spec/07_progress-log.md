@@ -1609,3 +1609,36 @@
 |---|---|
 | Ledger | `PA-GAP-016` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-017` OpenClaw and Hermes migration |
+
+### PA-GAP-017 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Migration importer | 新增 `PersonalAssistantMigrationImporter`，支持 OpenClaw `openclaw.json` 与 Hermes `hermes-agent.json` 合成 HOME 导入 |
+| Object coverage | 覆盖 persona、memory、skills、allowlist、channels、api key refs、workspace instructions |
+| Dry-run | `personal_migration_dry_run` 返回 mapping report、counts、duplicates，不写入 memory/profile/skills/identity store |
+| Real import | `personal_migration_import` 写入 profile metadata、personal memory、skill registry、platform allowlist 与 home channel |
+| Dedupe | memory 内容、skill id、profile id、platform sender link 均会检测重复并报告 duplicate action |
+| Rollback artifact | 真实导入返回 rollback artifact，列出 profile、memory、skill、allowlist、channel 的回滚操作 |
+| App wiring | `startPersonalAssistantApp` 暴露 `migrationImporter` 并注册迁移 dry-run/import 工具 |
+| Tests | 新增 `tests/personal-assistant-migration.test.mjs` 覆盖 OpenClaw/Hermes dry-run、真实导入、工具入口和 app 接线 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `npm run pa:plan-check` | 通过 |
+| `node --test tests/personal-assistant-migration.test.mjs` | 通过，5 项测试 |
+| `node --test tests/personal-assistant-profile-product.test.mjs tests/personal-assistant-gateway.test.mjs` | 通过，10 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-017` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-017` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-025` Advanced sandbox backend |

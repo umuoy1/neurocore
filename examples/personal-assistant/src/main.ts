@@ -50,6 +50,7 @@ export * from "./skills/agent-skill-registry.js";
 export * from "./skills/skill-tools.js";
 export * from "./skills/skill-marketplace.js";
 export * from "./skills/auto-skill-manager.js";
+export * from "./migration/openclaw-hermes-migration.js";
 export * from "./subagents/subagent-manager.js";
 export * from "./sandbox/sandbox-provider.js";
 export * from "./sandbox/sandbox-tools.js";
