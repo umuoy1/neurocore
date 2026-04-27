@@ -1250,3 +1250,34 @@
 |---|---|
 | Ledger | `PA-GAP-012` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-013` Notification policy |
+
+### PA-GAP-013 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Policy store | 新增 `NotificationPolicyStore` 与 `InMemoryNotificationPolicyStore`，支持 per-user 和 default policy |
+| Delivery planner | 新增 `NotificationDeliveryPlanner`，处理 priority、quiet hours、fallback route、dedupe key 和 dedupe window |
+| Dispatcher integration | `NotificationDispatcher.pushToUser()` 在投递前执行策略；normal/silent 可静默，urgent 默认绕过 quiet hours，主渠道失败后尝试 fallback |
+| Dedupe | `PushNotificationOptions` 新增 `dedupe_key`、`fallback_routes`、`quiet_hours_bypass`，重复提醒返回 deduped 结果且不重复发送 |
+| Config | 个人助理配置新增 `notifications.default_policy`，启动时注入 dispatcher |
+| Tests | 新增 `tests/personal-assistant-notification-policy.test.mjs` 覆盖 quiet hours、urgent、fallback 和 dedupe |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-notification-policy.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-email-adapter.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-proactive.test.mjs` | 通过，4 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-013` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-013` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-015` Task board productization |

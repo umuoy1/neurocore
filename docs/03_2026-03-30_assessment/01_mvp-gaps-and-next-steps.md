@@ -42,6 +42,7 @@
 > - 2026-04-28 个人助理终端后台进程补充：`PA-GAP-010` 已落地 `TerminalBackgroundProcessManager` 和 `terminal_process_start/poll/log/write/wait/kill` 工具，支持增量日志、stdin、wait、进程组 kill、timeout、task ledger 成功/失败/取消归档，以及 high-risk start/write/kill 审批前不 spawn。下一项为 `PA-GAP-011` 真实浏览器 profile。
 > - 2026-04-28 个人助理浏览器 profile 补充：`PA-GAP-011` 已落地 browser session/provider SPI 和 `browser_session_start/navigate/click/type/screenshot/pdf/snapshot/close` 工具，默认 fetch profile provider 支持本地登录态/cookie/表单验收，可选 Playwright provider 支持真实 browser context、截图和 PDF；profile close 会清理目录，untrusted marker 保留。下一项为 `PA-GAP-012` 通用 webhook + Gmail Pub/Sub。
 > - 2026-04-28 个人助理 webhook 补充：`PA-GAP-012` 已落地 `PersonalWebhookIngress` 和 `GmailPubSubWebhookAdapter`，支持 token 鉴权、session/task route、BackgroundTaskLedger 写入、Gmail Pub/Sub base64 data 解码、untrusted payload 标记和 audit 事件。下一项为 `PA-GAP-013` 通知策略。
+> - 2026-04-28 个人助理通知策略补充：`PA-GAP-013` 已落地 notification policy store/planner，`pushToUser` 支持 quiet hours、urgent bypass、fallback route、dedupe key 和 dedupe window；normal/silent 可静默，主渠道失败后可跨渠道 fallback，重复提醒被合并。下一项为 `PA-GAP-015` 任务板产品化。
 
 ## 交付总结
 

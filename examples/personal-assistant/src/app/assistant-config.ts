@@ -7,6 +7,7 @@ import type { ServiceConnectorConfig } from "../connectors/types.js";
 import type { PersonalMcpServerConfig } from "../mcp/personal-mcp-client.js";
 import type { PersonalAssistantSandboxConfig, SandboxTarget } from "../sandbox/sandbox-provider.js";
 import type { IMPlatform } from "../im-gateway/types.js";
+import type { NotificationPolicy } from "../im-gateway/notification/notification-policy.js";
 import type { PersonalWebhookRouteConfig } from "../webhook/webhook-ingress.js";
 
 export interface PersonalAssistantAppConfig {
@@ -122,6 +123,9 @@ export interface PersonalAssistantAppConfig {
       chat_id?: string;
       sender_id?: string;
     };
+  };
+  notifications?: {
+    default_policy?: NotificationPolicy;
   };
   proactive?: {
     enabled?: boolean;
@@ -303,6 +307,7 @@ export function createPersonalAssistantConfigFromEnv(
         sender_id: env.PERSONAL_ASSISTANT_GMAIL_PUBSUB_SENDER_ID ?? appConfig.webhooks?.gmail_pubsub?.sender_id
       }
     },
+    notifications: appConfig.notifications,
     proactive: appConfig.proactive
   };
 }

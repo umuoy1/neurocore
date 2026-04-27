@@ -224,6 +224,12 @@ export interface PushNotificationOptions {
   priority?: NotificationPriority;
   platform?: IMPlatform;
   chat_id?: string;
+  dedupe_key?: string;
+  quiet_hours_bypass?: boolean;
+  fallback_routes?: Array<{
+    platform: IMPlatform;
+    chat_id: string;
+  }>;
 }
 
 export const IM_PLATFORMS = ["cli", "discord", "email", "feishu", "slack", "telegram", "web"] as const;

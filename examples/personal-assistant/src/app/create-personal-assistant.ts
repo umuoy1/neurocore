@@ -27,6 +27,7 @@ import { SqlitePlatformUserLinkStore } from "../im-gateway/conversation/sqlite-p
 import { SqliteSessionMappingStore } from "../im-gateway/conversation/sqlite-session-mapping-store.js";
 import { IMGateway } from "../im-gateway/gateway.js";
 import { NotificationDispatcher } from "../im-gateway/notification/notification-dispatcher.js";
+import { InMemoryNotificationPolicyStore } from "../im-gateway/notification/notification-policy.js";
 import { AssistantRuntimeFactory } from "../im-gateway/runtime/assistant-runtime-factory.js";
 import type { IMPlatform } from "../im-gateway/types.js";
 import { PersonalMemoryRecallProvider } from "../memory/personal-memory-recall-provider.js";
@@ -263,7 +264,8 @@ export async function startPersonalAssistantApp(
   let gatewayRef: IMGateway | undefined;
   const dispatcher = new NotificationDispatcher({
     getAdapter: (platform) => gatewayRef?.getAdapter(platform),
-    mappingStore
+    mappingStore,
+    notificationPolicyStore: createNotificationPolicyStore(config)
   });
   const commandHandler = new CommandHandler({
     router,
@@ -492,6 +494,15 @@ function resolveReasoner(
     headers: config.openai.headers,
     extraBody: config.openai.extraBody
   });
+}
+
+function createNotificationPolicyStore(config: PersonalAssistantAppConfig): InMemoryNotificationPolicyStore | undefined {
+  if (!config.notifications?.default_policy) {
+    return undefined;
+  }
+  const store = new InMemoryNotificationPolicyStore();
+  store.setPolicy("default", config.notifications.default_policy);
+  return store;
 }
 
 function createOpenAIProviderRegistry(

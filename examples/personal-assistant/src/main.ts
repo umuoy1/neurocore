@@ -12,6 +12,7 @@ export * from "./im-gateway/adapter/slack.js";
 export * from "./im-gateway/adapter/telegram.js";
 export * from "./im-gateway/command/command-handler.js";
 export * from "./im-gateway/notification/notification-dispatcher.js";
+export * from "./im-gateway/notification/notification-policy.js";
 export * from "./im-gateway/conversation/conversation-router.js";
 export * from "./im-gateway/conversation/pairing.js";
 export * from "./im-gateway/conversation/profile-aware-conversation-router.js";
