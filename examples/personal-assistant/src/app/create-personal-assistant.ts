@@ -1,5 +1,10 @@
 import { defineAgent, type AgentBuilder } from "@neurocore/sdk-core";
-import { OpenAICompatibleReasoner } from "@neurocore/sdk-node";
+import {
+  OpenAICompatibleModelRouterReasoner,
+  OpenAICompatibleProviderRegistry,
+  OpenAICompatibleReasoner,
+  type OpenAICompatibleModelProviderConfig
+} from "@neurocore/sdk-node";
 import type { Reasoner, Tool } from "@neurocore/protocol";
 import { SandboxPolicyProvider } from "@neurocore/policy-core";
 import { CliAdapter } from "../im-gateway/adapter/cli.js";
@@ -64,7 +69,7 @@ export function createPersonalAssistantAgent(
   config: PersonalAssistantAppConfig,
   options: PersonalAssistantAgentOptions = {}
 ): AgentBuilder {
-  const reasoner = resolveReasoner(config.reasoner, config.openai);
+  const reasoner = resolveReasoner(config);
   const skillRegistry = options.skillRegistry ?? createAgentSkillRegistryFromConfig(config.skills);
   const agent = defineAgent({
     id: config.agent?.id ?? "personal-assistant",
@@ -177,6 +182,7 @@ export async function startPersonalAssistantApp(
     codeTtlMs: config.identity?.pairing_code_ttl_ms
   });
   const approvalBindingStore = new SqliteApprovalBindingStore({ filename: config.db_path });
+  const modelRegistry = createOpenAIProviderRegistry(config);
   const resolveUserId = (message: { platform: IMPlatform; sender_id: string }) =>
     userLinkStore.resolveCanonicalUserId(message.platform, message.sender_id) ?? message.sender_id;
   const router = new ConversationRouter({
@@ -199,12 +205,18 @@ export async function startPersonalAssistantApp(
     skillRegistry,
     pairingManager,
     resolveUserId,
-    model: config.openai
+    model: modelRegistry
       ? {
-          provider: "openai-compatible",
-          model: config.openai.model,
-          apiUrl: config.openai.apiUrl
+          defaultProviderId: modelRegistry.defaultProviderId,
+          providers: modelRegistry.listProviderSummaries(),
+          healthCheck: (providerId) => modelRegistry.healthCheck(providerId)
         }
+      : config.openai
+        ? {
+            provider: "openai-compatible",
+            model: config.openai.model,
+            apiUrl: config.openai.apiUrl
+          }
       : undefined
   });
 
@@ -332,15 +344,19 @@ export async function startPersonalAssistantApp(
   };
 }
 
-function resolveReasoner(
-  reasoner: Reasoner | undefined,
-  openai: PersonalAssistantAppConfig["openai"]
-): Reasoner {
-  if (reasoner) {
-    return reasoner;
+function resolveReasoner(config: PersonalAssistantAppConfig): Reasoner {
+  if (config.reasoner) {
+    return config.reasoner;
   }
 
-  if (!openai) {
+  const registry = createOpenAIProviderRegistry(config);
+  if (registry) {
+    return new OpenAICompatibleModelRouterReasoner({
+      registry
+    });
+  }
+
+  if (!config.openai) {
     throw new Error(
       "Personal assistant requires either a custom reasoner or OPENAI_* configuration."
     );
@@ -348,15 +364,63 @@ function resolveReasoner(
 
   return new OpenAICompatibleReasoner({
     provider: "openai-compatible",
-    apiUrl: openai.apiUrl,
-    bearerToken: openai.bearerToken,
-    model: openai.model,
-    timeoutMs: openai.timeoutMs,
-    jsonTimeoutMs: openai.jsonTimeoutMs,
-    streamTimeoutMs: openai.streamTimeoutMs,
-    headers: openai.headers,
-    extraBody: openai.extraBody
+    apiUrl: config.openai.apiUrl,
+    bearerToken: config.openai.bearerToken,
+    model: config.openai.model,
+    timeoutMs: config.openai.timeoutMs,
+    jsonTimeoutMs: config.openai.jsonTimeoutMs,
+    streamTimeoutMs: config.openai.streamTimeoutMs,
+    headers: config.openai.headers,
+    extraBody: config.openai.extraBody
   });
+}
+
+function createOpenAIProviderRegistry(
+  config: PersonalAssistantAppConfig
+): OpenAICompatibleProviderRegistry | undefined {
+  const providers = config.models?.providers.map(toOpenAIModelProviderConfig)
+    ?? (config.openai
+      ? [{
+          id: "default",
+          provider: "openai-compatible" as const,
+          apiUrl: config.openai.apiUrl,
+          bearerToken: config.openai.bearerToken,
+          model: config.openai.model,
+          timeoutMs: config.openai.timeoutMs,
+          jsonTimeoutMs: config.openai.jsonTimeoutMs,
+          streamTimeoutMs: config.openai.streamTimeoutMs,
+          headers: config.openai.headers,
+          extraBody: config.openai.extraBody
+        }]
+      : []);
+
+  if (providers.length === 0) {
+    return undefined;
+  }
+
+  return new OpenAICompatibleProviderRegistry({
+    defaultProviderId: config.models?.default_provider_id ?? providers[0]?.id,
+    providers
+  });
+}
+
+function toOpenAIModelProviderConfig(
+  provider: NonNullable<PersonalAssistantAppConfig["models"]>["providers"][number]
+): OpenAICompatibleModelProviderConfig {
+  return {
+    id: provider.id,
+    label: provider.label,
+    provider: "openai-compatible",
+    apiUrl: provider.apiUrl,
+    bearerToken: provider.bearerToken,
+    model: provider.model,
+    timeoutMs: provider.timeoutMs,
+    jsonTimeoutMs: provider.jsonTimeoutMs,
+    streamTimeoutMs: provider.streamTimeoutMs,
+    headers: provider.headers,
+    extraBody: provider.extraBody,
+    fallbackProviderIds: provider.fallback_provider_ids
+  };
 }
 
 function compactAuth(input: Record<string, string | undefined>): Record<string, string> {

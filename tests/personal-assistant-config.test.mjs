@@ -142,3 +142,45 @@ test("createPersonalAssistantConfigFromEnv lets env override local config", asyn
   assert.equal(config.agent?.auto_approve, true);
   assert.deepEqual(config.agent?.approvers, ["alice", "bob"]);
 });
+
+test("createPersonalAssistantConfigFromEnv loads model provider registry", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "neurocore-pa-models-"));
+  const configDirectory = join(directory, ".neurocore", ".personal-assistant");
+  await mkdir(configDirectory, { recursive: true });
+
+  await writeFile(
+    join(configDirectory, "app.local.json"),
+    JSON.stringify({
+      db_path: "data/personal-assistant.sqlite",
+      tenant_id: "team-local",
+      models: {
+        default_provider_id: "primary",
+        providers: [
+          {
+            id: "primary",
+            provider: "openai-compatible",
+            model: "primary-model",
+            apiUrl: "https://primary.example.com/v1",
+            bearerToken: "primary-token",
+            fallback_provider_ids: ["backup"]
+          },
+          {
+            id: "backup",
+            provider: "openai-compatible",
+            model: "backup-model",
+            apiUrl: "https://backup.example.com/v1",
+            bearerToken: "backup-token"
+          }
+        ]
+      }
+    }),
+    "utf8"
+  );
+
+  const config = createPersonalAssistantConfigFromEnv({}, { cwd: directory });
+
+  assert.equal(config.openai?.model, "primary-model");
+  assert.equal(config.models?.default_provider_id, "primary");
+  assert.equal(config.models?.providers.length, 2);
+  assert.deepEqual(config.models?.providers[0].fallback_provider_ids, ["backup"]);
+});

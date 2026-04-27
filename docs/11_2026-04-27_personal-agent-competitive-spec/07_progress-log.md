@@ -78,7 +78,7 @@
 |---|---|
 | `npm run build` | 通过 |
 | `node --test tests/personal-assistant-gateway.test.mjs` | 通过，7 项测试 |
-| `node --test tests/personal-assistant-config.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-config.test.mjs` | 通过，4 项测试 |
 | `node --test tests/personal-assistant-web-chat.test.mjs tests/personal-assistant-e2e.test.mjs` | 通过，6 项测试 |
 | `npm run pa:task-check -- PA2-P0-01` | 通过 |
 | `npm run pa:accept -- PA2-P0-01` | 通过 |
@@ -1063,3 +1063,35 @@
 |---|---|
 | Ledger | `PA-GAP-006` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-007` Model selection, fallback and health check |
+
+### PA-GAP-007 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Provider registry | `@neurocore/sdk-node` 新增 OpenAI-compatible provider registry，支持 default provider、fallback chain、provider summary 和 health probe |
+| Model router | 新增 `OpenAICompatibleModelRouterReasoner`，按 session metadata / input metadata 选择 provider，主 provider 429/timeout 等失败时自动尝试 fallback provider |
+| Reasoner compatibility | `OpenAICompatibleReasoner` 保留默认本地 fallback 行为，仅新增可测试 fetch 注入和严格错误透传开关 |
+| Config | 个人助理配置新增 `models.default_provider_id` 与 `models.providers[]`，兼容旧 `openai` / `.neurocore/llm.local.json` 单 provider 配置 |
+| Commands | `/model` 扩展为 status、`use <provider_id>`、`reset`、`health [provider_id]`、`audit` |
+| Session scope | `/model use` 只写当前 session 的 `personal_assistant.model_provider_id`，并写 `model_audit`；router 自动 fallback 事件写入 `model_provider_router.events` |
+| Tests | 新增 `tests/personal-assistant-model-router.test.mjs` 覆盖 429 fallback、health failure mode、session-only switch 和 audit |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-model-router.test.mjs` | 通过，3 项测试 |
+| `node --test tests/reasoner.test.mjs` | 通过，10 项测试 |
+| `node --test tests/personal-assistant-config.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-e2e.test.mjs` | 通过，7 项测试 |
+| `node --test tests/personal-assistant-doctor.test.mjs` | 通过，2 项测试 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-007` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-008` Credential vault and least-secret privilege |

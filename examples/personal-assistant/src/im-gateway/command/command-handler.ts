@@ -1,4 +1,5 @@
 import type { AgentSession, CycleTraceRecord, SessionCheckpoint } from "@neurocore/protocol";
+import type { OpenAICompatibleProviderHealthReport } from "@neurocore/sdk-node";
 import type { PersonalMemoryStore } from "../../memory/personal-memory-store.js";
 import { memorySourceFromMessage } from "../../memory/personal-memory-store.js";
 import type { ConversationRouting } from "../conversation/conversation-router.js";
@@ -27,6 +28,18 @@ export interface CommandHandlerModelInfo {
   provider?: string;
   model?: string;
   apiUrl?: string;
+  defaultProviderId?: string;
+  providers?: CommandHandlerModelProviderInfo[];
+  healthCheck?: (providerId?: string) => Promise<OpenAICompatibleProviderHealthReport>;
+}
+
+export interface CommandHandlerModelProviderInfo {
+  id: string;
+  label?: string;
+  provider: string;
+  model: string;
+  apiUrl: string;
+  fallbackProviderIds?: string[];
 }
 
 export interface CommandHandlerOptions {
@@ -181,11 +194,17 @@ export class CommandHandler {
       {
         name: "/model",
         aliases: [],
-        description: "Show the current assistant model configuration.",
-        usage: "/model",
+        description: "Show, switch, reset or health-check the current session model provider.",
+        usage: "/model [use <provider_id> | reset | health [provider_id] | audit]",
         risk_level: "none",
-        parameters: [],
-        execute: ({ message }) => this.model(message)
+        parameters: [
+          {
+            name: "operation",
+            required: false,
+            description: "Optional use, reset, health or audit operation."
+          }
+        ],
+        execute: ({ message, args }) => this.model(message, args)
       },
       {
         name: "/usage",
@@ -499,13 +518,165 @@ export class CommandHandler {
     await this.reply(message, `Stopped session ${session.session_id}.\nstate: ${session.state}`);
   }
 
-  private async model(message: UnifiedMessage): Promise<void> {
+  private async model(message: UnifiedMessage, args: string): Promise<void> {
+    const [operation, ...rest] = args.split(/\s+/).filter(Boolean);
+    if (operation === "use" || operation === "set") {
+      await this.setModelProvider(message, rest[0]);
+      return;
+    }
+    if (operation === "reset" || operation === "clear") {
+      await this.resetModelProvider(message);
+      return;
+    }
+    if (operation === "health") {
+      await this.modelHealth(message, rest[0]);
+      return;
+    }
+    if (operation === "audit") {
+      await this.modelAudit(message);
+      return;
+    }
+    if (operation && this.findModelProvider(operation)) {
+      await this.setModelProvider(message, operation);
+      return;
+    }
+    if (operation) {
+      await this.reply(message, "Usage: /model [use <provider_id> | reset | health [provider_id] | audit]");
+      return;
+    }
+
     const model = this.options.model;
+    if (model?.providers && model.providers.length > 0) {
+      const existing = this.getCurrentRoute(message);
+      const session = existing ? this.options.router.connect(existing.session_id).getSession() : undefined;
+      const metadata = session ? ensureSessionMetadata(session) : undefined;
+      const sessionProviderId = typeof metadata?.model_provider_id === "string" ? metadata.model_provider_id : undefined;
+      const audit = Array.isArray(metadata?.model_audit) ? metadata.model_audit : [];
+      const routerMetadata = session?.metadata && typeof session.metadata === "object"
+        ? session.metadata.model_provider_router
+        : undefined;
+      const lastSelected = routerMetadata && typeof routerMetadata === "object" && !Array.isArray(routerMetadata)
+        ? (routerMetadata as Record<string, unknown>).last_selected_provider_id
+        : undefined;
+      await this.reply(message, [
+        "Model:",
+        `default_provider_id: ${model.defaultProviderId ?? "default"}`,
+        `session_provider_id: ${sessionProviderId ?? "default"}`,
+        `last_selected_provider_id: ${typeof lastSelected === "string" ? lastSelected : "n/a"}`,
+        `audit_count: ${audit.length}`,
+        "providers:",
+        ...model.providers.map((provider) =>
+          `- ${provider.id}: ${provider.provider}/${provider.model} api_url=${provider.apiUrl} fallback=${provider.fallbackProviderIds?.join(",") || "auto"}`
+        )
+      ].join("\n"));
+      return;
+    }
+
     await this.reply(message, [
       "Model:",
       `provider: ${model?.provider ?? "custom-reasoner"}`,
       `model: ${model?.model ?? "custom"}`,
       `api_url: ${model?.apiUrl ?? "n/a"}`
+    ].join("\n"));
+  }
+
+  private async setModelProvider(message: UnifiedMessage, providerId: string | undefined): Promise<void> {
+    if (!providerId) {
+      await this.reply(message, "Usage: /model use <provider_id>");
+      return;
+    }
+    const provider = this.findModelProvider(providerId);
+    if (!provider) {
+      await this.reply(message, `Unknown model provider: ${providerId}`);
+      return;
+    }
+    const session = this.getCurrentSession(message);
+    if (!session) {
+      await this.reply(message, "No active conversation is mapped to this chat.");
+      return;
+    }
+
+    const metadata = ensureSessionMetadata(session);
+    const previous = typeof metadata.model_provider_id === "string"
+      ? metadata.model_provider_id
+      : this.options.model?.defaultProviderId ?? "default";
+    metadata.model_provider_id = provider.id;
+    appendModelAudit(metadata, {
+      at: message.timestamp ?? new Date().toISOString(),
+      command: "use",
+      platform: message.platform,
+      chat_id: message.chat_id,
+      sender_id: message.sender_id,
+      previous_provider_id: previous,
+      next_provider_id: provider.id
+    });
+    await this.reply(message, [
+      "Model provider set for this session.",
+      `provider_id: ${provider.id}`,
+      `model: ${provider.model}`
+    ].join("\n"));
+  }
+
+  private async resetModelProvider(message: UnifiedMessage): Promise<void> {
+    const session = this.getCurrentSession(message);
+    if (!session) {
+      await this.reply(message, "No active conversation is mapped to this chat.");
+      return;
+    }
+
+    const metadata = ensureSessionMetadata(session);
+    const previous = typeof metadata.model_provider_id === "string"
+      ? metadata.model_provider_id
+      : this.options.model?.defaultProviderId ?? "default";
+    delete metadata.model_provider_id;
+    appendModelAudit(metadata, {
+      at: message.timestamp ?? new Date().toISOString(),
+      command: "reset",
+      platform: message.platform,
+      chat_id: message.chat_id,
+      sender_id: message.sender_id,
+      previous_provider_id: previous,
+      next_provider_id: this.options.model?.defaultProviderId ?? "default"
+    });
+    await this.reply(message, `Model provider reset to ${this.options.model?.defaultProviderId ?? "default"} for this session.`);
+  }
+
+  private async modelHealth(message: UnifiedMessage, providerId: string | undefined): Promise<void> {
+    const model = this.options.model;
+    if (!model?.healthCheck) {
+      await this.reply(message, "Model health check is not configured.");
+      return;
+    }
+    const target = providerId || this.currentSessionModelProviderId(message) || model.defaultProviderId;
+    try {
+      const report = await model.healthCheck(target);
+      await this.reply(message, formatModelHealth(report));
+    } catch (error) {
+      await this.reply(message, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async modelAudit(message: UnifiedMessage): Promise<void> {
+    const session = this.getCurrentSession(message);
+    if (!session) {
+      await this.reply(message, "No active conversation is mapped to this chat.");
+      return;
+    }
+    const metadata = ensureSessionMetadata(session);
+    const audit = Array.isArray(metadata.model_audit)
+      ? metadata.model_audit.slice(-10)
+      : [];
+    const routerEvents = session.metadata && typeof session.metadata === "object"
+      ? extractRouterModelEvents(session.metadata).slice(-5)
+      : [];
+    if (audit.length === 0 && routerEvents.length === 0) {
+      await this.reply(message, "Model audit is empty for this session.");
+      return;
+    }
+    await this.reply(message, [
+      "Model audit:",
+      ...audit.map(formatModelAuditEntry),
+      ...routerEvents.map(formatRouterModelEvent)
     ].join("\n"));
   }
 
@@ -766,8 +937,26 @@ export class CommandHandler {
     );
   }
 
+  private getCurrentSession(message: UnifiedMessage): AgentSession | undefined {
+    const existing = this.getCurrentRoute(message);
+    return existing ? this.options.router.connect(existing.session_id).getSession() : undefined;
+  }
+
   private resolveUserId(message: UnifiedMessage): string {
     return this.options.resolveUserId?.(message) ?? message.sender_id;
+  }
+
+  private findModelProvider(providerId: string): CommandHandlerModelProviderInfo | undefined {
+    return this.options.model?.providers?.find((provider) => provider.id === providerId);
+  }
+
+  private currentSessionModelProviderId(message: UnifiedMessage): string | undefined {
+    const session = this.getCurrentSession(message);
+    if (!session) {
+      return undefined;
+    }
+    const metadata = ensureSessionMetadata(session);
+    return typeof metadata.model_provider_id === "string" ? metadata.model_provider_id : undefined;
   }
 }
 
@@ -814,6 +1003,68 @@ function ensureObservabilityMetadata(metadata: Record<string, unknown>): { trace
     metadata.observability_config = {};
   }
   return metadata.observability_config as { trace_enabled?: boolean };
+}
+
+function appendModelAudit(
+  metadata: Record<string, unknown>,
+  entry: Record<string, unknown>
+): void {
+  const audit = Array.isArray(metadata.model_audit) ? metadata.model_audit : [];
+  audit.push(entry);
+  metadata.model_audit = audit.slice(-50);
+}
+
+function formatModelHealth(report: OpenAICompatibleProviderHealthReport): string {
+  return [
+    "Model health:",
+    `provider_id: ${report.provider_id}`,
+    `model: ${report.model}`,
+    `ok: ${report.ok}`,
+    `status: ${report.status ?? "n/a"} ${report.status_text ?? ""}`.trim(),
+    `latency_ms: ${report.latency_ms}`,
+    `failure_mode: ${report.failure_mode ?? "none"}`,
+    `error: ${report.error_message ?? "none"}`
+  ].join("\n");
+}
+
+function formatModelAuditEntry(entry: unknown): string {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return "- invalid audit entry";
+  }
+  const record = entry as Record<string, unknown>;
+  return [
+    `- command=${getAuditString(record.command)}`,
+    `at=${getAuditString(record.at)}`,
+    `from=${getAuditString(record.previous_provider_id)}`,
+    `to=${getAuditString(record.next_provider_id)}`,
+    `platform=${getAuditString(record.platform)}`
+  ].join(" ");
+}
+
+function formatRouterModelEvent(entry: unknown): string {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return "- invalid router event";
+  }
+  const record = entry as Record<string, unknown>;
+  return [
+    `- router_operation=${getAuditString(record.operation)}`,
+    `at=${getAuditString(record.at)}`,
+    `requested=${getAuditString(record.requested_provider_id)}`,
+    `selected=${getAuditString(record.selected_provider_id)}`
+  ].join(" ");
+}
+
+function extractRouterModelEvents(metadata: Record<string, unknown>): unknown[] {
+  const router = metadata.model_provider_router;
+  if (!router || typeof router !== "object" || Array.isArray(router)) {
+    return [];
+  }
+  const events = (router as Record<string, unknown>).events;
+  return Array.isArray(events) ? events : [];
+}
+
+function getAuditString(value: unknown): string {
+  return typeof value === "string" && value.trim().length > 0 ? value : "n/a";
 }
 
 function formatSkillList(skills: AgentSkillRecord[], platform: string): string {

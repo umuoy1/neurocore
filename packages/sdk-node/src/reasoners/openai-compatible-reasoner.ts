@@ -87,6 +87,8 @@ export interface OpenAICompatibleReasonerOptions {
   temperature?: number;
   max_tokens?: number;
   maxOutputTokens?: number;
+  fetch?: typeof fetch;
+  disableLocalFallback?: boolean;
 }
 
 export class OpenAICompatibleReasoner implements Reasoner {
@@ -140,6 +142,9 @@ export class OpenAICompatibleReasoner implements Reasoner {
         return proposals;
       }
     } catch (error) {
+      if (this.options.disableLocalFallback) {
+        throw error;
+      }
       debugLog("reasoner", "Planning request failed, falling back to local plan", {
         sessionId: ctx.session.session_id,
         cycleId,
@@ -179,6 +184,9 @@ export class OpenAICompatibleReasoner implements Reasoner {
         buildRespondUserPrompt(ctx)
       );
     } catch (error) {
+      if (this.options.disableLocalFallback) {
+        throw error;
+      }
       debugLog("reasoner", "Action selection request failed, using fallback ask_user action", {
         sessionId: ctx.session.session_id,
         cycleId: ctx.session.current_cycle_id ?? "pending",
@@ -286,7 +294,8 @@ export class OpenAICompatibleReasoner implements Reasoner {
     };
 
     try {
-      const response = await fetch(url, {
+      const fetchImpl = this.options.fetch ?? fetch;
+      const response = await fetchImpl(url, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -382,7 +391,8 @@ export class OpenAICompatibleReasoner implements Reasoner {
         request: requestPayload
       });
 
-      const response = await fetch(url, {
+      const fetchImpl = this.options.fetch ?? fetch;
+      const response = await fetchImpl(url, {
         method: "POST",
         headers: {
           "content-type": "application/json",

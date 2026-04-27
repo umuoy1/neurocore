@@ -13,16 +13,8 @@ export interface PersonalAssistantAppConfig {
   tenant_id: string;
   idle_timeout_ms?: number;
   reasoner?: Reasoner;
-  openai?: {
-    apiUrl: string;
-    bearerToken: string;
-    model: string;
-    timeoutMs?: number;
-    jsonTimeoutMs?: number;
-    streamTimeoutMs?: number;
-    headers?: Record<string, string>;
-    extraBody?: Record<string, unknown>;
-  };
+  openai?: PersonalAssistantOpenAIConfig;
+  models?: PersonalAssistantModelRegistryConfig;
   agent?: {
     id?: string;
     name?: string;
@@ -95,6 +87,29 @@ export interface PersonalAssistantAppConfig {
   };
 }
 
+export interface PersonalAssistantOpenAIConfig {
+  apiUrl: string;
+  bearerToken: string;
+  model: string;
+  timeoutMs?: number;
+  jsonTimeoutMs?: number;
+  streamTimeoutMs?: number;
+  headers?: Record<string, string>;
+  extraBody?: Record<string, unknown>;
+}
+
+export interface PersonalAssistantModelProviderConfig extends PersonalAssistantOpenAIConfig {
+  id: string;
+  label?: string;
+  provider?: "openai-compatible";
+  fallback_provider_ids?: string[];
+}
+
+export interface PersonalAssistantModelRegistryConfig {
+  default_provider_id?: string;
+  providers: PersonalAssistantModelProviderConfig[];
+}
+
 const ROOT_CONFIG_DIR = ".neurocore";
 const DEFAULT_JSON_TIMEOUT_MS = 45_000;
 const PERSONAL_ASSISTANT_CONFIG_DIR = join(ROOT_CONFIG_DIR, ".personal-assistant");
@@ -119,6 +134,8 @@ export function createPersonalAssistantConfigFromEnv(
   const localConfig = loadLocalPersonalAssistantConfig(cwd);
   const appConfig = localConfig.appConfig;
   const openaiConfig = resolveOpenAIConfig(env, mergeOpenAIConfig(localConfig.llmConfig, appConfig.openai));
+  const modelsConfig = resolveModelRegistryConfig(appConfig.models, openaiConfig);
+  const defaultOpenAIConfig = openAIConfigFromModelRegistry(modelsConfig) ?? openaiConfig;
   const feishuAppId = env.FEISHU_APP_ID ?? appConfig.feishu?.app_id;
   const feishuAppSecret = env.FEISHU_APP_SECRET ?? appConfig.feishu?.app_secret;
   const telegramBotToken = env.TELEGRAM_BOT_TOKEN ?? appConfig.telegram?.bot_token;
@@ -141,7 +158,8 @@ export function createPersonalAssistantConfigFromEnv(
       blocked_tools: parseOptionalList(env.PERSONAL_ASSISTANT_BLOCKED_TOOLS) ?? appConfig.agent?.blocked_tools,
       required_approval_tools: parseOptionalList(env.PERSONAL_ASSISTANT_APPROVAL_TOOLS) ?? appConfig.agent?.required_approval_tools
     },
-    openai: openaiConfig,
+    openai: defaultOpenAIConfig,
+    models: modelsConfig,
     identity: {
       require_pairing: parseOptionalBoolean(env.PERSONAL_ASSISTANT_REQUIRE_PAIRING) ?? appConfig.identity?.require_pairing,
       require_pairing_platforms: parseOptionalPlatformList(env.PERSONAL_ASSISTANT_REQUIRE_PAIRING_PLATFORMS) ?? appConfig.identity?.require_pairing_platforms,
@@ -222,8 +240,8 @@ function loadLocalPersonalAssistantConfig(cwd: string): {
 
 function resolveOpenAIConfig(
   env: NodeJS.ProcessEnv,
-  fallback: PersonalAssistantAppConfig["openai"]
-): PersonalAssistantAppConfig["openai"] | undefined {
+  fallback: PersonalAssistantOpenAIConfig | undefined
+): PersonalAssistantOpenAIConfig | undefined {
   const apiUrl = env.OPENAI_BASE_URL ?? fallback?.apiUrl;
   const bearerToken = env.OPENAI_API_KEY ?? fallback?.bearerToken;
   const model = env.OPENAI_MODEL ?? fallback?.model;
@@ -249,9 +267,9 @@ function resolveOpenAIConfig(
 }
 
 function mergeOpenAIConfig(
-  base: PersonalAssistantAppConfig["openai"],
-  override: PersonalAssistantAppConfig["openai"]
-): PersonalAssistantAppConfig["openai"] | undefined {
+  base: PersonalAssistantOpenAIConfig | undefined,
+  override: PersonalAssistantOpenAIConfig | undefined
+): PersonalAssistantOpenAIConfig | undefined {
   if (!base && !override) {
     return undefined;
   }
@@ -284,7 +302,7 @@ function readFirstJsonObject<T>(cwd: string, relativePaths: readonly string[]): 
 function readFirstOpenAICompatibleConfig(
   cwd: string,
   relativePaths: readonly string[]
-): PersonalAssistantAppConfig["openai"] | undefined {
+): PersonalAssistantOpenAIConfig | undefined {
   for (const relativePath of relativePaths) {
     const resolvedPath = resolve(cwd, relativePath);
     if (!existsSync(resolvedPath)) {
@@ -320,7 +338,7 @@ function readJsonObject<T>(filePath: string): T {
   }
 }
 
-function readOpenAICompatibleConfig(filePath: string): PersonalAssistantAppConfig["openai"] {
+function readOpenAICompatibleConfig(filePath: string): PersonalAssistantOpenAIConfig {
   const parsed = readJsonObject<Partial<OpenAICompatibleConfig> & { provider?: string }>(filePath);
 
   if (parsed.provider !== "openai-compatible") {
@@ -347,6 +365,100 @@ function readOpenAICompatibleConfig(filePath: string): PersonalAssistantAppConfi
     streamTimeoutMs: parsed.streamTimeoutMs,
     headers: parsed.headers,
     extraBody: isPlainRecord(parsed.extraBody) ? parsed.extraBody : undefined
+  };
+}
+
+function resolveModelRegistryConfig(
+  registry: PersonalAssistantModelRegistryConfig | undefined,
+  openaiConfig: PersonalAssistantOpenAIConfig | undefined
+): PersonalAssistantModelRegistryConfig | undefined {
+  const providers = (registry?.providers ?? []).map(normalizeModelProviderConfig);
+  if (providers.length === 0 && openaiConfig) {
+    providers.push({
+      id: "default",
+      provider: "openai-compatible",
+      apiUrl: openaiConfig.apiUrl,
+      bearerToken: openaiConfig.bearerToken,
+      model: openaiConfig.model,
+      timeoutMs: openaiConfig.timeoutMs,
+      jsonTimeoutMs: openaiConfig.jsonTimeoutMs,
+      streamTimeoutMs: openaiConfig.streamTimeoutMs,
+      headers: openaiConfig.headers,
+      extraBody: openaiConfig.extraBody
+    });
+  }
+
+  if (providers.length === 0) {
+    return undefined;
+  }
+
+  const defaultProviderId = registry?.default_provider_id ?? providers[0]?.id;
+  if (!defaultProviderId || !providers.some((provider) => provider.id === defaultProviderId)) {
+    throw new Error(`Invalid personal assistant model registry: unknown default provider "${defaultProviderId ?? "n/a"}".`);
+  }
+
+  return {
+    default_provider_id: defaultProviderId,
+    providers
+  };
+}
+
+function normalizeModelProviderConfig(
+  provider: PersonalAssistantModelProviderConfig
+): PersonalAssistantModelProviderConfig {
+  if (!provider.id) {
+    throw new Error("Invalid personal assistant model provider: id is required.");
+  }
+  if (provider.provider && provider.provider !== "openai-compatible") {
+    throw new Error(`Invalid personal assistant model provider "${provider.id}": provider must be "openai-compatible".`);
+  }
+  if (!provider.apiUrl) {
+    throw new Error(`Invalid personal assistant model provider "${provider.id}": apiUrl is required.`);
+  }
+  if (!provider.bearerToken) {
+    throw new Error(`Invalid personal assistant model provider "${provider.id}": bearerToken is required.`);
+  }
+  if (!provider.model) {
+    throw new Error(`Invalid personal assistant model provider "${provider.id}": model is required.`);
+  }
+
+  return {
+    id: provider.id,
+    label: provider.label,
+    provider: "openai-compatible",
+    apiUrl: provider.apiUrl,
+    bearerToken: provider.bearerToken,
+    model: provider.model,
+    timeoutMs: provider.timeoutMs,
+    jsonTimeoutMs: provider.jsonTimeoutMs,
+    streamTimeoutMs: provider.streamTimeoutMs,
+    headers: provider.headers,
+    extraBody: isPlainRecord(provider.extraBody) ? provider.extraBody : undefined,
+    fallback_provider_ids: Array.isArray(provider.fallback_provider_ids)
+      ? provider.fallback_provider_ids.filter((id) => typeof id === "string" && id.trim().length > 0)
+      : undefined
+  };
+}
+
+function openAIConfigFromModelRegistry(
+  registry: PersonalAssistantModelRegistryConfig | undefined
+): PersonalAssistantOpenAIConfig | undefined {
+  if (!registry) {
+    return undefined;
+  }
+  const provider = registry.providers.find((item) => item.id === registry.default_provider_id) ?? registry.providers[0];
+  if (!provider) {
+    return undefined;
+  }
+  return {
+    apiUrl: provider.apiUrl,
+    bearerToken: provider.bearerToken,
+    model: provider.model,
+    timeoutMs: provider.timeoutMs,
+    jsonTimeoutMs: provider.jsonTimeoutMs,
+    streamTimeoutMs: provider.streamTimeoutMs,
+    headers: provider.headers,
+    extraBody: provider.extraBody
   };
 }
 

@@ -36,6 +36,7 @@
 > - 2026-04-27 个人助理 CLI/TUI 补充：`PA-GAP-004` 已落地 `neurocore assistant chat/tui`，复用 Gateway/CommandHandler，支持多行输入、slash autocomplete、history、status stream、stream edit 输出和 Ctrl+C interrupt。下一项为 `PA-GAP-005` 会话 UX 命令。
 > - 2026-04-27 个人助理会话 UX 命令补充：`PA-GAP-005` 已落地 `/retry`、`/undo`、`/personality`、`/insights`、`/trace`，WebChat/CLI/IM 共用 `CommandHandler` schema；除显式 `/retry` 外，命令不会误触模型调用。下一项为 `PA-GAP-006` DM pairing / allowlist / home channel。
 > - 2026-04-27 个人助理身份配对补充：`PA-GAP-006` 已落地 PairingManager、SQLite pairing code/home channel/audit store、Gateway 未配对外部 DM 阻断，以及 `/pair`、`/unpair`、`/sethome` 命令。下一项为 `PA-GAP-007` 模型选择、fallback、health check。
+> - 2026-04-27 个人助理模型治理补充：`PA-GAP-007` 已落地 OpenAI-compatible provider registry、session-level `/model use/reset/audit/health`、provider health probe 和 fallback reasoner；主 provider 429/timeout 时可自动切换 fallback provider，切换和自动 fallback 均写入 session metadata 审计。下一项为 `PA-GAP-008` credential vault / least-secret privilege。
 
 ## 交付总结
 
