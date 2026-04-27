@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
+import type { JsonValue, Tool } from "@neurocore/protocol";
 import type { AgentSkillRecord, AgentSkillRegistry } from "./agent-skill-registry.js";
 
 export type AutoSkillCandidateStatus = "candidate" | "validated" | "failed" | "active" | "disabled" | "rolled_back" | "replaced";
+export type AutoSkillAuditEventType = "candidate_proposed" | "candidate_validated" | "candidate_failed" | "candidate_activated" | "version_disabled" | "version_rolled_back";
 
 export interface WorkflowExample {
   workflow_key: string;
@@ -51,6 +53,17 @@ export interface AutoSkillValidationReport {
   validated_at: string;
 }
 
+export interface AutoSkillAuditEvent {
+  audit_id: string;
+  event_type: AutoSkillAuditEventType;
+  candidate_id?: string;
+  skill_id?: string;
+  version?: string;
+  actor_id?: string;
+  metadata: Record<string, JsonValue>;
+  created_at: string;
+}
+
 export interface AutoSkillValidator {
   name: string;
   validate(candidate: AutoSkillCandidate): Promise<AutoSkillValidationResult[]>;
@@ -60,6 +73,8 @@ export interface AutoSkillManagerOptions {
   registry?: AgentSkillRegistry;
   threshold?: number;
   now?: () => string;
+  generateId?: (prefix: string) => string;
+  validators?: AutoSkillValidator[];
 }
 
 export class AutoSkillManager {
@@ -67,10 +82,13 @@ export class AutoSkillManager {
   private readonly versionsBySkill = new Map<string, AutoSkillCandidate[]>();
   private readonly threshold: number;
   private readonly now: () => string;
+  private readonly generateId: (prefix: string) => string;
+  private readonly auditEvents: AutoSkillAuditEvent[] = [];
 
   public constructor(private readonly options: AutoSkillManagerOptions = {}) {
     this.threshold = options.threshold ?? 3;
     this.now = options.now ?? (() => new Date().toISOString());
+    this.generateId = options.generateId ?? ((prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
   }
 
   public proposeFromWorkflows(workflows: WorkflowExample[]): AutoSkillCandidate[] {
@@ -90,6 +108,7 @@ export class AutoSkillManager {
         ...(this.versionsBySkill.get(candidate.skill_id) ?? []),
         candidate
       ]);
+      this.recordAudit("candidate_proposed", candidate, { source_count: candidate.source_count });
       proposed.push(candidate);
     }
     return proposed;
@@ -106,7 +125,7 @@ export class AutoSkillManager {
 
   public async validateCandidate(
     candidateId: string,
-    validators: AutoSkillValidator[]
+    validators: AutoSkillValidator[] = this.options.validators ?? [createExpectedOutputValidator()]
   ): Promise<AutoSkillCandidate> {
     const candidate = this.requireCandidate(candidateId);
     const results = (await Promise.all(validators.map((validator) => validator.validate(candidate)))).flat();
@@ -118,6 +137,10 @@ export class AutoSkillManager {
     const next = this.updateCandidate(candidateId, {
       status: report.passed ? "validated" : "failed",
       validation_report: report
+    });
+    this.recordAudit(report.passed ? "candidate_validated" : "candidate_failed", next, {
+      result_count: results.length,
+      failed_count: results.filter((result) => !result.passed).length
     });
     return structuredClone(next);
   }
@@ -138,6 +161,9 @@ export class AutoSkillManager {
       status: "active",
       skill
     });
+    this.recordAudit("candidate_activated", next, {
+      content_hash: skill.content_hash
+    });
     return structuredClone(next);
   }
 
@@ -148,10 +174,12 @@ export class AutoSkillManager {
     }
     const skill = candidate.skill ? { ...candidate.skill, enabled: false } : toAgentSkill(candidate, false);
     this.options.registry?.registerSkill(skill);
-    return structuredClone(this.updateCandidate(candidate.candidate_id, {
+    const next = this.updateCandidate(candidate.candidate_id, {
       status: "disabled",
       skill
-    }));
+    });
+    this.recordAudit("version_disabled", next, { version });
+    return structuredClone(next);
   }
 
   public rollback(skillId: string): AutoSkillCandidate | undefined {
@@ -169,10 +197,26 @@ export class AutoSkillManager {
     }
     const skill = toAgentSkill(target, true);
     this.options.registry?.registerSkill(skill);
-    return structuredClone(this.updateCandidate(target.candidate_id, {
+    const next = this.updateCandidate(target.candidate_id, {
       status: "active",
       skill
-    }));
+    });
+    this.recordAudit("version_rolled_back", next, current ? {
+      from_candidate_id: current.candidate_id
+    } : {});
+    return structuredClone(next);
+  }
+
+  public listAuditEvents(input: { limit?: number; skill_id?: string; candidate_id?: string } = {}): AutoSkillAuditEvent[] {
+    return this.auditEvents
+      .filter((event) => !input.skill_id || event.skill_id === input.skill_id)
+      .filter((event) => !input.candidate_id || event.candidate_id === input.candidate_id)
+      .slice(-(input.limit ?? 100))
+      .map((event) => ({
+        ...event,
+        metadata: { ...event.metadata }
+      }))
+      .reverse();
   }
 
   private createCandidate(workflowKey: string, examples: WorkflowExample[]): AutoSkillCandidate {
@@ -229,6 +273,165 @@ export class AutoSkillManager {
   private findVersion(skillId: string, version: string): AutoSkillCandidate | undefined {
     return this.versionsBySkill.get(skillId)?.find((candidate) => candidate.version === version);
   }
+
+  private recordAudit(
+    eventType: AutoSkillAuditEventType,
+    candidate: AutoSkillCandidate,
+    metadata: Record<string, JsonValue> = {}
+  ): AutoSkillAuditEvent {
+    const event: AutoSkillAuditEvent = {
+      audit_id: this.generateId("auto_skill_audit"),
+      event_type: eventType,
+      candidate_id: candidate.candidate_id,
+      skill_id: candidate.skill_id,
+      version: candidate.version,
+      metadata,
+      created_at: this.now()
+    };
+    this.auditEvents.push(event);
+    return event;
+  }
+}
+
+export function createAutoSkillTools(manager: AutoSkillManager): Tool[] {
+  return [
+    {
+      name: "auto_skill_propose",
+      description: "Generate candidate skills from successful repeated workflow examples.",
+      sideEffectLevel: "medium",
+      inputSchema: {
+        type: "object",
+        properties: {
+          workflows: { type: "array" }
+        },
+        required: ["workflows"]
+      },
+      async invoke(input) {
+        const candidates = manager.proposeFromWorkflows(readWorkflowArray(input.workflows));
+        return {
+          summary: `Generated ${candidates.length} auto skill candidate${candidates.length === 1 ? "" : "s"}.`,
+          payload: { candidates: candidates as unknown as JsonValue }
+        };
+      }
+    },
+    {
+      name: "auto_skill_validate",
+      description: "Run regression validation for an auto skill candidate.",
+      sideEffectLevel: "medium",
+      inputSchema: {
+        type: "object",
+        properties: {
+          candidate_id: { type: "string" }
+        },
+        required: ["candidate_id"]
+      },
+      async invoke(input) {
+        const candidate = await manager.validateCandidate(readRequiredString(input.candidate_id, "candidate_id"));
+        return {
+          summary: `Candidate ${candidate.candidate_id} validation ${candidate.validation_report?.passed ? "passed" : "failed"}.`,
+          payload: { candidate: candidate as unknown as JsonValue }
+        };
+      }
+    },
+    {
+      name: "auto_skill_activate",
+      description: "Activate a validated auto skill candidate in the skill registry.",
+      sideEffectLevel: "medium",
+      inputSchema: {
+        type: "object",
+        properties: {
+          candidate_id: { type: "string" }
+        },
+        required: ["candidate_id"]
+      },
+      async invoke(input) {
+        const candidate = manager.activateCandidate(readRequiredString(input.candidate_id, "candidate_id"));
+        return {
+          summary: `Activated auto skill ${candidate.skill_id}@${candidate.version}.`,
+          payload: { candidate: candidate as unknown as JsonValue }
+        };
+      }
+    },
+    {
+      name: "auto_skill_disable",
+      description: "Disable an active auto skill version.",
+      sideEffectLevel: "medium",
+      inputSchema: {
+        type: "object",
+        properties: {
+          skill_id: { type: "string" },
+          version: { type: "string" }
+        },
+        required: ["skill_id", "version"]
+      },
+      async invoke(input) {
+        const candidate = manager.disableVersion(
+          readRequiredString(input.skill_id, "skill_id"),
+          readRequiredString(input.version, "version")
+        );
+        return {
+          summary: candidate ? `Disabled auto skill ${candidate.skill_id}@${candidate.version}.` : "Auto skill version was not found.",
+          payload: { candidate: candidate as unknown as JsonValue }
+        };
+      }
+    },
+    {
+      name: "auto_skill_rollback",
+      description: "Roll back an auto skill to the previous validated or replaced version.",
+      sideEffectLevel: "medium",
+      inputSchema: {
+        type: "object",
+        properties: {
+          skill_id: { type: "string" }
+        },
+        required: ["skill_id"]
+      },
+      async invoke(input) {
+        const candidate = manager.rollback(readRequiredString(input.skill_id, "skill_id"));
+        return {
+          summary: candidate ? `Rolled back auto skill ${candidate.skill_id} to ${candidate.version}.` : "No rollback target was found.",
+          payload: { candidate: candidate as unknown as JsonValue }
+        };
+      }
+    },
+    {
+      name: "auto_skill_list",
+      description: "List auto skill candidates and validation status.",
+      sideEffectLevel: "none",
+      inputSchema: { type: "object", properties: {} },
+      async invoke() {
+        const candidates = manager.listCandidates();
+        return {
+          summary: `Listed ${candidates.length} auto skill candidate${candidates.length === 1 ? "" : "s"}.`,
+          payload: { candidates: candidates as unknown as JsonValue }
+        };
+      }
+    },
+    {
+      name: "auto_skill_audit",
+      description: "List auto skill proposal, validation, activation and rollback audit events.",
+      sideEffectLevel: "none",
+      inputSchema: {
+        type: "object",
+        properties: {
+          skill_id: { type: "string" },
+          candidate_id: { type: "string" },
+          limit: { type: "number" }
+        }
+      },
+      async invoke(input) {
+        const events = manager.listAuditEvents({
+          skill_id: readOptionalString(input.skill_id),
+          candidate_id: readOptionalString(input.candidate_id),
+          limit: readOptionalNumber(input.limit)
+        });
+        return {
+          summary: `Listed ${events.length} auto skill audit event${events.length === 1 ? "" : "s"}.`,
+          payload: { events: events as unknown as JsonValue }
+        };
+      }
+    }
+  ];
 }
 
 export function createExpectedOutputValidator(): AutoSkillValidator {
@@ -316,4 +519,57 @@ function inferRiskLevel(candidate: AutoSkillCandidate): AgentSkillRecord["risk_l
 
 function normalizeSkillId(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function readWorkflowArray(value: unknown): WorkflowExample[] {
+  if (!Array.isArray(value)) {
+    throw new Error("workflows is required.");
+  }
+  return value.map(readWorkflow);
+}
+
+function readWorkflow(value: unknown): WorkflowExample {
+  const record = readRecord(value);
+  return {
+    workflow_key: readRequiredString(record.workflow_key, "workflow_key"),
+    title: readRequiredString(record.title, "title"),
+    description: readOptionalString(record.description),
+    success: record.success === true,
+    steps: readStringArray(record.steps) ?? [],
+    input_examples: readStringArray(record.input_examples),
+    output_examples: readStringArray(record.output_examples),
+    permissions: readStringArray(record.permissions),
+    risk_level: readRiskLevel(record.risk_level),
+    created_at: readOptionalString(record.created_at)
+  };
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("workflow must be an object.");
+  }
+  return value as Record<string, unknown>;
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : undefined;
+}
+
+function readRequiredString(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${field} is required.`);
+  }
+  return value;
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function readOptionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readRiskLevel(value: unknown): AgentSkillRecord["risk_level"] | undefined {
+  return value === "none" || value === "low" || value === "medium" || value === "high" ? value : undefined;
 }

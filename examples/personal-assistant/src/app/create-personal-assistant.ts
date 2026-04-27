@@ -76,6 +76,7 @@ import { ProactiveEngine } from "../proactive/proactive-engine.js";
 import { SqliteStandingOrderStore } from "../proactive/store/sqlite-standing-order-store.js";
 import { PersonalAssistantTaskBoard } from "../proactive/task-board.js";
 import { AgentSkillRegistry, createAgentSkillRegistryFromConfig } from "../skills/agent-skill-registry.js";
+import { AutoSkillManager, createAutoSkillTools } from "../skills/auto-skill-manager.js";
 import { createPersonalSkillTools } from "../skills/skill-tools.js";
 import {
   createFixtureSkillMarketplaceSource,
@@ -156,6 +157,7 @@ export interface PersonalAssistantAgentOptions {
   deviceNodeGateway?: DeviceNodeGateway;
   canvasArtifactStore?: CanvasArtifactStore;
   skillMarketplace?: SkillMarketplace;
+  autoSkillManager?: AutoSkillManager;
   mcpGovernance?: PersonalMcpGovernanceRegistry;
 }
 
@@ -265,6 +267,12 @@ export function createPersonalAssistantAgent(
 
   if (options.skillMarketplace) {
     for (const tool of createSkillMarketplaceTools(options.skillMarketplace)) {
+      agent.registerTool(tool);
+    }
+  }
+
+  if (options.autoSkillManager) {
+    for (const tool of createAutoSkillTools(options.autoSkillManager)) {
       agent.registerTool(tool);
     }
   }

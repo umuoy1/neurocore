@@ -1708,3 +1708,36 @@
 |---|---|
 | Ledger | `PA-GAP-026` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-027` Self-learning skill loop productization |
+
+### PA-GAP-027 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Product tools | 新增 `auto_skill_propose/validate/activate/disable/rollback/list/audit` 工具 |
+| Candidate flow | 成功 workflow 达到阈值后生成 candidate、instructions 和 regression cases |
+| Regression gate | `auto_skill_validate` 默认执行 expected-output regression，未验证 candidate 不能 activate |
+| Activation | 验证通过后写入 `AgentSkillRegistry`，生成 enabled skill，并保留权限、risk、content_hash |
+| Version lifecycle | 新版本 activate 会替换旧 active；disable 后不可 invoke；rollback 恢复上一 validated/replaced 版本 |
+| Audit | proposal、validation、activation、disable、rollback 均写入 auto skill audit event |
+| App wiring | `createPersonalAssistantAgent` 可接入 `autoSkillManager` 并注册自动技能治理工具 |
+| Tests | 扩展 `tests/personal-assistant-auto-skills.test.mjs` 覆盖产品工具全链路和 agent tool refs |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `npm run pa:plan-check` | 通过 |
+| `node --test tests/personal-assistant-auto-skills.test.mjs` | 通过，5 项测试 |
+| `node --test tests/personal-assistant-skills.test.mjs tests/personal-assistant-skill-marketplace.test.mjs` | 通过，7 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-027` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-027` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-028` Trajectory training data pipeline |

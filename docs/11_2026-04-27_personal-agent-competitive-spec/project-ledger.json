@@ -2,9 +2,9 @@
   "schema_version": "1.0.0",
   "project": "personal-agent-competitive-spec",
   "meta": {
-    "current_task": "PA-GAP-027",
-    "phase": "PA-GAP-F",
-    "updated_at": "2026-04-27T19:34:23.499Z",
+    "current_task": "PA-GAP-028",
+    "phase": "PA-GAP-G",
+    "updated_at": "2026-04-27T19:39:28.054Z",
     "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
   },
   "phases": [
@@ -1817,7 +1817,9 @@
       "id": "PA-GAP-027",
       "phase": "PA-GAP-F",
       "title": "Self-learning skill loop productization",
-      "status": "in_progress",
+      "status": "completed",
+      "completed_at": "2026-04-27T19:39:16.339Z",
+      "acceptance_last_run": "npm run pa:accept -- PA-GAP-027",
       "depends_on": [
         "PA-GAP-026"
       ],
@@ -1831,7 +1833,10 @@
       ],
       "tests": [
         "npm run build",
-        "npm run pa:plan-check"
+        "npm run pa:plan-check",
+        "node --test tests/personal-assistant-auto-skills.test.mjs",
+        "node --test tests/personal-assistant-skills.test.mjs tests/personal-assistant-skill-marketplace.test.mjs",
+        "node --test tests/personal-assistant-baseline.test.mjs"
       ],
       "write_paths": [
         "examples/personal-assistant/",
@@ -1845,7 +1850,7 @@
       "id": "PA-GAP-028",
       "phase": "PA-GAP-G",
       "title": "Trajectory training data pipeline",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": [
         "PA-GAP-027"
       ],
@@ -1866,7 +1871,8 @@
         "packages/eval-core/",
         "tests/",
         "docs/"
-      ]
+      ],
+      "started_at": "2026-04-27T19:39:28.053Z"
     },
     {
       "id": "PA-GAP-029",
