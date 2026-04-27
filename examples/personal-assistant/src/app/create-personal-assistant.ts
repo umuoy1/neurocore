@@ -21,10 +21,12 @@ import { TelegramAdapter } from "../im-gateway/adapter/telegram.js";
 import { WebChatAdapter } from "../im-gateway/adapter/web-chat.js";
 import { SqliteApprovalBindingStore } from "../im-gateway/approval/sqlite-approval-binding-store.js";
 import { CommandHandler } from "../im-gateway/command/command-handler.js";
-import { ConversationRouter } from "../im-gateway/conversation/conversation-router.js";
+import { AgentProfileRegistry } from "../im-gateway/conversation/agent-profile-store.js";
 import { PairingManager } from "../im-gateway/conversation/pairing.js";
+import { ProfileAwareConversationRouter } from "../im-gateway/conversation/profile-aware-conversation-router.js";
+import { SqliteAgentProfileStore } from "../im-gateway/conversation/sqlite-agent-profile-store.js";
 import { SqlitePlatformUserLinkStore } from "../im-gateway/conversation/sqlite-platform-user-link-store.js";
-import { SqliteSessionMappingStore } from "../im-gateway/conversation/sqlite-session-mapping-store.js";
+import { SqliteProfileScopedSessionMappingStore } from "../im-gateway/conversation/sqlite-profile-scoped-session-mapping-store.js";
 import { IMGateway } from "../im-gateway/gateway.js";
 import { NotificationDispatcher } from "../im-gateway/notification/notification-dispatcher.js";
 import { InMemoryNotificationPolicyStore } from "../im-gateway/notification/notification-policy.js";
@@ -56,6 +58,7 @@ import {
 } from "../contacts/contact-graph.js";
 import { createWorkspaceFileTools } from "../files/workspace-file-tools.js";
 import { PersonalDataSubjectService } from "../privacy/data-subject-control.js";
+import { createProfileProductTools, PersonalProfileProductService } from "../profiles/profile-product-service.js";
 import { ProactiveEngine } from "../proactive/proactive-engine.js";
 import { SqliteStandingOrderStore } from "../proactive/store/sqlite-standing-order-store.js";
 import { PersonalAssistantTaskBoard } from "../proactive/task-board.js";
@@ -95,6 +98,7 @@ export interface RunningPersonalAssistantApp {
   privacy: PersonalDataSubjectService;
   knowledgeBaseStore: PersonalKnowledgeBaseStore;
   contactGraphStore: ContactGraphStore;
+  profileService: PersonalProfileProductService;
   webhookIngress?: PersonalWebhookIngress;
   gmailPubSubWebhook?: GmailPubSubWebhookAdapter;
   close(): Promise<void>;
@@ -278,7 +282,21 @@ export async function startPersonalAssistantApp(
   });
   const builder = runtimeFactory.getBuilder();
 
-  const mappingStore = new SqliteSessionMappingStore({ filename: config.db_path });
+  const profileStore = new SqliteAgentProfileStore({ filename: config.db_path });
+  const profileRegistry = new AgentProfileRegistry({ store: profileStore, defaultProfileId: "default" });
+  const profileService = new PersonalProfileProductService({
+    registry: profileRegistry,
+    store: profileStore,
+    builder,
+    tenantId: config.tenant_id,
+    agentId: config.agent?.id ?? "personal-assistant",
+    defaultProfileId: "default"
+  });
+  profileService.ensureDefaultProfile();
+  for (const tool of createProfileProductTools(profileService)) {
+    builder.registerTool(tool);
+  }
+  const mappingStore = new SqliteProfileScopedSessionMappingStore({ filename: config.db_path });
   const userLinkStore = new SqlitePlatformUserLinkStore({ filename: config.db_path });
   const pairingManager = new PairingManager({
     store: userLinkStore,
@@ -291,9 +309,8 @@ export async function startPersonalAssistantApp(
   const modelRegistry = createOpenAIProviderRegistry(config, credentialVault);
   const resolveUserId = (message: { platform: IMPlatform; sender_id: string }) =>
     userLinkStore.resolveCanonicalUserId(message.platform, message.sender_id) ?? message.sender_id;
-  const router = new ConversationRouter({
-    builder,
-    tenantId: config.tenant_id,
+  const router = new ProfileAwareConversationRouter({
+    profileRegistry,
     mappingStore,
     userLinkStore,
     idleTimeoutMs: config.idle_timeout_ms
@@ -493,6 +510,7 @@ export async function startPersonalAssistantApp(
     privacy,
     knowledgeBaseStore,
     contactGraphStore,
+    profileService,
     webhookIngress,
     gmailPubSubWebhook,
     async close() {
@@ -500,6 +518,7 @@ export async function startPersonalAssistantApp(
       await gateway.stop();
       contactGraphStore.close?.();
       knowledgeBaseStore.close();
+      profileStore.close();
       memoryStore.close();
       sessionSearchStore.close();
       standingOrderStore?.close();

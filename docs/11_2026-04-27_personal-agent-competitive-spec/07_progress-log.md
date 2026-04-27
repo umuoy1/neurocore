@@ -1416,3 +1416,36 @@
 |---|---|
 | Ledger | `PA-GAP-023` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-024` Multi-profile product entry |
+
+### PA-GAP-024 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Profile service | 新增 `PersonalProfileProductService`，支持 default profile、create、inspect、list、switch |
+| Tools | 新增 `profile_create/profile_switch/profile_inspect/profile_list`，可由个人助理直接管理 profile |
+| App routing | `startPersonalAssistantApp()` 接入 `AgentProfileRegistry`、SQLite profile store 和 `ProfileAwareConversationRouter` |
+| Isolation | profile 检测 memory/tool/policy scope 跨域冲突；route 写入 profile/workspace/scope metadata |
+| Console | 新增 Assistant Profiles 页面和 store，覆盖列表、创建、检查、切换、隔离告警 |
+| Audit | profile 创建和切换写入 policy audit，审计 ID 改为服务内单调序号避免连续操作冲突 |
+| Tests | 新增 `tests/personal-assistant-profile-product.test.mjs` 覆盖 profile 产品服务、Console 入口和 zero leakage |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `npm run pa:plan-check` | 通过 |
+| `npm --workspace @neurocore/console run typecheck` | 通过 |
+| `node --test tests/personal-assistant-profile-product.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-agent-profiles.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-024` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-024` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-018` WhatsApp / Signal / WeChat / Matrix / Teams channels |

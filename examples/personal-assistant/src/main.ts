@@ -37,6 +37,7 @@ export * from "./memory/dreaming-consolidator.js";
 export * from "./memory/sqlite-personal-memory-store.js";
 export * from "./mcp/personal-mcp-client.js";
 export * from "./privacy/data-subject-control.js";
+export * from "./profiles/profile-product-service.js";
 export * from "./files/workspace-file-tools.js";
 export * from "./terminal/background-process-tools.js";
 export * from "./browser/browser-session-tools.js";

@@ -363,3 +363,58 @@ export interface DataSubjectExportBundle {
   retention: DataSubjectRetentionReport;
   audit_records: DataSubjectAuditRecord[];
 }
+
+export interface PersonalAssistantProfileToolPolicy {
+  allowed_tools?: string[];
+  blocked_tools?: string[];
+  required_approval_tools?: string[];
+  required_sandbox_tools?: string[];
+}
+
+export interface PersonalAssistantProfile {
+  profile_id: string;
+  agent_id: string;
+  tenant_id: string;
+  display_name?: string;
+  memory_scope: string;
+  tool_scope: string;
+  policy_scope: string;
+  default_workspace_id?: string;
+  tool_policy?: PersonalAssistantProfileToolPolicy;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PersonalAssistantProfileBinding {
+  binding_id: string;
+  profile_id: string;
+  priority: number;
+  user_id?: string;
+  platform?: string;
+  chat_id?: string;
+  channel_kind?: string;
+  workspace_id?: string;
+  active: boolean;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PersonalAssistantProfileIsolationViolation {
+  left_profile_id: string;
+  right_profile_id: string;
+  scope: "memory_scope" | "tool_scope" | "policy_scope";
+  value: string;
+}
+
+export interface PersonalAssistantProfileList {
+  profiles: PersonalAssistantProfile[];
+  isolation: PersonalAssistantProfileIsolationViolation[];
+}
+
+export interface PersonalAssistantProfileInspect {
+  profile: PersonalAssistantProfile;
+  bindings: PersonalAssistantProfileBinding[];
+  isolation: PersonalAssistantProfileIsolationViolation[];
+}
