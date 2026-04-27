@@ -1,9 +1,15 @@
 {
   "name": "@neurocore/sdk-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Developer-facing SDK for building agents with NeuroCore runtime",
-  "keywords": ["agent", "runtime", "ai", "llm", "sdk"],
+  "keywords": [
+    "agent",
+    "runtime",
+    "ai",
+    "llm",
+    "sdk"
+  ],
   "license": "MIT",
   "author": "neurocore",
   "repository": {
@@ -19,14 +25,16 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
     "@neurocore/multi-agent": "^0.1.0",
-    "@neurocore/policy-core": "^0.1.0",
-    "@neurocore/protocol": "^0.1.0",
-    "@neurocore/runtime-core": "^0.1.0"
+    "@neurocore/policy-core": "^0.1.1",
+    "@neurocore/protocol": "^0.1.1",
+    "@neurocore/runtime-core": "^0.1.1"
   }
 }

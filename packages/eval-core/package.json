@@ -1,9 +1,16 @@
 {
   "name": "@neurocore/eval-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Evaluation framework for replay, comparison and testing of NeuroCore agents",
-  "keywords": ["agent", "runtime", "ai", "llm", "eval", "testing"],
+  "keywords": [
+    "agent",
+    "runtime",
+    "ai",
+    "llm",
+    "eval",
+    "testing"
+  ],
   "license": "MIT",
   "author": "neurocore",
   "repository": {
@@ -19,13 +26,15 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
-    "@neurocore/memory-core": "^0.1.0",
-    "@neurocore/protocol": "^0.1.0",
-    "@neurocore/sdk-core": "^0.1.0"
+    "@neurocore/memory-core": "^0.1.1",
+    "@neurocore/protocol": "^0.1.1",
+    "@neurocore/sdk-core": "^0.1.1"
   }
 }

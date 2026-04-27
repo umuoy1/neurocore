@@ -1,9 +1,17 @@
 {
   "name": "@neurocore/sdk-node",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Node.js adapter with OpenAI-compatible reasoner for NeuroCore SDK",
-  "keywords": ["agent", "runtime", "ai", "llm", "sdk", "nodejs", "openai"],
+  "keywords": [
+    "agent",
+    "runtime",
+    "ai",
+    "llm",
+    "sdk",
+    "nodejs",
+    "openai"
+  ],
   "license": "MIT",
   "author": "neurocore",
   "repository": {
@@ -19,12 +27,14 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
-    "@neurocore/protocol": "^0.1.0",
-    "@neurocore/sdk-core": "^0.1.0"
+    "@neurocore/protocol": "^0.1.1",
+    "@neurocore/sdk-core": "^0.1.1"
   }
 }

@@ -1,9 +1,16 @@
 {
   "name": "@neurocore/runtime-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Stateful agent runtime kernel with cycle engine, checkpoints, and session management",
-  "keywords": ["agent", "runtime", "ai", "llm", "stateful", "checkpoint"],
+  "keywords": [
+    "agent",
+    "runtime",
+    "ai",
+    "llm",
+    "stateful",
+    "checkpoint"
+  ],
   "license": "MIT",
   "author": "neurocore",
   "repository": {
@@ -19,16 +26,18 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
-    "@neurocore/protocol": "^0.1.0",
+    "@neurocore/protocol": "^0.1.1",
     "@neurocore/autonomy-core": "^0.1.0",
     "@neurocore/motivation-core": "^0.1.0",
-    "@neurocore/memory-core": "^0.1.0",
-    "@neurocore/policy-core": "^0.1.0",
+    "@neurocore/memory-core": "^0.1.1",
+    "@neurocore/policy-core": "^0.1.1",
     "@neurocore/device-core": "^0.1.0",
     "@neurocore/world-model": "^0.1.0",
     "@neurocore/multi-agent": "^0.1.0"

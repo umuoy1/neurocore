@@ -1,6 +1,6 @@
 {
   "name": "@neurocore/runtime-server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "HTTP server exposing NeuroCore agent runtime via REST API and SSE",
   "keywords": [
@@ -34,10 +34,10 @@
     "access": "public"
   },
   "dependencies": {
-    "@neurocore/eval-core": "^0.1.0",
-    "@neurocore/protocol": "^0.1.0",
-    "@neurocore/runtime-core": "^0.1.0",
-    "@neurocore/sdk-core": "^0.1.0",
+    "@neurocore/eval-core": "^0.1.1",
+    "@neurocore/protocol": "^0.1.1",
+    "@neurocore/runtime-core": "^0.1.1",
+    "@neurocore/sdk-core": "^0.1.1",
     "ws": "^8.20.0"
   },
   "devDependencies": {
