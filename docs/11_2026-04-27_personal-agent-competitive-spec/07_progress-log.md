@@ -936,3 +936,32 @@
 |---|---|
 | Ledger | `PA-GAP-002` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-003` Doctor, health and config dry-run |
+
+### PA-GAP-003 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Health command | `neurocore assistant health` 查询 WebChat `/health`，失败时返回机器可读错误 |
+| Doctor command | `neurocore assistant doctor` 输出 JSON 风险报告，覆盖 provider、SQLite、端口、审批、外部 DM allowlist 和 sandbox |
+| Config dry-run | `neurocore assistant config --dry-run` 输出解析后的配置，并对 token、secret、bearer、api key 字段脱敏 |
+| Timeout hardening | health probe 增加超时控制，避免被非 assistant 服务占用端口时挂起 |
+| Test | 新增 `tests/personal-assistant-doctor.test.mjs`，用临时 HOME 和端口占用 fixture 验证诊断链路 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `node --check scripts/neurocore.mjs && node --check examples/personal-assistant/scripts/assistant.mjs` | 通过 |
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-doctor.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-onboarding.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-003` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-004` Real CLI/TUI product entry |

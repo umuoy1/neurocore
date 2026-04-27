@@ -9,7 +9,7 @@ try {
   } else if (!command || command === "help" || command === "--help" || command === "-h") {
     console.log([
       "Usage:",
-      "  neurocore assistant <setup|start|stop|status|install-daemon|serve>"
+      "  neurocore assistant <setup|start|stop|status|health|doctor|config|install-daemon|serve>"
     ].join("\n"));
     process.exitCode = 0;
   } else {

@@ -32,6 +32,7 @@
 > - 2026-04-27 个人助理缺口计划补充：新增 `docs/11_2026-04-27_personal-agent-competitive-spec/10_gap-requirements-and-execution-plan.md`，把 PA2 完成后的下一轮个人助理能力整理为 `PA-GAP-001` ~ `PA-GAP-030`，并为每项固定“分析 / 执行 / 验收”过程。下一步从 `PA-GAP-001` 产品级 Baseline Runner 开始。
 > - 2026-04-27 个人助理 Baseline Runner 补充：`PA-GAP-001` 已落地 dedicated deterministic runner、`tests/personal-assistant-baseline.test.mjs` 和 accepted summary。当前 `PA-BL-001` 最新 run 为 `pa-bl-001-2026-04-27T15-53-36-881Z-deterministic`，66/66 assertions passed；后续 PA-GAP 任务从 `PA-GAP-002` 开始。
 > - 2026-04-27 个人助理安装入口补充：`PA-GAP-002` 已落地 `neurocore assistant setup/start/status/stop/install-daemon`，支持临时 HOME 配置、自启动服务文件生成、pid/log 管理和无外部 token 的 bootstrap reasoner。下一项为 `PA-GAP-003` doctor / health / config dry-run。
+> - 2026-04-27 个人助理诊断入口补充：`PA-GAP-003` 已落地 `neurocore assistant health/doctor/config --dry-run`，可用 JSON 诊断缺失模型 token、provider 超时、端口冲突、SQLite 路径、审批绕过、DM allowlist 和 sandbox 缺失风险。下一项为 `PA-GAP-004` 真实 CLI/TUI 产品。
 
 ## 交付总结
 
