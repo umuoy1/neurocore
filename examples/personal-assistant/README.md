@@ -50,9 +50,16 @@
   "model": "your-model-name",
   "apiUrl": "https://your-openai-compatible-endpoint",
   "bearerToken": "your-token",
-  "timeoutMs": 60000
+  "timeoutMs": 180000,
+  "jsonTimeoutMs": 45000,
+  "streamTimeoutMs": 180000,
+  "extraBody": {
+    "enable_thinking": false
+  }
 }
 ```
+
+硅基流动等 OpenAI-compatible 服务在大模型或长回复场景下首包可能超过 60 秒，建议把最终回复的 `timeoutMs` / `streamTimeoutMs` 或环境变量 `OPENAI_TIMEOUT_MS` / `OPENAI_STREAM_TIMEOUT_MS` 设置为 `180000` 以上。结构化 plan/respond 阶段建议保留较短的 `jsonTimeoutMs` / `OPENAI_JSON_TIMEOUT_MS`，个人助理默认是 `45000`，避免一次对话被三次慢调用串行拖住。
 
 常用环境变量：
 
@@ -62,6 +69,9 @@
 - `OPENAI_API_KEY`
 - `OPENAI_BASE_URL`
 - `OPENAI_MODEL`
+- `OPENAI_TIMEOUT_MS`
+- `OPENAI_JSON_TIMEOUT_MS`
+- `OPENAI_STREAM_TIMEOUT_MS`
 - `BRAVE_SEARCH_API_KEY`
 - `WEB_CHAT_PORT`
 - `WEB_CHAT_HOST`

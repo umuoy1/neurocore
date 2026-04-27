@@ -105,6 +105,35 @@ test("personal assistant web chat carries recent chat context across completed r
   }
 });
 
+test("personal assistant web chat returns complete actions without streaming model text", { concurrency: false }, async (t) => {
+  const fixture = await createFixtureOrSkip(t, {
+    reasoner: createCompleteReasoner("All done.")
+  });
+
+  if (!fixture) {
+    return;
+  }
+
+  try {
+    const client = await connectWebSocket(fixture.port, "chat-complete", "user-complete");
+
+    client.socket.send("finish this");
+    const reply = await client.nextMessage();
+    assert.equal(reply.type, "message");
+    assert.equal(reply.content.type, "text");
+    assert.equal(reply.content.text, "All done.");
+
+    client.socket.send("/status");
+    const status = await client.nextMessage();
+    assert.match(status.content.text, /state: completed/);
+
+    client.socket.close();
+    await client.closed;
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("personal assistant web chat streams runtime status and incremental reply updates", { concurrency: false }, async (t) => {
   const fixture = await createFixtureOrSkip(t, {
     reasoner: createRespondReasoner(() => "This is a deliberately long assistant reply used to verify incremental frontend updates over the web chat stream.")
@@ -183,6 +212,35 @@ test("personal assistant web chat reports tool execution progress before final r
     assert.equal(finalMessage.content.type, "text");
     assert.match(finalMessage.content.text, /Email sent with id email-1/i);
     assert.equal(emailSendCalls.length, 1);
+
+    client.socket.close();
+    await client.closed;
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("personal assistant web chat returns a visible timeout response instead of crashing", { concurrency: false }, async (t) => {
+  const fixture = await createFixtureOrSkip(t, {
+    reasoner: createStreamFailureReasoner()
+  });
+
+  if (!fixture) {
+    return;
+  }
+
+  try {
+    const client = await connectWebSocket(fixture.port, "chat-stream-timeout", "user-stream-timeout");
+
+    client.socket.send("please reply");
+    const reply = await client.nextMessage();
+    assert.equal(reply.type, "message");
+    assert.equal(reply.content.type, "text");
+    assert.match(reply.content.text, /model response timed out/i);
+
+    client.socket.send("/status");
+    const status = await client.nextMessage();
+    assert.match(status.content.text, /state: waiting/);
 
     client.socket.close();
     await client.closed;
@@ -336,6 +394,80 @@ function extractSessionId(text) {
   const match = /session_id:\s+([^\n]+)/.exec(text);
   assert.ok(match, `Expected session_id in message: ${text}`);
   return match[1];
+}
+
+function createStreamFailureReasoner() {
+  return {
+    name: "stream-failure-reasoner",
+    async plan(ctx) {
+      return [
+        {
+          proposal_id: ctx.services.generateId("prp"),
+          schema_version: ctx.profile.schema_version,
+          session_id: ctx.session.session_id,
+          cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+          module_name: "stream-failure-reasoner",
+          proposal_type: "plan",
+          salience_score: 0.8,
+          confidence: 0.9,
+          risk: 0,
+          payload: { summary: "Respond directly." }
+        }
+      ];
+    },
+    async respond(ctx) {
+      return [
+        {
+          action_id: ctx.services.generateId("act"),
+          action_type: "respond",
+          title: "Respond",
+          description: "This response will fail while streaming.",
+          side_effect_level: "none"
+        }
+      ];
+    },
+    async *streamText() {
+      const error = new Error("Model stream request timed out after 60000ms.");
+      error.name = "AbortError";
+      throw error;
+    }
+  };
+}
+
+function createCompleteReasoner(text) {
+  return {
+    name: "complete-reasoner",
+    async plan(ctx) {
+      return [
+        {
+          proposal_id: ctx.services.generateId("prp"),
+          schema_version: ctx.profile.schema_version,
+          session_id: ctx.session.session_id,
+          cycle_id: ctx.session.current_cycle_id ?? ctx.services.generateId("cyc"),
+          module_name: "complete-reasoner",
+          proposal_type: "plan",
+          salience_score: 0.8,
+          confidence: 0.9,
+          risk: 0,
+          payload: { summary: "Complete directly." }
+        }
+      ];
+    },
+    async respond(ctx) {
+      return [
+        {
+          action_id: ctx.services.generateId("act"),
+          action_type: "complete",
+          title: "Complete",
+          description: text,
+          side_effect_level: "none"
+        }
+      ];
+    },
+    async *streamText() {
+      throw new Error("complete actions must not call streamText");
+    }
+  };
 }
 
 function createRespondReasoner(responder) {

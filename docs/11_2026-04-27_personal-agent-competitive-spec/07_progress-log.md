@@ -797,3 +797,26 @@
 |---|---|
 | Ledger | `PA2-P2-07` 已标记 completed |
 | 下一项 | `PA2` OpenClaw/Hermes 对标个人助理任务链已完成，等待 `pa:next-task` 确认无剩余任务 |
+
+### SiliconFlow timeout hardening completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Provider timeout split | OpenAI-compatible reasoner 支持 `jsonTimeoutMs` 与 `streamTimeoutMs`，个人助理默认将结构化 plan/respond 阶段限制在 `45000ms`，最终流式回复继续使用长超时 |
+| SiliconFlow extra body | 个人助理配置链路完整透传 `extraBody`，本地硅基流动配置中的 `enable_thinking=false` 不再被入口丢弃 |
+| Runtime fallback | response generation 超时会返回可见错误文本并恢复到 waiting，不再以未捕获 `AbortError` 打崩 Web 服务 |
+| Structured preconditions | OpenAI-compatible reasoner 会过滤自然语言 preconditions，只保留 runtime 可判定条件，避免相邻上下文被误判为 `Preconditions not met` |
+| Complete action closure | `complete` 动作直接作为终态文本输出，不再错误调用 `streamText` |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/reasoner.test.mjs` | 通过，10 项测试 |
+| `node --test tests/personal-assistant-config.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-web-chat.test.mjs` | 通过，7 项测试 |
+| `node --test tests/runtime.test.mjs` | 通过，14 项测试 |
+| 硅基流动真实 WebChat 两轮验证 | 通过，第一轮 `15508ms`，第二轮 `24838ms`，无 `Preconditions not met`，第二轮正确回答 `GPT-5.5` |

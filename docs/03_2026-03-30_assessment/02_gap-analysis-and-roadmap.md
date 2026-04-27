@@ -30,6 +30,7 @@
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-05` 已收口轨迹导出、脱敏与 benchmark artifact。当前 `@neurocore/eval-core` 已提供 personal-agent trajectory export、redaction、benchmark artifact builder 和 deterministic replay report，个人助理可直接从 `AgentSessionHandle.replay()` 生成可评测轨迹。
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-06` 已收口全渠道媒体和语音基础层。当前 Gateway 已支持 image/file/audio/voice attachment 规范化、媒体提取 provenance/sensitivity、runtime `content_parts` 注入，以及音频/语音内容的跨渠道投递 fallback。
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-07` 已收口 Console 统一治理视图。当前 PersonalOps governance controller 和 Console 页面已覆盖 session、background task、approval、cron、subagent、memory、tool、audit 统一查看，并支持 approve/reject/pause/resume/cancel 治理动作，动作结果写入 audit before/after 记录；OpenClaw/Hermes 对标个人助理任务链完成度更新为 100%。
+> - 2026-04-27 个人助理硅基流动超时补充：当前 OpenAI-compatible provider 已支持结构化 JSON 与最终流式回复分离超时，个人助理默认 `jsonTimeoutMs=45000`、长回复 `streamTimeoutMs` 跟随模型配置；`extraBody` 透传、自然语言 precondition 过滤、response generation 可见超时兜底和 `complete` 直接终态输出均已进入主链。真实硅基流动 WebChat 两轮上下文验证通过。
 
 ## 完成度
 

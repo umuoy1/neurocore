@@ -27,6 +27,7 @@
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-05` 已完成轨迹数据、脱敏和 benchmark artifact。当前可从个人助理 session replay 导出 trace/memory/tool provenance，经稳定脱敏后转换为可确定性 replay 的 eval artifact。
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-06` 已完成全渠道媒体和语音基础层。当前 image/file/audio/voice 输入会归一化为 channel attachments，带 provenance/sensitivity 进入 runtime metadata 和 `content_parts`，audio/voice 输出具备富内容投递与文本 fallback。
 > - 2026-04-27 个人助理 P2 补充：`PA2-P2-07` 已完成 Console 统一治理视图。当前新增个人助理治理控制器、Console governance store/page，支持 session、background task、approval、cron、subagent、memory、tool、audit 统一查看，并可对 approval/task/cron/subagent 执行 approve/reject/pause/resume/cancel，所有治理动作写入 audit before/after 记录。
+> - 2026-04-27 个人助理硅基流动超时补充：OpenAI-compatible reasoner 已拆分 `jsonTimeoutMs / streamTimeoutMs`，个人助理配置链路已透传 `extraBody`，response generation 超时会返回可见兜底而非进程崩溃；同时过滤自然语言 preconditions 并让 `complete` 动作直接终态输出。真实硅基流动 WebChat 两轮验证通过，第二轮可保持相邻上下文并回答 `GPT-5.5`。
 
 ## 交付总结
 

@@ -17,7 +17,10 @@ export interface PersonalAssistantAppConfig {
     bearerToken: string;
     model: string;
     timeoutMs?: number;
+    jsonTimeoutMs?: number;
+    streamTimeoutMs?: number;
     headers?: Record<string, string>;
+    extraBody?: Record<string, unknown>;
   };
   agent?: {
     id?: string;
@@ -87,6 +90,7 @@ export interface PersonalAssistantAppConfig {
 }
 
 const ROOT_CONFIG_DIR = ".neurocore";
+const DEFAULT_JSON_TIMEOUT_MS = 45_000;
 const PERSONAL_ASSISTANT_CONFIG_DIR = join(ROOT_CONFIG_DIR, ".personal-assistant");
 const ROOT_LLM_CONFIG_PATH = join(ROOT_CONFIG_DIR, "llm.local.json");
 const PERSONAL_ASSISTANT_APP_CONFIG_FILES = [
@@ -212,6 +216,7 @@ function resolveOpenAIConfig(
   const apiUrl = env.OPENAI_BASE_URL ?? fallback?.apiUrl;
   const bearerToken = env.OPENAI_API_KEY ?? fallback?.bearerToken;
   const model = env.OPENAI_MODEL ?? fallback?.model;
+  const timeoutMs = parseOptionalInt(env.OPENAI_TIMEOUT_MS) ?? fallback?.timeoutMs;
 
   if (!apiUrl || !bearerToken || !model) {
     return undefined;
@@ -221,8 +226,14 @@ function resolveOpenAIConfig(
     apiUrl,
     bearerToken,
     model,
-    timeoutMs: parseOptionalInt(env.OPENAI_TIMEOUT_MS) ?? fallback?.timeoutMs,
-    headers: fallback?.headers
+    timeoutMs,
+    jsonTimeoutMs:
+      parseOptionalInt(env.OPENAI_JSON_TIMEOUT_MS) ??
+      fallback?.jsonTimeoutMs ??
+      deriveJsonTimeoutMs(timeoutMs),
+    streamTimeoutMs: parseOptionalInt(env.OPENAI_STREAM_TIMEOUT_MS) ?? fallback?.streamTimeoutMs ?? timeoutMs,
+    headers: fallback?.headers,
+    extraBody: fallback?.extraBody
   };
 }
 
@@ -239,7 +250,10 @@ function mergeOpenAIConfig(
     bearerToken: override?.bearerToken ?? base?.bearerToken ?? "",
     model: override?.model ?? base?.model ?? "",
     timeoutMs: override?.timeoutMs ?? base?.timeoutMs,
-    headers: override?.headers ?? base?.headers
+    jsonTimeoutMs: override?.jsonTimeoutMs ?? base?.jsonTimeoutMs,
+    streamTimeoutMs: override?.streamTimeoutMs ?? base?.streamTimeoutMs,
+    headers: override?.headers ?? base?.headers,
+    extraBody: override?.extraBody ?? base?.extraBody
   };
 }
 
@@ -318,8 +332,15 @@ function readOpenAICompatibleConfig(filePath: string): PersonalAssistantAppConfi
     bearerToken: parsed.bearerToken,
     model: parsed.model,
     timeoutMs: parsed.timeoutMs,
-    headers: parsed.headers
+    jsonTimeoutMs: parsed.jsonTimeoutMs,
+    streamTimeoutMs: parsed.streamTimeoutMs,
+    headers: parsed.headers,
+    extraBody: isPlainRecord(parsed.extraBody) ? parsed.extraBody : undefined
   };
+}
+
+function deriveJsonTimeoutMs(timeoutMs: number | undefined): number {
+  return timeoutMs ? Math.min(timeoutMs, DEFAULT_JSON_TIMEOUT_MS) : DEFAULT_JSON_TIMEOUT_MS;
 }
 
 function parseOptionalInt(value: string | undefined): number | undefined {
@@ -328,6 +349,10 @@ function parseOptionalInt(value: string | undefined): number | undefined {
   }
   const parsed = parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function parseOptionalBoolean(value: string | undefined): boolean | undefined {

@@ -2568,7 +2568,33 @@ export class AgentRuntime {
       }
     });
     const targetState = deriveSessionState(selectedAction.action_type);
-    const streamedText = await this.streamTextAction(profile, session, input, cycle, selectedAction);
+    let streamedText: string;
+    if (selectedAction.action_type === "complete") {
+      streamedText = selectedAction.description ?? selectedAction.title;
+      this.emitRuntimeOutput(session, {
+        cycle_id: cycle.cycleId,
+        action_id: selectedAction.action_id,
+        action_type: "respond",
+        state: "completed",
+        mode: "buffered",
+        delta: streamedText,
+        text: streamedText
+      });
+    } else {
+      try {
+        streamedText = await this.streamTextAction(profile, session, input, cycle, selectedAction);
+      } catch (error) {
+        return this.handleResponseGenerationFailure(
+          profile,
+          session,
+          input,
+          startedAt,
+          cycle,
+          selectedAction,
+          error
+        );
+      }
+    }
     const observation = buildSyntheticObservation(session, cycle.cycleId, selectedAction, streamedText);
     const execution = buildRuntimeActionExecution(session, cycle.cycleId, selectedAction, "succeeded");
     this.emitEvent(session, "action.executed", execution, cycle.cycleId);
@@ -2747,6 +2773,113 @@ export class AgentRuntime {
       },
       created_at: endedAt
     };
+
+    const { predictionErrors, calibrationRecord, createdReflectionRule } = await this.recordObservation(
+      profile,
+      session,
+      input,
+      cycle.cycleId,
+      selectedAction,
+      observation,
+      "failure",
+      cycle.predictions,
+      execution,
+      cycle.metaAssessment,
+      cycle.metaSignalFrame,
+      deriveSkillLearningContext(this.proceduralMemoryProvider, cycle.proposals, selectedAction)
+    );
+    const sessionState = this.updateSessionState(sessionId, "waiting").state;
+    const trace = this.recordTrace({
+      sessionId,
+      cycleId: cycle.cycleId,
+      input,
+      proposals: cycle.proposals,
+      candidateActions: cycle.actions,
+      predictions: cycle.predictions,
+      policyDecisions: cycle.workspace.policy_decisions ?? [],
+      predictionErrors,
+      selectedAction,
+      selectedActionId: selectedAction.action_id,
+      actionExecution: execution,
+      observation,
+      workspace: cycle.workspace,
+      calibrationRecord,
+      createdReflectionRule,
+      ...toMetaTraceFields(cycle),
+      startedAt
+    });
+    this.maybeCreateCheckpoint(profile, sessionId);
+    this.persistSessionState(sessionId);
+    return {
+      sessionId,
+      cycleId: cycle.cycleId,
+      sessionState,
+      selectedAction,
+      actionExecution: execution,
+      observation,
+      outputText: summary,
+      trace,
+      cycle: toAgentCycleState(cycle),
+      predictionErrors,
+      calibrationRecord
+    };
+  }
+
+  private async handleResponseGenerationFailure(
+    profile: AgentProfile,
+    session: AgentSession,
+    input: UserInput,
+    startedAt: string,
+    cycle: ExecutionCycleState,
+    selectedAction: CandidateAction,
+    error: unknown
+  ): Promise<AgentRunResult> {
+    const sessionId = session.session_id;
+    const endedAt = nowIso();
+    const summary = formatResponseGenerationError(error);
+    const execution = buildRuntimeActionExecution(session, cycle.cycleId, selectedAction, "failed");
+    execution.started_at = startedAt;
+    execution.ended_at = endedAt;
+    execution.error_ref = error instanceof Error ? `${error.name}:${error.message}` : String(error);
+    const observation: Observation = {
+      observation_id: generateId("obs"),
+      session_id: sessionId,
+      cycle_id: cycle.cycleId,
+      source_action_id: selectedAction.action_id,
+      source_type: "runtime",
+      status: "failure",
+      summary,
+      structured_payload: {
+        error_name: error instanceof Error ? error.name : "UnknownError",
+        error_message: error instanceof Error ? error.message : String(error),
+        action_type: selectedAction.action_type
+      },
+      created_at: endedAt
+    };
+
+    this.emitEvent(session, "action.executed", execution, cycle.cycleId);
+    this.emitRuntimeStatus(session, {
+      cycle_id: cycle.cycleId,
+      phase: "response_generation",
+      state: "failed",
+      summary: "Assistant response generation failed",
+      detail: summary,
+      data: {
+        action_id: selectedAction.action_id,
+        action_type: selectedAction.action_type,
+        status: execution.status,
+        error_name: error instanceof Error ? error.name : "UnknownError"
+      }
+    });
+    this.emitRuntimeOutput(session, {
+      cycle_id: cycle.cycleId,
+      action_id: selectedAction.action_id,
+      action_type: selectedAction.action_type as "respond" | "ask_user",
+      state: "completed",
+      mode: "buffered",
+      delta: summary,
+      text: summary
+    });
 
     const { predictionErrors, calibrationRecord, createdReflectionRule } = await this.recordObservation(
       profile,
@@ -4674,6 +4807,19 @@ function buildRuntimeActionExecution(
     ended_at: timestamp,
     executor: "runtime"
   };
+}
+
+function formatResponseGenerationError(error: unknown): string {
+  if (isAbortError(error) || String(error).toLowerCase().includes("timed out")) {
+    return "The model response timed out before a reply was completed. Please retry, use a shorter prompt, or increase OPENAI_TIMEOUT_MS.";
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return `The assistant could not generate a response: ${message}`;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 function normalizeActuatorCommands(value: unknown): ActuatorCommand[] {

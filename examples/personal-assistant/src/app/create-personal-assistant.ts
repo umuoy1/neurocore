@@ -340,7 +340,10 @@ function resolveReasoner(
     bearerToken: openai.bearerToken,
     model: openai.model,
     timeoutMs: openai.timeoutMs,
-    headers: openai.headers
+    jsonTimeoutMs: openai.jsonTimeoutMs,
+    streamTimeoutMs: openai.streamTimeoutMs,
+    headers: openai.headers,
+    extraBody: openai.extraBody
   });
 }
 

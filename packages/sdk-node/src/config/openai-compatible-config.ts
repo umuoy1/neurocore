@@ -8,6 +8,8 @@ export interface OpenAICompatibleConfig {
   apiUrl: string;
   bearerToken: string;
   timeoutMs?: number;
+  jsonTimeoutMs?: number;
+  streamTimeoutMs?: number;
   headers?: Record<string, string>;
   extraBody?: Record<string, unknown>;
 }
@@ -43,6 +45,8 @@ export async function loadOpenAICompatibleConfig(
     apiUrl: parsed.apiUrl,
     bearerToken: parsed.bearerToken,
     timeoutMs: parsed.timeoutMs,
+    jsonTimeoutMs: parsed.jsonTimeoutMs,
+    streamTimeoutMs: parsed.streamTimeoutMs,
     headers: parsed.headers,
     extraBody: isPlainRecord(parsed.extraBody) ? parsed.extraBody : undefined
   };
@@ -53,6 +57,8 @@ export async function loadOpenAICompatibleConfig(
     apiUrl: config.apiUrl,
     bearerTokenMasked: maskSecret(config.bearerToken),
     timeoutMs: config.timeoutMs ?? 60000,
+    jsonTimeoutMs: config.jsonTimeoutMs,
+    streamTimeoutMs: config.streamTimeoutMs,
     headerKeys: Object.keys(config.headers ?? {}),
     extraBodyKeys: Object.keys(config.extraBody ?? {})
   });

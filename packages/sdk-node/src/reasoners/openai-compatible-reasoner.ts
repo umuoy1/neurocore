@@ -91,6 +91,7 @@ export interface OpenAICompatibleReasonerOptions {
 
 export class OpenAICompatibleReasoner implements Reasoner {
   public readonly name = "openai-compatible-reasoner";
+  private readonly directResponses = new WeakMap<CandidateAction, string>();
 
   public constructor(
     private readonly config: OpenAICompatibleConfig,
@@ -183,12 +184,7 @@ export class OpenAICompatibleReasoner implements Reasoner {
         cycleId: ctx.session.current_cycle_id ?? "pending",
         errorMessage: error instanceof Error ? error.message : String(error)
       });
-      return [
-        {
-          action_id: ctx.services.generateId("act"),
-          ...buildFallbackAskUserAction(error)
-        }
-      ];
+      return [this.createDirectFallbackAction(ctx, buildFallbackAskUserAction(error))];
     }
 
     const actions = json.actions ?? [];
@@ -197,14 +193,13 @@ export class OpenAICompatibleReasoner implements Reasoner {
         sessionId: ctx.session.session_id
       });
       return [
-        {
-          action_id: ctx.services.generateId("act"),
+        this.createDirectFallbackAction(ctx, {
           action_type: "ask_user",
           title: "Clarify the request",
           description: "Model returned no structured actions, ask the user for clarification.",
           expected_outcome: "Collect missing information before continuing.",
           side_effect_level: "none"
-        }
+        })
       ];
     }
 
@@ -237,14 +232,13 @@ export class OpenAICompatibleReasoner implements Reasoner {
         cycleId: ctx.session.current_cycle_id ?? "pending"
       });
       return [
-        {
-          action_id: ctx.services.generateId("act"),
+        this.createDirectFallbackAction(ctx, {
           action_type: "ask_user",
           title: "Clarify the request",
           description: "Model proposed unsupported tool actions, ask the user for clarification.",
           expected_outcome: "Collect a request that matches the available toolset.",
           side_effect_level: "none"
-        }
+        })
       ];
     }
 
@@ -266,9 +260,18 @@ export class OpenAICompatibleReasoner implements Reasoner {
       throw new Error(`streamText only supports respond/ask_user actions, got ${action.action_type}.`);
     }
 
+    const directResponse = this.directResponses.get(action);
+    if (directResponse) {
+      yield directResponse;
+      return;
+    }
+
     const controller = new AbortController();
-    const timeoutMs = this.config.timeoutMs ?? 60_000;
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutMs = this.config.streamTimeoutMs ?? this.config.timeoutMs ?? 60_000;
+    const timeout = setTimeout(
+      () => controller.abort(new Error(`Model stream request timed out after ${timeoutMs}ms.`)),
+      timeoutMs
+    );
     const url = resolveChatCompletionsUrl(this.config.apiUrl);
     const requestPayload = {
       ...this.config.extraBody,
@@ -344,8 +347,11 @@ export class OpenAICompatibleReasoner implements Reasoner {
     maxOutputTokens: number
   ): Promise<T> {
     const controller = new AbortController();
-    const timeoutMs = this.config.timeoutMs ?? 60_000;
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutMs = this.config.jsonTimeoutMs ?? this.config.timeoutMs ?? 60_000;
+    const timeout = setTimeout(
+      () => controller.abort(new Error(`Model request timed out after ${timeoutMs}ms.`)),
+      timeoutMs
+    );
     const url = resolveChatCompletionsUrl(this.config.apiUrl);
     const startedAt = Date.now();
     const temperature = this.options.temperature ?? DEFAULT_TEMPERATURE;
@@ -449,6 +455,18 @@ export class OpenAICompatibleReasoner implements Reasoner {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private createDirectFallbackAction(
+    ctx: ModuleContext,
+    action: Omit<CandidateAction, "action_id">
+  ): CandidateAction {
+    const candidate = {
+      action_id: ctx.services.generateId("act"),
+      ...action
+    };
+    this.directResponses.set(candidate, candidate.description ?? candidate.title);
+    return candidate;
   }
 }
 
@@ -695,6 +713,7 @@ function normalizeAction(
     ...action,
     action_type: actionType,
     tool_name: toolName,
+    preconditions: normalizePreconditions(action.preconditions),
     depends_on_action_ids: Array.isArray(action.depends_on_action_ids)
       ? action.depends_on_action_ids.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
       : undefined,
@@ -711,6 +730,27 @@ function normalizeAction(
         ? action.plan_group_id
         : undefined
   };
+}
+
+function normalizePreconditions(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const preconditions = value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => isRuntimePrecondition(entry));
+  return preconditions.length > 0 ? preconditions : undefined;
+}
+
+function isRuntimePrecondition(value: string): boolean {
+  return (
+    value === "input:structured_response=present" ||
+    /^session:state=[a-z_]+$/.test(value) ||
+    /^tool:[^:]+:registered=(true|false)$/.test(value) ||
+    /^entity:[^:]+:[^=]+=.+$/.test(value)
+  );
 }
 
 function buildPlanSystemPrompt(): string {

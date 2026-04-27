@@ -44,7 +44,10 @@ test("createPersonalAssistantConfigFromEnv loads config from .neurocore/.persona
       model: "pa-local-model",
       apiUrl: "https://pa.example.com/v1",
       bearerToken: "pa-local-token",
-      timeoutMs: 1234
+      timeoutMs: 1234,
+      extraBody: {
+        enable_thinking: false
+      }
     }),
     "utf8"
   );
@@ -60,6 +63,9 @@ test("createPersonalAssistantConfigFromEnv loads config from .neurocore/.persona
   assert.equal(config.openai?.apiUrl, "https://pa.example.com/v1");
   assert.equal(config.openai?.bearerToken, "pa-local-token");
   assert.equal(config.openai?.timeoutMs, 1234);
+  assert.equal(config.openai?.jsonTimeoutMs, 1234);
+  assert.equal(config.openai?.streamTimeoutMs, 1234);
+  assert.deepEqual(config.openai?.extraBody, { enable_thinking: false });
   assert.equal(config.web_chat?.host, "0.0.0.0");
   assert.equal(config.web_chat?.port, 4401);
   assert.equal(config.web_chat?.path, "/ws");
@@ -79,7 +85,10 @@ test("createPersonalAssistantConfigFromEnv falls back to root .neurocore/llm.loc
       provider: "openai-compatible",
       model: "root-model",
       apiUrl: "https://root.example.com/v1",
-      bearerToken: "root-token"
+      bearerToken: "root-token",
+      extraBody: {
+        enable_thinking: false
+      }
     }),
     "utf8"
   );
@@ -89,6 +98,9 @@ test("createPersonalAssistantConfigFromEnv falls back to root .neurocore/llm.loc
   assert.equal(config.openai?.model, "root-model");
   assert.equal(config.openai?.apiUrl, "https://root.example.com/v1");
   assert.equal(config.openai?.bearerToken, "root-token");
+  assert.equal(config.openai?.jsonTimeoutMs, 45000);
+  assert.equal(config.openai?.streamTimeoutMs, undefined);
+  assert.deepEqual(config.openai?.extraBody, { enable_thinking: false });
 });
 
 test("createPersonalAssistantConfigFromEnv lets env override local config", async () => {
@@ -113,7 +125,9 @@ test("createPersonalAssistantConfigFromEnv lets env override local config", asyn
       OPENAI_MODEL: "env-model",
       WEB_CHAT_PORT: "5501",
       PERSONAL_ASSISTANT_APPROVERS: "alice,bob",
-      PERSONAL_ASSISTANT_AUTO_APPROVE: "true"
+      PERSONAL_ASSISTANT_AUTO_APPROVE: "true",
+      OPENAI_JSON_TIMEOUT_MS: "4321",
+      OPENAI_STREAM_TIMEOUT_MS: "8765"
     },
     { cwd: directory }
   );
@@ -122,6 +136,8 @@ test("createPersonalAssistantConfigFromEnv lets env override local config", asyn
   assert.equal(config.openai?.apiUrl, "https://local.example.com/v1");
   assert.equal(config.openai?.bearerToken, "local-token");
   assert.equal(config.openai?.timeoutMs, 9000);
+  assert.equal(config.openai?.jsonTimeoutMs, 4321);
+  assert.equal(config.openai?.streamTimeoutMs, 8765);
   assert.equal(config.web_chat?.port, 5501);
   assert.equal(config.agent?.auto_approve, true);
   assert.deepEqual(config.agent?.approvers, ["alice", "bob"]);

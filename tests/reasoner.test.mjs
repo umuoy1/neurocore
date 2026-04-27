@@ -82,6 +82,134 @@ test("tool catalog side effect level overrides model-provided tool action level"
   }
 });
 
+test("respond keeps only machine-checkable action preconditions", async () => {
+  const reasoner = new OpenAICompatibleReasoner({
+    provider: "openai-compatible",
+    model: "test-model",
+    apiUrl: "https://example.com/v1",
+    bearerToken: "test-token"
+  });
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    async json() {
+      return {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                actions: [
+                  {
+                    action_type: "respond",
+                    title: "Answer",
+                    description: "GPT-5.5",
+                    preconditions: [
+                      "已从同一会话的历史记忆与上下文中确认模型代号为 GPT-5.5",
+                      " input:structured_response=present "
+                    ]
+                  }
+                ]
+              })
+            }
+          }
+        ]
+      };
+    }
+  });
+
+  try {
+    const actions = await reasoner.respond({
+      tenant_id: "local",
+      session: {
+        session_id: "ses_test",
+        current_cycle_id: "cyc_test"
+      },
+      profile: {
+        schema_version: "0.1.0",
+        role: "Test runtime",
+        tool_refs: [],
+        metadata: {}
+      },
+      goals: [],
+      runtime_state: {
+        current_input_content: "Which model?"
+      },
+      services: {
+        now: () => new Date().toISOString(),
+        generateId: (prefix) => `${prefix}_test`
+      }
+    });
+
+    assert.deepEqual(actions[0].preconditions, ["input:structured_response=present"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("respond timeout fallback streams directly without a second model call", async () => {
+  const reasoner = new OpenAICompatibleReasoner({
+    provider: "openai-compatible",
+    model: "test-model",
+    apiUrl: "https://example.com/v1",
+    bearerToken: "test-token",
+    timeoutMs: 1000,
+    jsonTimeoutMs: 10
+  });
+  const ctx = {
+    tenant_id: "local",
+    session: {
+      session_id: "ses_test",
+      current_cycle_id: "cyc_test"
+    },
+    profile: {
+      schema_version: "0.1.0",
+      role: "Test runtime",
+      tool_refs: [],
+      metadata: {}
+    },
+    goals: [],
+    runtime_state: {
+      current_input_content: "hello"
+    },
+    services: {
+      now: () => new Date().toISOString(),
+      generateId: (prefix) => `${prefix}_test`
+    }
+  };
+
+  let fetchCount = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    fetchCount += 1;
+    return new Promise((_resolve, reject) => {
+      const signal = init?.signal;
+      if (signal?.aborted) {
+        reject(signal.reason ?? new Error("aborted"));
+        return;
+      }
+      signal?.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")), { once: true });
+    });
+  };
+
+  try {
+    const actions = await reasoner.respond(ctx);
+    const chunks = [];
+    for await (const chunk of reasoner.streamText(ctx, actions[0])) {
+      chunks.push(chunk);
+    }
+
+    assert.equal(actions.length, 1);
+    assert.equal(actions[0].action_type, "ask_user");
+    assert.equal(fetchCount, 1);
+    assert.match(chunks.join(""), /model request failed/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("respond retries with a larger token budget after incomplete JSON", async () => {
   const reasoner = new OpenAICompatibleReasoner({
     provider: "openai-compatible",
