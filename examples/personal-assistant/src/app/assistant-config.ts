@@ -700,6 +700,14 @@ function parseOptionalInt(value: string | undefined): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function parseOptionalFloat(value: string | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -794,12 +802,22 @@ function resolveSandboxConfig(
       user: env.PERSONAL_ASSISTANT_SANDBOX_SSH_USER ?? fallback?.ssh?.user,
       port: parseOptionalInt(env.PERSONAL_ASSISTANT_SANDBOX_SSH_PORT) ?? fallback?.ssh?.port,
       workspace: env.PERSONAL_ASSISTANT_SANDBOX_SSH_WORKSPACE ?? fallback?.ssh?.workspace
+    },
+    serverless: {
+      ...fallback?.serverless,
+      enabled: parseOptionalBoolean(env.PERSONAL_ASSISTANT_SANDBOX_SERVERLESS_ENABLED) ?? fallback?.serverless?.enabled,
+      backend: env.PERSONAL_ASSISTANT_SANDBOX_SERVERLESS_BACKEND ?? fallback?.serverless?.backend,
+      workspace: env.PERSONAL_ASSISTANT_SANDBOX_SERVERLESS_WORKSPACE ?? fallback?.serverless?.workspace,
+      shell: env.PERSONAL_ASSISTANT_SANDBOX_SERVERLESS_SHELL ?? fallback?.serverless?.shell,
+      state_path: env.PERSONAL_ASSISTANT_SANDBOX_SERVERLESS_STATE_PATH ?? fallback?.serverless?.state_path,
+      cost_per_second_usd: parseOptionalFloat(env.PERSONAL_ASSISTANT_SANDBOX_SERVERLESS_COST_PER_SECOND_USD) ?? fallback?.serverless?.cost_per_second_usd,
+      cost_limit_usd: parseOptionalFloat(env.PERSONAL_ASSISTANT_SANDBOX_SERVERLESS_COST_LIMIT_USD) ?? fallback?.serverless?.cost_limit_usd
     }
   };
 }
 
 function parseSandboxTarget(value: string | undefined): SandboxTarget | undefined {
-  if (value === "local" || value === "docker" || value === "ssh") {
+  if (value === "local" || value === "docker" || value === "ssh" || value === "serverless") {
     return value;
   }
   return undefined;

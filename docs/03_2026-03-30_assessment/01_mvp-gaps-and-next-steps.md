@@ -54,6 +54,7 @@
 > - 2026-04-28 个人助理 Canvas 补充：`PA-GAP-021` 已落地 Canvas artifact store、HTML sanitizer、CSP preview renderer、version/diff/rollback 工具和 Console Assistant Canvas 页面；agent 可创建并更新 HTML artifact，恶意 script/event/javascript URL 被清洗并通过 CSP/sandbox 约束。下一项为 `PA-GAP-016` Skills marketplace and install audit。
 > - 2026-04-28 个人助理技能市场补充：`PA-GAP-016` 已落地 `SkillMarketplace`、source/package search、install/update/remove/enable/disable/audit、permission/risk manifest、version pin 和升级失败 rollback；禁用技能不能触发，安装与禁用动作均有审计。下一项为 `PA-GAP-017` OpenClaw and Hermes migration。
 > - 2026-04-28 个人助理迁移器补充：`PA-GAP-017` 已落地 OpenClaw/Hermes migration importer、dry-run mapping report、persona/memory/skills/allowlist/channels 导入、重复检测、secret ref 跳过策略和 rollback artifact；真实导入后的 profile、memory、skill、identity/home channel 均可查询。下一项为 `PA-GAP-025` Advanced sandbox backend。
+> - 2026-04-28 个人助理高级沙箱补充：`PA-GAP-025` 已落地 `serverless` sandbox target、持久化 environment state、hibernate/resume/status 工具、cost/lifecycle payload、workspace 重启恢复和 secret env deny-by-default 验收。下一项为 `PA-GAP-026` MCP product governance。
 
 ## 交付总结
 

@@ -1642,3 +1642,36 @@
 |---|---|
 | Ledger | `PA-GAP-017` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-025` Advanced sandbox backend |
+
+### PA-GAP-025 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Serverless target | Sandbox target 扩展为 `serverless`，新增 `ServerlessSandboxProvider`，与 local/docker/ssh 共用 `SandboxManager` |
+| Environment state | 新增 in-memory 和 JSON environment state store，记录 environment_id、backend、workspace、checkpoint、restore_count |
+| Lifecycle tools | 新增 `sandbox_environment_status`、`sandbox_environment_hibernate`、`sandbox_environment_resume` |
+| Cost visibility | sandbox result 和 environment payload 暴露 elapsed_ms、estimated_cost_usd、cost_limit_usd 与 lifecycle |
+| Secret boundary | serverless provider 复用 `filterSecretEnv`，测试确认 secret-like env 不进入 runner，environment 标记 `secrets_injected=false` |
+| Restart recovery | JSON state path + workspace 可在新 manager 实例中恢复 hibernated environment，并继续读取原 workspace 文件 |
+| Config wiring | 支持 `PERSONAL_ASSISTANT_SANDBOX_TARGET=serverless` 和 serverless backend/workspace/state/cost env 配置 |
+| Tests | 新增 `tests/personal-assistant-advanced-sandbox.test.mjs` 覆盖 serverless lifecycle、secret deny、config 和 agent tool refs |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `npm run pa:plan-check` | 通过 |
+| `node --test tests/personal-assistant-advanced-sandbox.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-credential-vault.test.mjs tests/personal-assistant-config.test.mjs` | 通过，8 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-025` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-025` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-026` MCP product governance |

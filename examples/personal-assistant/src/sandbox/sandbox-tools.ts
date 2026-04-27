@@ -1,11 +1,14 @@
 import type { JsonValue, Tool } from "@neurocore/protocol";
-import type { SandboxCommandResult, SandboxManager, SandboxTarget } from "./sandbox-provider.js";
+import type { SandboxCommandResult, SandboxEnvironmentMetadata, SandboxManager, SandboxTarget } from "./sandbox-provider.js";
 
 export function createSandboxTools(manager: SandboxManager): Tool[] {
   return [
     createSandboxShellTool(manager),
     createSandboxFileReadTool(manager),
-    createSandboxFileWriteTool(manager)
+    createSandboxFileWriteTool(manager),
+    createSandboxEnvironmentStatusTool(manager),
+    createSandboxEnvironmentHibernateTool(manager),
+    createSandboxEnvironmentResumeTool(manager)
   ];
 }
 
@@ -118,6 +121,75 @@ export function createSandboxFileWriteTool(manager: SandboxManager): Tool {
   };
 }
 
+export function createSandboxEnvironmentStatusTool(manager: SandboxManager): Tool {
+  return {
+    name: "sandbox_environment_status",
+    description: "Inspect sandbox environment lifecycle, checkpoint, restore and cost metadata.",
+    sideEffectLevel: "none",
+    inputSchema: {
+      type: "object",
+      properties: {
+        target: { type: "string" }
+      }
+    },
+    async invoke(input) {
+      const environment = manager.getEnvironmentStatus(readOptionalTarget(input.target));
+      return {
+        summary: formatEnvironmentSummary(environment),
+        payload: {
+          environment: toEnvironmentPayload(environment)
+        }
+      };
+    }
+  };
+}
+
+export function createSandboxEnvironmentHibernateTool(manager: SandboxManager): Tool {
+  return {
+    name: "sandbox_environment_hibernate",
+    description: "Hibernate a sandbox environment and return checkpoint metadata.",
+    sideEffectLevel: "medium",
+    inputSchema: {
+      type: "object",
+      properties: {
+        target: { type: "string" }
+      }
+    },
+    async invoke(input) {
+      const environment = manager.hibernateEnvironment(readOptionalTarget(input.target));
+      return {
+        summary: formatEnvironmentSummary(environment),
+        payload: {
+          environment: toEnvironmentPayload(environment)
+        }
+      };
+    }
+  };
+}
+
+export function createSandboxEnvironmentResumeTool(manager: SandboxManager): Tool {
+  return {
+    name: "sandbox_environment_resume",
+    description: "Resume a hibernated sandbox environment and return restore metadata.",
+    sideEffectLevel: "medium",
+    inputSchema: {
+      type: "object",
+      properties: {
+        target: { type: "string" }
+      }
+    },
+    async invoke(input) {
+      const environment = manager.resumeEnvironment(readOptionalTarget(input.target));
+      return {
+        summary: formatEnvironmentSummary(environment),
+        payload: {
+          environment: toEnvironmentPayload(environment)
+        }
+      };
+    }
+  };
+}
+
 function toSandboxPayload(result: SandboxCommandResult): Record<string, JsonValue | undefined> {
   const trace: Record<string, JsonValue> = {
     provider_name: result.trace.provider_name,
@@ -153,13 +225,40 @@ function toSandboxPayload(result: SandboxCommandResult): Record<string, JsonValu
     stdout: result.stdout,
     stderr: result.stderr,
     exit_code: result.exit_code,
-    timed_out: result.timed_out
+    timed_out: result.timed_out,
+    environment: result.environment ? toEnvironmentPayload(result.environment) : undefined,
+    cost: result.cost ? result.cost as unknown as JsonValue : undefined
   };
 }
 
 function formatSandboxSummary(result: SandboxCommandResult): string {
   const output = result.stdout.trim() || result.stderr.trim() || "no output";
   return `SANDBOX_TRACE provider=${result.provider_name} target=${result.target} operation=${result.operation} exit_code=${result.exit_code} timed_out=${result.timed_out}\n${output}`;
+}
+
+function formatEnvironmentSummary(environment: SandboxEnvironmentMetadata): string {
+  return `SANDBOX_ENV target=${environment.target} backend=${environment.backend} lifecycle=${environment.lifecycle} checkpoint=${environment.checkpoint_id ?? "none"} cost=${environment.estimated_cost_usd}`;
+}
+
+function toEnvironmentPayload(environment: SandboxEnvironmentMetadata): Record<string, JsonValue> {
+  const payload: Record<string, JsonValue> = {
+    environment_id: environment.environment_id,
+    target: environment.target,
+    backend: environment.backend,
+    lifecycle: environment.lifecycle,
+    created_at: environment.created_at,
+    updated_at: environment.updated_at,
+    restore_count: environment.restore_count,
+    estimated_cost_usd: environment.estimated_cost_usd,
+    secrets_injected: environment.secrets_injected,
+    metadata: toJsonRecord(environment.metadata)
+  };
+  if (environment.workspace) payload.workspace = environment.workspace;
+  if (environment.hibernated_at) payload.hibernated_at = environment.hibernated_at;
+  if (environment.resumed_at) payload.resumed_at = environment.resumed_at;
+  if (environment.checkpoint_id) payload.checkpoint_id = environment.checkpoint_id;
+  if (environment.cost_limit_usd !== undefined) payload.cost_limit_usd = environment.cost_limit_usd;
+  return payload;
 }
 
 function readRequiredString(value: unknown, name: string): string {
@@ -178,9 +277,13 @@ function readOptionalNumber(value: unknown): number | undefined {
 }
 
 function readOptionalTarget(value: unknown): SandboxTarget | undefined {
-  return value === "local" || value === "docker" || value === "ssh" ? value : undefined;
+  return value === "local" || value === "docker" || value === "ssh" || value === "serverless" ? value : undefined;
 }
 
 function quoteShell(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function toJsonRecord(value: Record<string, unknown>): Record<string, JsonValue> {
+  return JSON.parse(JSON.stringify(value)) as Record<string, JsonValue>;
 }

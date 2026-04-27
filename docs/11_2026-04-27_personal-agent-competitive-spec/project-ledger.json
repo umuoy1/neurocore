@@ -2,9 +2,9 @@
   "schema_version": "1.0.0",
   "project": "personal-agent-competitive-spec",
   "meta": {
-    "current_task": "PA-GAP-025",
+    "current_task": "PA-GAP-026",
     "phase": "PA-GAP-F",
-    "updated_at": "2026-04-27T19:20:18.738Z",
+    "updated_at": "2026-04-27T19:27:52.276Z",
     "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
   },
   "phases": [
@@ -1753,7 +1753,9 @@
       "id": "PA-GAP-025",
       "phase": "PA-GAP-F",
       "title": "Advanced sandbox backend",
-      "status": "in_progress",
+      "status": "completed",
+      "completed_at": "2026-04-27T19:27:40.443Z",
+      "acceptance_last_run": "npm run pa:accept -- PA-GAP-025",
       "depends_on": [
         "PA-GAP-017"
       ],
@@ -1767,7 +1769,10 @@
       ],
       "tests": [
         "npm run build",
-        "npm run pa:plan-check"
+        "npm run pa:plan-check",
+        "node --test tests/personal-assistant-advanced-sandbox.test.mjs",
+        "node --test tests/personal-assistant-credential-vault.test.mjs tests/personal-assistant-config.test.mjs",
+        "node --test tests/personal-assistant-baseline.test.mjs"
       ],
       "write_paths": [
         "examples/personal-assistant/",
@@ -1780,7 +1785,7 @@
       "id": "PA-GAP-026",
       "phase": "PA-GAP-F",
       "title": "MCP product governance",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": [
         "PA-GAP-025"
       ],
@@ -1800,7 +1805,8 @@
         "examples/personal-assistant/",
         "tests/",
         "docs/"
-      ]
+      ],
+      "started_at": "2026-04-27T19:27:52.276Z"
     },
     {
       "id": "PA-GAP-027",
