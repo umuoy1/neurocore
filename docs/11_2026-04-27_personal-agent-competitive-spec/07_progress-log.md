@@ -1675,3 +1675,36 @@
 |---|---|
 | Ledger | `PA-GAP-025` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-026` MCP product governance |
+
+### PA-GAP-026 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Governance registry | 新增 `PersonalMcpGovernanceRegistry`，管理 MCP server、tool state、refresh 和 audit |
+| Dynamic refresh | `refreshTools()` 按 server enabled、include_tools、exclude_tools 动态发现工具，并保留禁用状态 |
+| Management tools | 新增 `mcp_server_list/refresh/enable/disable`、`mcp_tool_enable/disable`、`mcp_audit_list` |
+| Secret filtering | HTTP headers 和 stdio env 默认过滤 Authorization/token/secret/password/API key 类字段，server summary 不暴露 secret key/value |
+| Untrusted safety | MCP tool result 保留 `UNTRUSTED_MCP_CONTENT`，payload 标记 `untrusted_content`、resource trust 和 prompt injection detection |
+| Audit | refresh、tool invoke、tool blocked、server update、server/tool enable/disable 均写入 audit event |
+| App wiring | `createPersonalAssistantAgent` 可接入 `mcpGovernance` 并注册 MCP governance tools |
+| Tests | 扩展 `tests/personal-assistant-mcp.test.mjs` 覆盖 dynamic refresh、secret filtering、禁用阻断、prompt injection marker 和治理工具 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `npm run pa:plan-check` | 通过 |
+| `node --test tests/personal-assistant-mcp.test.mjs` | 通过，4 项测试 |
+| `node --test tests/personal-assistant-credential-vault.test.mjs tests/personal-assistant-config.test.mjs` | 通过，8 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-026` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-026` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-027` Self-learning skill loop productization |

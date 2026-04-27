@@ -110,6 +110,7 @@ import {
   createDeviceNodeTools,
   pairHeadlessDeviceNodeSimulator
 } from "../devices/device-node-tools.js";
+import { createPersonalMcpGovernanceTools, type PersonalMcpGovernanceRegistry } from "../mcp/personal-mcp-client.js";
 import type { PersonalAssistantAppConfig } from "./assistant-config.js";
 import type { CredentialVault } from "../security/credential-vault.js";
 import {
@@ -155,6 +156,7 @@ export interface PersonalAssistantAgentOptions {
   deviceNodeGateway?: DeviceNodeGateway;
   canvasArtifactStore?: CanvasArtifactStore;
   skillMarketplace?: SkillMarketplace;
+  mcpGovernance?: PersonalMcpGovernanceRegistry;
 }
 
 export function createPersonalAssistantAgent(
@@ -269,6 +271,11 @@ export function createPersonalAssistantAgent(
 
   for (const tool of options.mcpTools ?? []) {
     agent.registerTool(tool);
+  }
+  if (options.mcpGovernance) {
+    for (const tool of createPersonalMcpGovernanceTools(options.mcpGovernance)) {
+      agent.registerTool(tool);
+    }
   }
 
   if (config.files?.enabled && config.files.workspace_root) {
