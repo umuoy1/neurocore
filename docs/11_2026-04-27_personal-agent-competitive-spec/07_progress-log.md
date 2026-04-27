@@ -997,3 +997,36 @@
 |---|---|
 | Ledger | `PA-GAP-004` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-005` Session UX commands |
+
+### PA-GAP-005 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Command schemas | `CommandHandler` 新增 `/retry`、`/undo`、`/personality`、`/insights`、`/trace` |
+| Retry | `/retry` 从 trace 中读取上一条用户输入，并显式重放该输入 |
+| Undo | `/undo` checkpoint 当前 session 并清除当前 chat route，下一条消息进入新会话 |
+| Personality | `/personality` 支持 show/set/reset 当前 session 的 personality override |
+| Insights | `/insights` 汇总 session state、cycle、trace、event、tool、failure 和 last action |
+| Trace | `/trace [on|off|last]` 支持查看 trace 摘要与切换 session trace visibility |
+| Safety | 除显式 `/retry` 外，新增命令只读写会话/路由元数据，不进入模型调用 |
+| Tests | 扩展 `tests/personal-assistant-e2e.test.mjs`，覆盖 schema 注册、Web/CLI 一致性和非 retry 命令不触发模型 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-e2e.test.mjs` | 通过，7 项测试 |
+| `node --test tests/personal-assistant-gateway.test.mjs` | 通过，8 项测试 |
+| `node --test tests/personal-assistant-cli-shell.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-onboarding.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-005` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-006` DM pairing, allowlist and home channel |

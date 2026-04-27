@@ -1,4 +1,4 @@
-import type { AgentSession, SessionCheckpoint } from "@neurocore/protocol";
+import type { AgentSession, CycleTraceRecord, SessionCheckpoint } from "@neurocore/protocol";
 import type { PersonalMemoryStore } from "../../memory/personal-memory-store.js";
 import { memorySourceFromMessage } from "../../memory/personal-memory-store.js";
 import type { ConversationRouting } from "../conversation/conversation-router.js";
@@ -109,6 +109,63 @@ export class CommandHandler {
         risk_level: "none",
         parameters: [],
         execute: ({ message }) => this.status(message)
+      },
+      {
+        name: "/retry",
+        aliases: [],
+        description: "Replay the latest user turn in the current chat.",
+        usage: "/retry",
+        risk_level: "low",
+        parameters: [],
+        execute: ({ message }) => this.retry(message)
+      },
+      {
+        name: "/undo",
+        aliases: [],
+        description: "Checkpoint and detach the latest exchange from the current chat route.",
+        usage: "/undo",
+        risk_level: "medium",
+        parameters: [],
+        execute: ({ message }) => this.undo(message)
+      },
+      {
+        name: "/personality",
+        aliases: ["/persona"],
+        description: "Show, set or reset the current session personality override.",
+        usage: "/personality [reset | instruction]",
+        risk_level: "low",
+        parameters: [
+          {
+            name: "instruction",
+            required: false,
+            description: "Optional personality instruction for the current session."
+          }
+        ],
+        execute: ({ message, args }) => this.personality(message, args)
+      },
+      {
+        name: "/insights",
+        aliases: [],
+        description: "Show session usage, trace and tool insights.",
+        usage: "/insights",
+        risk_level: "none",
+        parameters: [],
+        execute: ({ message }) => this.insights(message)
+      },
+      {
+        name: "/trace",
+        aliases: [],
+        description: "Show or toggle trace visibility for the current session.",
+        usage: "/trace [on | off | last]",
+        risk_level: "low",
+        parameters: [
+          {
+            name: "mode",
+            required: false,
+            description: "Optional on, off or last."
+          }
+        ],
+        execute: ({ message, args }) => this.trace(message, args)
       },
       {
         name: "/stop",
@@ -247,6 +304,157 @@ export class CommandHandler {
 
     const handle = this.options.router.connect(existing.session_id);
     await this.reply(message, formatSessionStatus(handle.getSession()));
+  }
+
+  private async retry(message: UnifiedMessage): Promise<void> {
+    const existing = this.getCurrentRoute(message);
+    if (!existing) {
+      await this.reply(message, "No active conversation is mapped to this chat.");
+      return;
+    }
+
+    const handle = this.options.router.connect(existing.session_id);
+    const latestInput = findLatestUserInput(handle.getTraceRecords());
+    if (!latestInput) {
+      await this.reply(message, "No previous user turn is available to retry.");
+      return;
+    }
+
+    try {
+      const result = await handle.runText(latestInput.content, {
+        ...(latestInput.metadata ?? {}),
+        personal_assistant_command: "retry",
+        retry_of_cycle_id: latestInput.cycle_id
+      });
+      await this.reply(message, [
+        "Retried latest user turn.",
+        `source_cycle_id: ${latestInput.cycle_id ?? "n/a"}`,
+        result.outputText ?? "Retry completed without textual output."
+      ].join("\n"));
+    } catch (error) {
+      await this.reply(message, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async undo(message: UnifiedMessage): Promise<void> {
+    const existing = this.getCurrentRoute(message);
+    if (!existing) {
+      await this.reply(message, "No active conversation is mapped to this chat.");
+      return;
+    }
+
+    const handle = this.options.router.connect(existing.session_id);
+    let checkpoint: SessionCheckpoint | undefined;
+    try {
+      checkpoint = handle.checkpoint();
+    } catch {}
+    this.options.router.clearRoute(message);
+    await this.reply(message, [
+      "Undid the latest chat route.",
+      `session_id: ${existing.session_id}`,
+      `checkpoint_id: ${checkpoint?.checkpoint_id ?? "unavailable"}`,
+      "The next message will start a fresh session from this chat."
+    ].join("\n"));
+  }
+
+  private async personality(message: UnifiedMessage, instruction: string): Promise<void> {
+    const existing = this.getCurrentRoute(message);
+    if (!existing) {
+      await this.reply(message, "No active conversation is mapped to this chat.");
+      return;
+    }
+
+    const session = this.options.router.connect(existing.session_id).getSession();
+    if (!session) {
+      await this.reply(message, "Session is not available.");
+      return;
+    }
+
+    const metadata = ensureSessionMetadata(session);
+    const trimmed = instruction.trim();
+    if (!trimmed) {
+      await this.reply(message, `Personality: ${typeof metadata.personality === "string" ? metadata.personality : "default"}`);
+      return;
+    }
+    if (trimmed === "reset" || trimmed === "clear") {
+      delete metadata.personality;
+      await this.reply(message, "Personality override reset.");
+      return;
+    }
+
+    metadata.personality = trimmed;
+    await this.reply(message, `Personality override set: ${trimmed}`);
+  }
+
+  private async insights(message: UnifiedMessage): Promise<void> {
+    const existing = this.getCurrentRoute(message);
+    if (!existing) {
+      await this.reply(message, "No active conversation is mapped to this chat.");
+      return;
+    }
+
+    const handle = this.options.router.connect(existing.session_id);
+    const session = handle.getSession();
+    const traces = handle.getTraceRecords();
+    const events = handle.getEvents();
+    const tools = traces.filter((trace) => Boolean(trace.selected_action?.tool_name));
+    const failures = traces.filter((trace) => trace.observation?.status === "failure" || trace.action_execution?.status === "failed");
+    const last = traces.at(-1);
+    await this.reply(message, [
+      "Insights:",
+      `session_id: ${existing.session_id}`,
+      `state: ${session?.state ?? "unknown"}`,
+      `cycles: ${session?.budget_state.cycle_used ?? traces.length}/${session?.budget_state.cycle_limit ?? "?"}`,
+      `trace_count: ${traces.length}`,
+      `event_count: ${events.length}`,
+      `tool_call_count: ${tools.length}`,
+      `failure_count: ${failures.length}`,
+      `last_action: ${last?.selected_action?.action_type ?? "n/a"}`,
+      `last_trace_id: ${last?.trace.trace_id ?? "n/a"}`
+    ].join("\n"));
+  }
+
+  private async trace(message: UnifiedMessage, args: string): Promise<void> {
+    const existing = this.getCurrentRoute(message);
+    if (!existing) {
+      await this.reply(message, "No active conversation is mapped to this chat.");
+      return;
+    }
+
+    const handle = this.options.router.connect(existing.session_id);
+    const session = handle.getSession();
+    if (!session) {
+      await this.reply(message, "Session is not available.");
+      return;
+    }
+
+    const mode = args.trim().toLowerCase();
+    const metadata = ensureSessionMetadata(session);
+    const rootMetadata = session.metadata as Record<string, unknown>;
+    const observability = ensureObservabilityMetadata(rootMetadata);
+    metadata.observability_config = observability;
+    if (mode === "on") {
+      observability.trace_enabled = true;
+      await this.reply(message, "Trace enabled for this session.");
+      return;
+    }
+    if (mode === "off") {
+      observability.trace_enabled = false;
+      await this.reply(message, "Trace disabled for this session.");
+      return;
+    }
+
+    const traces = handle.getTraceRecords();
+    const last = traces.at(-1);
+    await this.reply(message, [
+      "Trace:",
+      `enabled: ${observability.trace_enabled !== false}`,
+      `trace_count: ${traces.length}`,
+      `last_trace_id: ${last?.trace.trace_id ?? "n/a"}`,
+      `last_cycle_id: ${last?.trace.cycle_id ?? "n/a"}`,
+      `last_action: ${last?.selected_action?.action_type ?? "n/a"}`,
+      `last_observation: ${last?.observation?.status ?? "n/a"}`
+    ].join("\n"));
   }
 
   private async stop(message: UnifiedMessage): Promise<void> {
@@ -472,6 +680,44 @@ function extractText(message: UnifiedMessage): string | undefined {
     return message.content.text;
   }
   return undefined;
+}
+
+function findLatestUserInput(records: CycleTraceRecord[]): {
+  content: string;
+  metadata?: Record<string, unknown>;
+  cycle_id?: string;
+} | undefined {
+  for (let recordIndex = records.length - 1; recordIndex >= 0; recordIndex -= 1) {
+    const record = records[recordIndex];
+    for (let inputIndex = record.inputs.length - 1; inputIndex >= 0; inputIndex -= 1) {
+      const input = record.inputs[inputIndex];
+      if (input.content.trim().length > 0) {
+        return {
+          content: input.content,
+          metadata: input.metadata,
+          cycle_id: record.trace.cycle_id
+        };
+      }
+    }
+  }
+  return undefined;
+}
+
+function ensureSessionMetadata(session: AgentSession): Record<string, unknown> {
+  session.metadata = session.metadata && typeof session.metadata === "object" ? session.metadata : {};
+  const namespace = session.metadata.personal_assistant;
+  if (!namespace || typeof namespace !== "object" || Array.isArray(namespace)) {
+    session.metadata.personal_assistant = {};
+  }
+  return session.metadata.personal_assistant as Record<string, unknown>;
+}
+
+function ensureObservabilityMetadata(metadata: Record<string, unknown>): { trace_enabled?: boolean } {
+  const existing = metadata.observability_config;
+  if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
+    metadata.observability_config = {};
+  }
+  return metadata.observability_config as { trace_enabled?: boolean };
 }
 
 function formatSkillList(skills: AgentSkillRecord[], platform: string): string {

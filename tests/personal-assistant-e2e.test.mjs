@@ -127,7 +127,7 @@ test("personal assistant baseline slash commands are schema registered", () => {
   const schemas = harness.handler.listCommandSchemas();
   const names = new Set(schemas.map((schema) => schema.name));
 
-  for (const name of ["/new", "/status", "/stop", "/model", "/usage", "/compact"]) {
+  for (const name of ["/new", "/status", "/retry", "/undo", "/personality", "/insights", "/trace", "/stop", "/model", "/usage", "/compact"]) {
     assert.ok(names.has(name), `${name} should be schema registered`);
   }
 
@@ -135,10 +135,14 @@ test("personal assistant baseline slash commands are schema registered", () => {
   assert.equal(compact.usage, "/compact [instructions]");
   assert.equal(compact.risk_level, "low");
   assert.ok(compact.parameters.some((parameter) => parameter.name === "instructions"));
+
+  const personality = schemas.find((schema) => schema.name === "/personality");
+  assert.equal(personality.usage, "/personality [reset | instruction]");
+  assert.equal(personality.risk_level, "low");
 });
 
 test("personal assistant slash commands behave consistently for web and cli ingress", async () => {
-  for (const command of ["/model", "/usage", "/compact preserve identifiers", "/stop", "/unknown"]) {
+  for (const command of ["/model", "/usage", "/compact preserve identifiers", "/personality concise", "/personality", "/insights", "/trace", "/trace off", "/undo", "/stop", "/unknown"]) {
     const web = createCommandHarness("web");
     const cli = createCommandHarness("cli");
     const webText = await web.send(command);
@@ -152,6 +156,21 @@ test("personal assistant slash commands behave consistently for web and cli ingr
   assert.match(errorText, /Command error:/);
   assert.match(errorText, /code: unknown_command/);
   assert.match(errorText, /available_commands: .*\/new/);
+});
+
+test("personal assistant UX commands do not trigger model calls except explicit retry", async () => {
+  for (const command of ["/personality concise", "/personality", "/insights", "/trace off", "/trace", "/undo"]) {
+    const harness = createCommandHarness("web");
+    await harness.send(command);
+    assert.equal(harness.stats.runTextCount, 0, `${command} should not call the model`);
+  }
+
+  const retry = createCommandHarness("web");
+  const text = await retry.send("/retry");
+  assert.equal(retry.stats.runTextCount, 1);
+  assert.equal(retry.stats.lastRunText, "previous request");
+  assert.match(text, /Retried latest user turn/);
+  assert.match(text, /retry: previous request/);
 });
 
 test("personal assistant recalls corrected explicit memories through the recall bundle", { concurrency: false }, async () => {
@@ -384,8 +403,55 @@ function createCommandHarness(platform) {
       token_budget_used: 120,
       token_budget_total: 1000
     },
+    metadata: {},
     last_active_at: "2026-04-27T00:00:00.000Z"
   };
+  const stats = {
+    checkpointCount: 0,
+    clearRouteCount: 0,
+    runTextCount: 0,
+    lastRunText: undefined
+  };
+  const traceRecords = [
+    {
+      trace: {
+        trace_id: "trc-command",
+        session_id: session.session_id,
+        cycle_id: "cyc-command",
+        started_at: "2026-04-27T00:00:00.000Z",
+        ended_at: "2026-04-27T00:00:01.000Z"
+      },
+      inputs: [
+        {
+          input_id: "inp-command",
+          content: "previous request",
+          created_at: "2026-04-27T00:00:00.000Z",
+          metadata: {
+            source: "test"
+          }
+        }
+      ],
+      proposals: [],
+      predictions: [],
+      policy_decisions: [],
+      selected_action: {
+        action_id: "act-command",
+        action_type: "respond",
+        title: "Previous response",
+        side_effect_level: "none"
+      },
+      observation: {
+        observation_id: "obs-command",
+        action_id: "act-command",
+        session_id: session.session_id,
+        cycle_id: "cyc-command",
+        status: "success",
+        source_type: "runtime",
+        summary: "previous response",
+        created_at: "2026-04-27T00:00:01.000Z"
+      }
+    }
+  ];
   let route = {
     platform,
     chat_id: "chat-command",
@@ -398,6 +464,7 @@ function createCommandHarness(platform) {
   };
   const router = {
     clearRoute() {
+      stats.clearRouteCount += 1;
       route = undefined;
     },
     listRoutesForUser() {
@@ -409,8 +476,38 @@ function createCommandHarness(platform) {
           return session;
         },
         checkpoint() {
+          stats.checkpointCount += 1;
           return {
             checkpoint_id: "chk-command"
+          };
+        },
+        getCheckpoints() {
+          return [
+            {
+              checkpoint_id: "chk-previous"
+            },
+            {
+              checkpoint_id: "chk-command"
+            }
+          ];
+        },
+        getTraceRecords() {
+          return traceRecords;
+        },
+        getEvents() {
+          return [
+            {
+              event_id: "evt-command",
+              event_type: "runtime.status"
+            }
+          ];
+        },
+        async runText(content) {
+          stats.runTextCount += 1;
+          stats.lastRunText = content;
+          return {
+            outputText: `retry: ${content}`,
+            steps: []
           };
         },
         cancel() {
@@ -438,6 +535,7 @@ function createCommandHarness(platform) {
 
   return {
     handler,
+    stats,
     async send(text) {
       await handler.tryHandle(normalizePersonalIngressMessage({
         platform,
