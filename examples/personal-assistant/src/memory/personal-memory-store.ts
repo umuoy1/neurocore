@@ -1,6 +1,6 @@
 import type { IMPlatform, UnifiedMessage } from "../im-gateway/types.js";
 
-export type PersonalMemoryStatus = "active" | "tombstoned";
+export type PersonalMemoryStatus = "active" | "tombstoned" | "frozen";
 
 export interface PersonalMemorySource {
   platform?: IMPlatform;
@@ -18,6 +18,7 @@ export interface PersonalMemoryRecord {
   created_at: string;
   updated_at: string;
   tombstoned_at?: string;
+  frozen_at?: string;
 }
 
 export interface RememberPersonalMemoryInput {
@@ -31,7 +32,9 @@ export interface RememberPersonalMemoryInput {
 export interface PersonalMemoryStore {
   remember(input: RememberPersonalMemoryInput): PersonalMemoryRecord;
   listActive(userId: string, limit?: number): PersonalMemoryRecord[];
+  listForUser?(userId: string, options?: { includeInactive?: boolean; limit?: number }): PersonalMemoryRecord[];
   forget(userId: string, target: string, forgottenAt?: string): PersonalMemoryRecord[];
+  freeze?(userId: string, target: string, frozenAt?: string): PersonalMemoryRecord[];
   correct(
     userId: string,
     target: string,

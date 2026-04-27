@@ -19,6 +19,8 @@ export interface SessionSearchEntry {
   source_chat_id?: string;
   source_message_id?: string;
   metadata: Record<string, unknown>;
+  privacy_status?: SessionSearchPrivacyStatus;
+  privacy_updated_at?: string;
 }
 
 export interface AddSessionSearchEntryInput {
@@ -46,6 +48,19 @@ export interface SessionSearchQuery {
   limit?: number;
 }
 
+export type SessionSearchPrivacyStatus = "active" | "frozen" | "deleted";
+
+export interface SessionSearchListQuery {
+  tenant_id?: string;
+  user_id?: string;
+  entry_ids?: string[];
+  session_ids?: string[];
+  trace_ids?: string[];
+  roles?: SessionSearchEntry["role"][];
+  includeInactive?: boolean;
+  limit?: number;
+}
+
 export interface SessionSearchResult extends SessionSearchEntry {
   score: number;
   keyword_score: number;
@@ -66,6 +81,9 @@ export interface SessionSearchResult extends SessionSearchEntry {
 export interface SessionSearchStore {
   addEntry(input: AddSessionSearchEntryInput): SessionSearchEntry;
   search(query: SessionSearchQuery): SessionSearchResult[];
+  listEntries?(query: SessionSearchListQuery): SessionSearchEntry[];
+  freezeEntries?(query: SessionSearchListQuery, frozenAt?: string): SessionSearchEntry[];
+  deleteEntries?(query: SessionSearchListQuery, deletedAt?: string): SessionSearchEntry[];
   close?(): void;
 }
 
@@ -94,7 +112,9 @@ export class SqliteSessionSearchStore implements SessionSearchStore {
         source_platform TEXT,
         source_chat_id TEXT,
         source_message_id TEXT,
-        metadata_json TEXT NOT NULL
+        metadata_json TEXT NOT NULL,
+        privacy_status TEXT NOT NULL DEFAULT 'active',
+        privacy_updated_at TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_session_search_tenant_time
         ON session_search_entries(tenant_id, created_at DESC, entry_id DESC);
@@ -103,6 +123,8 @@ export class SqliteSessionSearchStore implements SessionSearchStore {
       CREATE INDEX IF NOT EXISTS idx_session_search_session_time
         ON session_search_entries(tenant_id, session_id, created_at DESC, entry_id DESC);
     `);
+    ensureColumn(this.db, "session_search_entries", "privacy_status", "TEXT NOT NULL DEFAULT 'active'");
+    ensureColumn(this.db, "session_search_entries", "privacy_updated_at", "TEXT");
   }
 
   public addEntry(input: AddSessionSearchEntryInput): SessionSearchEntry {
@@ -119,7 +141,8 @@ export class SqliteSessionSearchStore implements SessionSearchStore {
       source_platform: input.source_platform,
       source_chat_id: input.source_chat_id,
       source_message_id: input.source_message_id,
-      metadata: input.metadata ?? {}
+      metadata: input.metadata ?? {},
+      privacy_status: "active"
     };
     this.db.prepare(`
       INSERT INTO session_search_entries (
@@ -135,9 +158,11 @@ export class SqliteSessionSearchStore implements SessionSearchStore {
         source_platform,
         source_chat_id,
         source_message_id,
-        metadata_json
+        metadata_json,
+        privacy_status,
+        privacy_updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       entry.entry_id,
       entry.tenant_id,
@@ -151,7 +176,9 @@ export class SqliteSessionSearchStore implements SessionSearchStore {
       entry.source_platform ?? null,
       entry.source_chat_id ?? null,
       entry.source_message_id ?? null,
-      JSON.stringify(entry.metadata)
+      JSON.stringify(entry.metadata),
+      entry.privacy_status ?? "active",
+      entry.privacy_updated_at ?? null
     );
     return entry;
   }
@@ -166,6 +193,66 @@ export class SqliteSessionSearchStore implements SessionSearchStore {
       .filter((result) => result.score > 0 || (!query.query && !query.semantic_text))
       .sort((left, right) => right.score - left.score || right.created_at.localeCompare(left.created_at))
       .slice(0, Math.max(1, query.limit ?? 8));
+  }
+
+  public listEntries(query: SessionSearchListQuery): SessionSearchEntry[] {
+    return this.loadRowsByListQuery(query).map(toEntry);
+  }
+
+  public freezeEntries(query: SessionSearchListQuery, frozenAt = new Date().toISOString()): SessionSearchEntry[] {
+    assertScopedMutation(query);
+    const matched = this.loadRowsByListQuery({ ...query, includeInactive: false }).map(toEntry);
+    if (matched.length === 0) {
+      return [];
+    }
+    const update = this.db.prepare(`
+      UPDATE session_search_entries
+      SET privacy_status = 'frozen',
+          privacy_updated_at = ?
+      WHERE entry_id = ? AND privacy_status = 'active'
+    `);
+    for (const entry of matched) {
+      update.run(frozenAt, entry.entry_id);
+    }
+    return matched.map((entry) => ({
+      ...entry,
+      privacy_status: "frozen",
+      privacy_updated_at: frozenAt
+    }));
+  }
+
+  public deleteEntries(query: SessionSearchListQuery, deletedAt = new Date().toISOString()): SessionSearchEntry[] {
+    assertScopedMutation(query);
+    const matched = this.loadRowsByListQuery({ ...query, includeInactive: true })
+      .map(toEntry)
+      .filter((entry) => entry.privacy_status !== "deleted");
+    if (matched.length === 0) {
+      return [];
+    }
+    const update = this.db.prepare(`
+      UPDATE session_search_entries
+      SET privacy_status = 'deleted',
+          privacy_updated_at = ?,
+          content = '[deleted]',
+          source_platform = NULL,
+          source_chat_id = NULL,
+          source_message_id = NULL,
+          metadata_json = '{}'
+      WHERE entry_id = ? AND privacy_status != 'deleted'
+    `);
+    for (const entry of matched) {
+      update.run(deletedAt, entry.entry_id);
+    }
+    return matched.map((entry) => ({
+      ...entry,
+      content: "[deleted]",
+      source_platform: undefined,
+      source_chat_id: undefined,
+      source_message_id: undefined,
+      metadata: {},
+      privacy_status: "deleted",
+      privacy_updated_at: deletedAt
+    }));
   }
 
   public close(): void {
@@ -192,6 +279,19 @@ export class SqliteSessionSearchStore implements SessionSearchStore {
       SELECT *
       FROM session_search_entries
       WHERE ${clauses.join(" AND ")}
+        AND privacy_status = 'active'
+      ORDER BY created_at DESC, entry_id DESC
+      LIMIT ?
+    `).all(...params) as unknown as SessionSearchEntryRow[];
+  }
+
+  private loadRowsByListQuery(query: SessionSearchListQuery): SessionSearchEntryRow[] {
+    const { clauses, params } = buildListWhere(query);
+    params.push(Math.max(1, query.limit ?? 1000));
+    return this.db.prepare(`
+      SELECT *
+      FROM session_search_entries
+      WHERE ${clauses.join(" AND ")}
       ORDER BY created_at DESC, entry_id DESC
       LIMIT ?
     `).all(...params) as unknown as SessionSearchEntryRow[];
@@ -212,6 +312,8 @@ interface SessionSearchEntryRow {
   source_chat_id: string | null;
   source_message_id: string | null;
   metadata_json: string;
+  privacy_status: string;
+  privacy_updated_at: string | null;
 }
 
 function scoreEntry(
@@ -288,7 +390,9 @@ function toEntry(row: SessionSearchEntryRow): SessionSearchEntry {
     source_platform: sourcePlatform,
     source_chat_id: row.source_chat_id ?? undefined,
     source_message_id: row.source_message_id ?? undefined,
-    metadata: parseMetadata(row.metadata_json)
+    metadata: parseMetadata(row.metadata_json),
+    privacy_status: normalizePrivacyStatus(row.privacy_status),
+    privacy_updated_at: row.privacy_updated_at ?? undefined
   };
 }
 
@@ -302,5 +406,63 @@ function parseMetadata(value: string): Record<string, unknown> {
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
   } catch {
     return {};
+  }
+}
+
+function buildListWhere(query: SessionSearchListQuery): { clauses: string[]; params: Array<string | number> } {
+  const clauses: string[] = [];
+  const params: Array<string | number> = [];
+  if (query.tenant_id) {
+    clauses.push("tenant_id = ?");
+    params.push(query.tenant_id);
+  }
+  if (query.user_id) {
+    clauses.push("user_id = ?");
+    params.push(query.user_id);
+  }
+  appendInClause(clauses, params, "entry_id", query.entry_ids);
+  appendInClause(clauses, params, "session_id", query.session_ids);
+  appendInClause(clauses, params, "trace_id", query.trace_ids);
+  appendInClause(clauses, params, "role", query.roles);
+  if (!query.includeInactive) {
+    clauses.push("privacy_status = 'active'");
+  }
+  if (clauses.length === 0) {
+    clauses.push("1 = 0");
+  }
+  return { clauses, params };
+}
+
+function appendInClause(
+  clauses: string[],
+  params: Array<string | number>,
+  column: string,
+  values: string[] | undefined
+): void {
+  const unique = [...new Set((values ?? []).filter(Boolean))];
+  if (unique.length === 0) {
+    return;
+  }
+  clauses.push(`${column} IN (${unique.map(() => "?").join(", ")})`);
+  params.push(...unique);
+}
+
+function assertScopedMutation(query: SessionSearchListQuery): void {
+  if (!query.user_id && !query.tenant_id && !query.entry_ids?.length && !query.session_ids?.length && !query.trace_ids?.length) {
+    throw new Error("Session search privacy mutation requires a user, tenant, entry, session or trace scope.");
+  }
+}
+
+function normalizePrivacyStatus(value: string): SessionSearchPrivacyStatus {
+  if (value === "frozen" || value === "deleted") {
+    return value;
+  }
+  return "active";
+}
+
+function ensureColumn(db: DatabaseSync, table: string, column: string, type: string): void {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as unknown as Array<{ name: string }>;
+  if (!rows.some((row) => row.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   }
 }

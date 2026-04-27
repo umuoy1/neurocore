@@ -43,6 +43,7 @@ import { createEmailReadTool } from "../connectors/email/email-read.js";
 import { createEmailSendTool } from "../connectors/email/email-send.js";
 import { createWebSearchTool } from "../connectors/search/web-search.js";
 import { createWorkspaceFileTools } from "../files/workspace-file-tools.js";
+import { PersonalDataSubjectService } from "../privacy/data-subject-control.js";
 import { ProactiveEngine } from "../proactive/proactive-engine.js";
 import { SqliteStandingOrderStore } from "../proactive/store/sqlite-standing-order-store.js";
 import { PersonalAssistantTaskBoard } from "../proactive/task-board.js";
@@ -79,6 +80,7 @@ export interface RunningPersonalAssistantApp {
   commandHandler: CommandHandler;
   proactive?: ProactiveEngine;
   taskBoard?: PersonalAssistantTaskBoard;
+  privacy: PersonalDataSubjectService;
   webhookIngress?: PersonalWebhookIngress;
   gmailPubSubWebhook?: GmailPubSubWebhookAdapter;
   close(): Promise<void>;
@@ -234,6 +236,7 @@ export async function startPersonalAssistantApp(
 ): Promise<RunningPersonalAssistantApp> {
   const memoryStore = new SqlitePersonalMemoryStore({ filename: config.db_path });
   const sessionSearchStore = new SqliteSessionSearchStore({ filename: config.db_path });
+  const privacy = new PersonalDataSubjectService({ memoryStore, sessionSearchStore });
   const skillRegistry = createAgentSkillRegistryFromConfig(config.skills);
   const credentialVault = createPersonalAssistantCredentialVault(config);
   const runtimeFactory = new AssistantRuntimeFactory({
@@ -454,6 +457,7 @@ export async function startPersonalAssistantApp(
     commandHandler,
     proactive,
     taskBoard,
+    privacy,
     webhookIngress,
     gmailPubSubWebhook,
     async close() {

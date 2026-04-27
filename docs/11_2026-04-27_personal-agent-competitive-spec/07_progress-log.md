@@ -1314,3 +1314,37 @@
 |---|---|
 | Ledger | `PA-GAP-015` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-014` User data and privacy console |
+
+### PA-GAP-014 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Data subject service | 新增 `PersonalDataSubjectService`，支持按用户 export/delete/freeze/listRetention |
+| Memory privacy | `SqlitePersonalMemoryStore` 增加 frozen 状态、`listForUser()` 和 `freeze()`，`listActive()` 和 recall 自动排除 frozen/tombstoned |
+| Trace/tool privacy | `SqliteSessionSearchStore` 增加 `privacy_status`，search 默认排除 frozen/deleted；delete 会清空内容、来源和 metadata |
+| Artifact privacy | Data subject service 可登记 artifact/tool/trace 泛型记录，delete 后默认 export 不再返回 payload |
+| Audit | privacy export/freeze/delete 写入最小化 audit，只记录类型、id 和计数，不保存原始 payload |
+| App wiring | `startPersonalAssistantApp()` 暴露 `privacy` service |
+| Console | 新增 Assistant Privacy 页面、store、types 和导航，接入 retention/export/freeze/delete API 路径 |
+| Tests | 新增 `tests/personal-assistant-privacy-console.test.mjs` 覆盖 SQLite memory/search、artifact、audit 和 Console 接入 |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `npm run pa:plan-check` | 通过 |
+| `node --test tests/personal-assistant-privacy-console.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-memory-search.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-console-governance.test.mjs` | 通过，3 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+| `npm run pa:accept -- PA-GAP-014` | 通过 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-014` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-022` Personal knowledge base ingestion |

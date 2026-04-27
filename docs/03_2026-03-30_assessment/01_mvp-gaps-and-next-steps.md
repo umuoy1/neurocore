@@ -44,6 +44,7 @@
 > - 2026-04-28 个人助理 webhook 补充：`PA-GAP-012` 已落地 `PersonalWebhookIngress` 和 `GmailPubSubWebhookAdapter`，支持 token 鉴权、session/task route、BackgroundTaskLedger 写入、Gmail Pub/Sub base64 data 解码、untrusted payload 标记和 audit 事件。下一项为 `PA-GAP-013` 通知策略。
 > - 2026-04-28 个人助理通知策略补充：`PA-GAP-013` 已落地 notification policy store/planner，`pushToUser` 支持 quiet hours、urgent bypass、fallback route、dedupe key 和 dedupe window；normal/silent 可静默，主渠道失败后可跨渠道 fallback，重复提醒被合并。下一项为 `PA-GAP-015` 任务板产品化。
 > - 2026-04-28 个人助理任务板补充：`PA-GAP-015` 已落地 `PersonalAssistantTaskBoard`，可查看任务状态、timeline、trace_ids、goal_ids、artifact refs、错误、retry provenance，并支持 cancel/retry 与 task audit；cron/subagent/webhook 三类任务已验收。下一项为 `PA-GAP-014` 用户数据和隐私控制台。
+> - 2026-04-28 个人助理隐私控制补充：`PA-GAP-014` 已落地 `PersonalDataSubjectService`、memory/session-search 隐私状态、export/delete/freeze/retention/audit 能力和 Console Privacy 页面；删除或冻结后的 memory/trace/tool/artifact 不再进入 recall/search/export 默认结果。下一项为 `PA-GAP-022` 个人知识库接入。
 
 ## 交付总结
 

@@ -2,9 +2,9 @@
   "schema_version": "1.0.0",
   "project": "personal-agent-competitive-spec",
   "meta": {
-    "current_task": "PA-GAP-015",
-    "phase": "PA-GAP-C",
-    "updated_at": "2026-04-28T01:39:00+08:00",
+    "current_task": "PA-GAP-014",
+    "phase": "PA-GAP-D",
+    "updated_at": "2026-04-28T01:53:44+08:00",
     "source_of_truth": "docs/11_2026-04-27_personal-agent-competitive-spec/project-ledger.json"
   },
   "phases": [
@@ -1424,7 +1424,9 @@
       "id": "PA-GAP-014",
       "phase": "PA-GAP-D",
       "title": "User data and privacy console",
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-04-28T01:53:44+08:00",
+      "acceptance_last_run": "npm run pa:accept -- PA-GAP-014",
       "depends_on": [
         "PA-GAP-015"
       ],
@@ -1438,14 +1440,19 @@
       ],
       "tests": [
         "npm run build",
-        "npm run pa:plan-check"
+        "npm run pa:plan-check",
+        "node --test tests/personal-assistant-privacy-console.test.mjs",
+        "node --test tests/personal-assistant-memory-search.test.mjs",
+        "node --test tests/personal-assistant-console-governance.test.mjs",
+        "node --test tests/personal-assistant-baseline.test.mjs"
       ],
       "write_paths": [
         "examples/personal-assistant/",
         "packages/console/",
         "tests/",
         "docs/"
-      ]
+      ],
+      "started_at": "2026-04-27T17:43:34.979Z"
     },
     {
       "id": "PA-GAP-022",

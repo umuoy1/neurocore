@@ -312,3 +312,54 @@ export interface PersonalAssistantGovernanceSnapshot {
     audit_records: number;
   };
 }
+
+export type DataSubjectRecordType = "memory" | "trace" | "tool" | "artifact";
+export type DataSubjectRecordStatus = "active" | "frozen" | "deleted";
+
+export interface DataSubjectRecord {
+  record_id: string;
+  type: DataSubjectRecordType;
+  user_id: string;
+  status: DataSubjectRecordStatus;
+  payload?: unknown;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
+  frozen_at?: string;
+  source?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DataSubjectAuditRecord {
+  audit_id: string;
+  action: "privacy.exported" | "privacy.deleted" | "privacy.frozen";
+  user_id: string;
+  actor_id: string;
+  created_at: string;
+  types: DataSubjectRecordType[];
+  record_ids: string[];
+  counts: Partial<Record<DataSubjectRecordType, number>>;
+  details?: Record<string, unknown>;
+}
+
+export interface DataSubjectRetentionBucket {
+  active: number;
+  frozen: number;
+  deleted: number;
+}
+
+export interface DataSubjectRetentionReport {
+  user_id: string;
+  created_at: string;
+  records: Record<DataSubjectRecordType, DataSubjectRetentionBucket>;
+  policies: Record<DataSubjectRecordType, string>;
+}
+
+export interface DataSubjectExportBundle {
+  export_id: string;
+  user_id: string;
+  created_at: string;
+  records: DataSubjectRecord[];
+  retention: DataSubjectRetentionReport;
+  audit_records: DataSubjectAuditRecord[];
+}
