@@ -180,6 +180,36 @@ export interface PlatformUserLink {
   updated_at: string;
 }
 
+export interface PlatformPairingCode {
+  code: string;
+  canonical_user_id: string;
+  created_at: string;
+  expires_at: string;
+  consumed_at?: string;
+  consumed_platform?: IMPlatform;
+  consumed_sender_id?: string;
+}
+
+export interface PlatformHomeChannel {
+  canonical_user_id: string;
+  platform: IMPlatform;
+  chat_id: string;
+  sender_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlatformIdentityAuditEvent {
+  audit_id: string;
+  event_type: "pair_code_created" | "paired" | "revoked" | "home_channel_set" | "blocked_unpaired";
+  platform?: IMPlatform;
+  sender_id?: string;
+  canonical_user_id?: string;
+  chat_id?: string;
+  created_at: string;
+  metadata: Record<string, unknown>;
+}
+
 export interface ApprovalBinding {
   platform: IMPlatform;
   platform_message_id: string;

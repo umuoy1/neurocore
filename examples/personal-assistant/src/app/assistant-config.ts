@@ -6,6 +6,7 @@ import type { CreateStandingOrderInput, HeartbeatCheck, ScheduleEntry } from "..
 import type { ServiceConnectorConfig } from "../connectors/types.js";
 import type { PersonalMcpServerConfig } from "../mcp/personal-mcp-client.js";
 import type { PersonalAssistantSandboxConfig, SandboxTarget } from "../sandbox/sandbox-provider.js";
+import type { IMPlatform } from "../im-gateway/types.js";
 
 export interface PersonalAssistantAppConfig {
   db_path: string;
@@ -32,6 +33,11 @@ export interface PersonalAssistantAppConfig {
     approvers?: string[];
     blocked_tools?: string[];
     required_approval_tools?: string[];
+  };
+  identity?: {
+    require_pairing?: boolean;
+    require_pairing_platforms?: IMPlatform[];
+    pairing_code_ttl_ms?: number;
   };
   connectors?: ServiceConnectorConfig;
   cli?: {
@@ -136,6 +142,11 @@ export function createPersonalAssistantConfigFromEnv(
       required_approval_tools: parseOptionalList(env.PERSONAL_ASSISTANT_APPROVAL_TOOLS) ?? appConfig.agent?.required_approval_tools
     },
     openai: openaiConfig,
+    identity: {
+      require_pairing: parseOptionalBoolean(env.PERSONAL_ASSISTANT_REQUIRE_PAIRING) ?? appConfig.identity?.require_pairing,
+      require_pairing_platforms: parseOptionalPlatformList(env.PERSONAL_ASSISTANT_REQUIRE_PAIRING_PLATFORMS) ?? appConfig.identity?.require_pairing_platforms,
+      pairing_code_ttl_ms: parseOptionalInt(env.PERSONAL_ASSISTANT_PAIRING_CODE_TTL_MS) ?? appConfig.identity?.pairing_code_ttl_ms
+    },
     connectors: {
       search: env.BRAVE_SEARCH_API_KEY
         ? {
@@ -376,6 +387,18 @@ function parseOptionalList(value: string | undefined): string[] | undefined {
   }
 
   return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function parseOptionalPlatformList(value: string | undefined): IMPlatform[] | undefined {
+  const list = parseOptionalList(value);
+  if (!list) {
+    return undefined;
+  }
+  return list.filter(isSupportedPlatform) as IMPlatform[];
+}
+
+function isSupportedPlatform(value: string): value is IMPlatform {
+  return value === "cli" || value === "discord" || value === "email" || value === "feishu" || value === "slack" || value === "telegram" || value === "web";
 }
 
 function resolveSandboxConfig(

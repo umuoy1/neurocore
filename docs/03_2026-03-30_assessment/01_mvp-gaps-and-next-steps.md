@@ -35,6 +35,7 @@
 > - 2026-04-27 个人助理诊断入口补充：`PA-GAP-003` 已落地 `neurocore assistant health/doctor/config --dry-run`，可用 JSON 诊断缺失模型 token、provider 超时、端口冲突、SQLite 路径、审批绕过、DM allowlist 和 sandbox 缺失风险。下一项为 `PA-GAP-004` 真实 CLI/TUI 产品。
 > - 2026-04-27 个人助理 CLI/TUI 补充：`PA-GAP-004` 已落地 `neurocore assistant chat/tui`，复用 Gateway/CommandHandler，支持多行输入、slash autocomplete、history、status stream、stream edit 输出和 Ctrl+C interrupt。下一项为 `PA-GAP-005` 会话 UX 命令。
 > - 2026-04-27 个人助理会话 UX 命令补充：`PA-GAP-005` 已落地 `/retry`、`/undo`、`/personality`、`/insights`、`/trace`，WebChat/CLI/IM 共用 `CommandHandler` schema；除显式 `/retry` 外，命令不会误触模型调用。下一项为 `PA-GAP-006` DM pairing / allowlist / home channel。
+> - 2026-04-27 个人助理身份配对补充：`PA-GAP-006` 已落地 PairingManager、SQLite pairing code/home channel/audit store、Gateway 未配对外部 DM 阻断，以及 `/pair`、`/unpair`、`/sethome` 命令。下一项为 `PA-GAP-007` 模型选择、fallback、health check。
 
 ## 交付总结
 

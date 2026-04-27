@@ -6,6 +6,7 @@ import type { SessionRoute } from "../types.js";
 import type { NotificationDispatcher } from "../notification/notification-dispatcher.js";
 import type { UnifiedMessage } from "../types.js";
 import type { AgentSkillRecord, AgentSkillRegistry } from "../../skills/agent-skill-registry.js";
+import type { PairingManager } from "../conversation/pairing.js";
 
 export type CommandRiskLevel = "none" | "low" | "medium" | "high";
 
@@ -33,6 +34,7 @@ export interface CommandHandlerOptions {
   dispatcher: NotificationDispatcher;
   memoryStore?: PersonalMemoryStore;
   skillRegistry?: AgentSkillRegistry;
+  pairingManager?: PairingManager;
   resolveUserId?: (message: UnifiedMessage) => string;
   model?: CommandHandlerModelInfo;
 }
@@ -217,6 +219,33 @@ export class CommandHandler {
         risk_level: "none",
         parameters: [],
         execute: ({ message }) => this.history(message)
+      },
+      {
+        name: "/pair",
+        aliases: [],
+        description: "Create or consume a pairing code for this sender.",
+        usage: "/pair <code> | /pair create [canonical_user_id]",
+        risk_level: "medium",
+        parameters: [{ name: "code", required: false, description: "Pairing code, or create to mint a code from a trusted channel." }],
+        execute: ({ message, args }) => this.pair(message, args)
+      },
+      {
+        name: "/unpair",
+        aliases: ["/revoke"],
+        description: "Revoke this sender pairing.",
+        usage: "/unpair",
+        risk_level: "medium",
+        parameters: [],
+        execute: ({ message }) => this.unpair(message)
+      },
+      {
+        name: "/sethome",
+        aliases: [],
+        description: "Set this chat as the home channel for the current user.",
+        usage: "/sethome",
+        risk_level: "low",
+        parameters: [],
+        execute: ({ message }) => this.setHome(message)
       },
       {
         name: "/remember",
@@ -570,6 +599,73 @@ export class CommandHandler {
       .map((route) => `- ${route.platform}:${route.chat_id} -> ${route.session_id}`)
       .join("\n");
     await this.reply(message, `Recent session routes:\n${summary}`);
+  }
+
+  private async pair(message: UnifiedMessage, args: string): Promise<void> {
+    const manager = this.options.pairingManager;
+    if (!manager) {
+      await this.reply(message, "Pairing is not configured.");
+      return;
+    }
+
+    const trimmed = args.trim();
+    if (trimmed.startsWith("create")) {
+      const canonicalUserId = trimmed.slice("create".length).trim() || this.resolveUserId(message);
+      const code = manager.createPairingCode({
+        canonical_user_id: canonicalUserId,
+        created_by_platform: message.platform,
+        created_by_sender_id: message.sender_id,
+        created_by_chat_id: message.chat_id
+      });
+      await this.reply(message, [
+        "Pairing code created.",
+        `code: ${code.code}`,
+        `canonical_user_id: ${code.canonical_user_id}`,
+        `expires_at: ${code.expires_at}`
+      ].join("\n"));
+      return;
+    }
+
+    if (!trimmed) {
+      await this.reply(message, "Usage: /pair <code> | /pair create [canonical_user_id]");
+      return;
+    }
+
+    const result = manager.consumePairingCode(message, trimmed);
+    if (!result.ok) {
+      await this.reply(message, result.reason);
+      return;
+    }
+    await this.reply(message, `Paired ${message.platform}:${message.sender_id} to ${result.canonical_user_id}.`);
+  }
+
+  private async unpair(message: UnifiedMessage): Promise<void> {
+    const manager = this.options.pairingManager;
+    if (!manager) {
+      await this.reply(message, "Pairing is not configured.");
+      return;
+    }
+    const result = manager.revoke(message);
+    this.options.router.clearRoute(message);
+    if (!result.ok) {
+      await this.reply(message, result.reason);
+      return;
+    }
+    await this.reply(message, `Revoked pairing for ${message.platform}:${message.sender_id}.`);
+  }
+
+  private async setHome(message: UnifiedMessage): Promise<void> {
+    const manager = this.options.pairingManager;
+    if (!manager) {
+      await this.reply(message, "Pairing is not configured.");
+      return;
+    }
+    const result = manager.setHomeChannel(message);
+    if (!result.ok) {
+      await this.reply(message, result.reason);
+      return;
+    }
+    await this.reply(message, `Home channel set to ${message.platform}:${message.chat_id} for ${result.canonical_user_id}.`);
   }
 
   private async remember(message: UnifiedMessage, content: string): Promise<void> {

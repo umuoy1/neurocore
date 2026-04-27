@@ -127,7 +127,7 @@ test("personal assistant baseline slash commands are schema registered", () => {
   const schemas = harness.handler.listCommandSchemas();
   const names = new Set(schemas.map((schema) => schema.name));
 
-  for (const name of ["/new", "/status", "/retry", "/undo", "/personality", "/insights", "/trace", "/stop", "/model", "/usage", "/compact"]) {
+  for (const name of ["/new", "/status", "/retry", "/undo", "/personality", "/insights", "/trace", "/pair", "/unpair", "/sethome", "/stop", "/model", "/usage", "/compact"]) {
     assert.ok(names.has(name), `${name} should be schema registered`);
   }
 

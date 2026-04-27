@@ -13,6 +13,7 @@ export * from "./im-gateway/adapter/telegram.js";
 export * from "./im-gateway/command/command-handler.js";
 export * from "./im-gateway/notification/notification-dispatcher.js";
 export * from "./im-gateway/conversation/conversation-router.js";
+export * from "./im-gateway/conversation/pairing.js";
 export * from "./im-gateway/conversation/profile-aware-conversation-router.js";
 export * from "./im-gateway/conversation/agent-profile-store.js";
 export * from "./im-gateway/conversation/sqlite-agent-profile-store.js";

@@ -38,6 +38,7 @@
 > - 2026-04-27 个人助理诊断入口补充：`PA-GAP-003` 已完成，当前 root `neurocore` CLI 可执行 `assistant health/doctor/config --dry-run`，doctor 可发现缺 token、provider 超时、端口冲突、SQLite 不可写、审批绕过、外部 DM allowlist 缺失和 sandbox 缺失等风险，config dry-run 会输出脱敏后的机器可读解析配置。
 > - 2026-04-27 个人助理 CLI/TUI 补充：`PA-GAP-004` 已完成，当前 root `neurocore` CLI 可执行 `assistant chat/tui` 进入交互式个人助理，CLI adapter 已支持 status streaming 和 edit 输出，shell 支持多行输入、slash autocomplete、history、Ctrl+C interrupt，并通过伪终端测试覆盖。
 > - 2026-04-27 个人助理会话 UX 命令补充：`PA-GAP-005` 已完成，当前 `CommandHandler` 已 schema 注册 `/retry`、`/undo`、`/personality`、`/insights`、`/trace`，WebChat/CLI/IM 入口语义一致；focused tests 覆盖命令不误触模型调用，只有显式 `/retry` 会重放上一条用户输入。
+> - 2026-04-27 个人助理身份配对补充：`PA-GAP-006` 已完成，当前外部 DM 平台可要求 pairing；未配对 sender 只收到 pairing prompt 且不会进入 runtime，`/pair <code>` 绑定 canonical user，`/sethome` 写 home channel，`/unpair` 撤销后再次阻断，并写入 identity audit。
 
 ## 完成度
 
@@ -71,7 +72,7 @@
 | 已完成 | Operational Maturity | 当前阶段已完成 webhook retry/DLQ/HMAC/timeout、batch session creation、eval parallelism、agent versioning、session sharing、logger/tracer SPI 与 observability gating |
 | 已完成 | M10 / Skill RL | 当前阶段已 100% 完成，已覆盖 reward/policy/exploration/evaluation/transfer/online learner 全链路、基于真实 `cycle / latency / token` 的效率奖励、reward metrics/baseline persistence、FR-45 分层上下文 bandit，以及 FR-47/48 闭环细节；后续只保留更长期的训练运营与策略演进 |
 | 已完成 | Personal Agent OpenClaw/Hermes parity+ | 当前 `PA2-P0-00` ~ `PA2-P2-07` 已全部完成，覆盖 gateway、连续性、显式记忆、命令治理、后台任务、cron、多渠道、skills、MCP、subagents、sandbox、standing orders、memory wiki、dreaming、自动技能、profile、trajectory、media/voice 和 Console governance；后续转入真实渠道联调、生产化持久治理 API 与更大规模验收 |
-| 下一轮 | Personal Assistant PA-GAP 产品化路线 | 已形成 `PA-GAP-001` ~ `PA-GAP-030` 需求表和 Phase A ~ G 计划；`PA-GAP-001` 产品级 Baseline Runner、`PA-GAP-002` 安装/onboarding/daemon、`PA-GAP-003` doctor / health / config dry-run、`PA-GAP-004` 真实 CLI/TUI 产品、`PA-GAP-005` 会话 UX 命令已完成，下一步实现 `PA-GAP-006` DM pairing / allowlist / home channel，并把 baseline 作为后续所有功能门禁 |
+| 下一轮 | Personal Assistant PA-GAP 产品化路线 | 已形成 `PA-GAP-001` ~ `PA-GAP-030` 需求表和 Phase A ~ G 计划；`PA-GAP-001` 产品级 Baseline Runner、`PA-GAP-002` 安装/onboarding/daemon、`PA-GAP-003` doctor / health / config dry-run、`PA-GAP-004` 真实 CLI/TUI 产品、`PA-GAP-005` 会话 UX 命令、`PA-GAP-006` DM pairing / allowlist / home channel 已完成，下一步实现 `PA-GAP-007` 模型选择、fallback、health check，并把 baseline 作为后续所有功能门禁 |
 
 ## 已实现核心能力
 

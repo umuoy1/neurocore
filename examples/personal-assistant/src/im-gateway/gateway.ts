@@ -5,6 +5,7 @@ import { normalizePersonalIngressMessage } from "./ingress.js";
 import type { ApprovalBindingStore } from "./approval/approval-binding-store.js";
 import type { IMAdapter } from "./adapter/im-adapter.js";
 import type { CommandHandler } from "./command/command-handler.js";
+import type { PairingManager } from "./conversation/pairing.js";
 import type { ConversationRouting } from "./conversation/conversation-router.js";
 import { extractMediaForRuntime, formatMediaPrompt, type PersonalMediaExtraction } from "./media/media-attachments.js";
 import type { NotificationDispatcher } from "./notification/notification-dispatcher.js";
@@ -34,6 +35,7 @@ export interface IMGatewayOptions {
   dispatcher: NotificationDispatcher;
   approvalBindingStore: ApprovalBindingStore;
   commandHandler?: CommandHandler;
+  pairingManager?: PairingManager;
   memoryStore?: PersonalMemoryStore;
   sessionSearchStore?: SessionSearchStore;
   resolveUserId?: (message: UnifiedMessage) => string;
@@ -97,6 +99,18 @@ export class IMGateway {
 
   private async handleMessage(rawMessage: UnifiedMessage): Promise<void> {
     const message = normalizePersonalIngressMessage(rawMessage);
+
+    if (this.options.pairingManager?.shouldBlock(message)) {
+      if (
+        this.options.commandHandler &&
+        this.options.pairingManager.isPairCommand(message) &&
+        await this.options.commandHandler.tryHandle(message)
+      ) {
+        return;
+      }
+      await this.options.pairingManager.sendPairingPrompt(this.options.dispatcher, message);
+      return;
+    }
 
     if (await this.handleActionMessage(message)) {
       return;

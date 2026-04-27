@@ -36,7 +36,7 @@
 | PA-GAP-003 | doctor / health / config dry-run | OpenClaw `doctor` 和运维诊断 | covered | P0 | 能发现危险 DM policy、缺失 token、端口冲突、SQLite 权限、provider 超时配置 |
 | PA-GAP-004 | 真实 CLI/TUI 产品 | Hermes TUI、多行输入、autocomplete、interrupt | covered | P0 | `neurocore assistant` 可交互聊天，支持 slash autocomplete、history、streaming status |
 | PA-GAP-005 | 会话 UX 命令 | OpenClaw/Hermes `/retry`、`/undo`、`/personality`、`/insights`、`/trace` | covered | P0 | WebChat/CLI/IM 语义一致，命令不误触模型，trace 可证明 |
-| PA-GAP-006 | DM pairing、allowlist、home channel | OpenClaw/Hermes DM pairing、安全默认 | partial | P0 | 未授权消息不进 runtime，`/pair` 后才绑定 canonical user，审计记录完整 |
+| PA-GAP-006 | DM pairing、allowlist、home channel | OpenClaw/Hermes DM pairing、安全默认 | covered | P0 | 未授权消息不进 runtime，`/pair` 后才绑定 canonical user，审计记录完整 |
 | PA-GAP-007 | 模型选择、fallback、health check | Hermes `hermes model`，OpenClaw model failover | partial | P0 | 可在会话中切换模型，provider 失败自动 fallback，所有切换可审计 |
 | PA-GAP-008 | 凭据保险箱 / secret 最小权限 | 个人助理应管理 OAuth/API key/MCP secret | missing | P0 | token 不进 artifact，不进默认沙箱，工具按作用域取临时凭据 |
 | PA-GAP-009 | 产品级文件工具 | OpenClaw workspace/files，Hermes terminal workflows | partial | P0 | read/write/edit/diff/rollback/approval 全链路通过真实 workspace 验收 |

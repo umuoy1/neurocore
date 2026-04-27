@@ -1030,3 +1030,36 @@
 |---|---|
 | Ledger | `PA-GAP-005` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
 | 下一项 | `PA-GAP-006` DM pairing, allowlist and home channel |
+
+### PA-GAP-006 completed
+
+交付：
+
+| 项 | 内容 |
+|---|---|
+| Pairing manager | 新增 `PairingManager`，支持 pairing code create/consume、未配对阻断、撤销和 home channel |
+| SQLite identity store | `SqlitePlatformUserLinkStore` 扩展 pairing codes、home channels、identity audit events |
+| Gateway block | `IMGateway` 在外部 DM 未配对时只允许 `/pair`，其他消息只返回 pairing prompt，不进入 runtime |
+| Commands | `CommandHandler` 新增 `/pair`、`/unpair`、`/sethome` |
+| Config | 个人助理配置新增 `identity.require_pairing*` 与 pairing code TTL |
+| Test | 新增 `tests/personal-assistant-pairing.test.mjs`，覆盖 block、pair、sethome、runtime entry、unpair、audit |
+
+验收：
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` | 通过 |
+| `node --test tests/personal-assistant-pairing.test.mjs` | 通过，1 项测试 |
+| `node --test tests/personal-assistant-telegram.test.mjs tests/personal-assistant-slack.test.mjs tests/personal-assistant-discord.test.mjs tests/personal-assistant-email-adapter.test.mjs` | 通过，12 项测试 |
+| `node --test tests/personal-assistant-e2e.test.mjs` | 通过，7 项测试 |
+| `node --test tests/personal-assistant-gateway.test.mjs` | 通过，8 项测试 |
+| `node --test tests/personal-assistant-cli-shell.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-onboarding.test.mjs` | 通过，2 项测试 |
+| `node --test tests/personal-assistant-baseline.test.mjs` | 通过，1 项测试 |
+
+状态：
+
+| 项 | 内容 |
+|---|---|
+| Ledger | `PA-GAP-006` 已通过 `pa:accept`，待本次提交持久化 completed 状态 |
+| 下一项 | `PA-GAP-007` Model selection, fallback and health check |

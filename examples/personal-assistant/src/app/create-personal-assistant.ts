@@ -12,6 +12,7 @@ import { WebChatAdapter } from "../im-gateway/adapter/web-chat.js";
 import { SqliteApprovalBindingStore } from "../im-gateway/approval/sqlite-approval-binding-store.js";
 import { CommandHandler } from "../im-gateway/command/command-handler.js";
 import { ConversationRouter } from "../im-gateway/conversation/conversation-router.js";
+import { PairingManager } from "../im-gateway/conversation/pairing.js";
 import { SqlitePlatformUserLinkStore } from "../im-gateway/conversation/sqlite-platform-user-link-store.js";
 import { SqliteSessionMappingStore } from "../im-gateway/conversation/sqlite-session-mapping-store.js";
 import { IMGateway } from "../im-gateway/gateway.js";
@@ -168,6 +169,13 @@ export async function startPersonalAssistantApp(
 
   const mappingStore = new SqliteSessionMappingStore({ filename: config.db_path });
   const userLinkStore = new SqlitePlatformUserLinkStore({ filename: config.db_path });
+  const pairingManager = new PairingManager({
+    store: userLinkStore,
+    requirePairingFor: config.identity?.require_pairing === false
+      ? []
+      : config.identity?.require_pairing_platforms,
+    codeTtlMs: config.identity?.pairing_code_ttl_ms
+  });
   const approvalBindingStore = new SqliteApprovalBindingStore({ filename: config.db_path });
   const resolveUserId = (message: { platform: IMPlatform; sender_id: string }) =>
     userLinkStore.resolveCanonicalUserId(message.platform, message.sender_id) ?? message.sender_id;
@@ -189,6 +197,7 @@ export async function startPersonalAssistantApp(
     dispatcher,
     memoryStore,
     skillRegistry,
+    pairingManager,
     resolveUserId,
     model: config.openai
       ? {
@@ -205,6 +214,7 @@ export async function startPersonalAssistantApp(
     dispatcher,
     approvalBindingStore,
     commandHandler,
+    pairingManager,
     memoryStore,
     sessionSearchStore,
     resolveUserId
